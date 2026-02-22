@@ -5,7 +5,6 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net.Http.Headers;
-using System.Text.RegularExpressions;
 
 namespace Katalogcu.API.Services;
 
@@ -31,148 +30,6 @@ public class CatalogProcessorService
         _env = env;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
-    }
-
-    private sealed class PageMeta
-    {
-        public int PageNumber { get; set; }
-        public string Title { get; set; } = string.Empty;
-        public bool IsTechnicalDrawing { get; set; }
-        public bool IsPartsList { get; set; }
-    }
-
-    private static string NormalizeTitle(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        var upper = value.ToUpperInvariant();
-        var cleaned = Regex.Replace(upper, @"[^A-Z0-9\s]+", " ");
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-        return cleaned;
-    }
-
-    private static HashSet<string> Tokenize(string normalized)
-    {
-        return normalized
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .ToHashSet();
-    }
-
-    private static int CountTokenOverlap(HashSet<string> a, HashSet<string> b)
-    {
-        int count = 0;
-        foreach (var token in a)
-        {
-            if (b.Contains(token)) count++;
-        }
-        return count;
-    }
-
-    private static int GetTitleMatchScore(string techNorm, string tableNorm, HashSet<string> techTokens, HashSet<string> tableTokens)
-    {
-        if (techNorm == tableNorm) return 3;
-        if (techNorm.Contains(tableNorm) || tableNorm.Contains(techNorm)) return 2;
-
-        var overlap = CountTokenOverlap(techTokens, tableTokens);
-        return overlap > 0 ? 1 : 0;
-    }
-
-    private PageMeta? FindBestTitleMatch(PageMeta tech, List<PageMeta> tablePages)
-    {
-        var techNorm = NormalizeTitle(tech.Title);
-        if (string.IsNullOrWhiteSpace(techNorm)) return null;
-
-        var techTokens = Tokenize(techNorm);
-
-        PageMeta? best = null;
-        int bestScore = 0;
-        int bestOverlap = 0;
-        int bestDistance = int.MaxValue;
-
-        foreach (var table in tablePages)
-        {
-            var tableNorm = NormalizeTitle(table.Title);
-            if (string.IsNullOrWhiteSpace(tableNorm)) continue;
-
-            var tableTokens = Tokenize(tableNorm);
-            var score = GetTitleMatchScore(techNorm, tableNorm, techTokens, tableTokens);
-            if (score == 0) continue;
-
-            var overlap = CountTokenOverlap(techTokens, tableTokens);
-            var distance = Math.Abs(table.PageNumber - tech.PageNumber);
-
-            if (score > bestScore ||
-                (score == bestScore && overlap > bestOverlap) ||
-                (score == bestScore && overlap == bestOverlap && distance < bestDistance))
-            {
-                best = table;
-                bestScore = score;
-                bestOverlap = overlap;
-                bestDistance = distance;
-            }
-        }
-
-        return best;
-    }
-
-    private Dictionary<int, int> BuildTechnicalToTableMap(List<PageMeta> pages)
-    {
-        var tablePages = pages.Where(p => p.IsPartsList).ToList();
-        var tablePageNumbers = tablePages.Select(p => p.PageNumber).ToHashSet();
-
-        var map = new Dictionary<int, int>();
-
-        foreach (var tech in pages.Where(p => p.IsTechnicalDrawing))
-        {
-            // 1) İlk sonraki sayfa tabloysa onu seç
-            var nextPage = tech.PageNumber + 1;
-            if (tablePageNumbers.Contains(nextPage))
-            {
-                map[tech.PageNumber] = nextPage;
-                continue;
-            }
-
-            // 2) Başlık (fuzzy) eşleşmesi
-            var bestTitleMatch = FindBestTitleMatch(tech, tablePages);
-            if (bestTitleMatch != null)
-            {
-                map[tech.PageNumber] = bestTitleMatch.PageNumber;
-                continue;
-            }
-
-            // 3) Aynı sayfa hem teknik hem tablo olabilir
-            if (tablePageNumbers.Contains(tech.PageNumber))
-            {
-                map[tech.PageNumber] = tech.PageNumber;
-            }
-        }
-
-        return map;
-    }
-
-    private async Task<Dictionary<int, List<string>>> BuildAllowedRefsMapAsync(
-        Guid catalogId,
-        Dictionary<int, int> techToTableMap)
-    {
-        var result = new Dictionary<int, List<string>>();
-
-        foreach (var pair in techToTableMap)
-        {
-            var techPage = pair.Key;
-            var tablePage = pair.Value;
-
-            var refs = await _context.CatalogItems
-                .Where(ci => ci.CatalogId == catalogId && ci.PageNumber == tablePage.ToString())
-                .Select(ci => ci.RefNumber)
-                .Distinct()
-                .ToListAsync();
-
-            if (refs.Any())
-            {
-                result[techPage] = refs;
-            }
-        }
-
-        return result;
     }
 
     public async Task ProcessCatalogAsync(Guid catalogId)
@@ -201,10 +58,6 @@ public class CatalogProcessorService
 
         var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
-
-        // ✅ Teknik resim sayfaları
-        var technicalPages = new List<int>();
-        var pageMetas = new List<PageMeta>();
 
         foreach (var page in pages)
         {
@@ -238,19 +91,6 @@ public class CatalogProcessorService
                 // ADIM 1: SAYFA ANALİZİ
                 var analysis = await _aiService.AnalyzePageAsync(fileBytes);
                 page.AiDescription = analysis.Title;
-
-                pageMetas.Add(new PageMeta
-                {
-                    PageNumber = page.PageNumber,
-                    Title = analysis.Title,
-                    IsTechnicalDrawing = analysis.IsTechnicalDrawing,
-                    IsPartsList = analysis.IsPartsList
-                });
-
-                if (analysis.IsTechnicalDrawing)
-                {
-                    technicalPages.Add(page.PageNumber);
-                }
 
                 // ADIM 2: TABLO VE VEKTÖR
                 if (analysis.IsPartsList)
@@ -328,20 +168,6 @@ public class CatalogProcessorService
 
         _logger.LogInformation($"🏁 Katalog İşlemi Tamamlandı: {catalog.Name}");
 
-        // ✅ Visual Ingest (Sadece teknik resim sayfaları ile)
-        try
-        {
-            var techToTableMap = BuildTechnicalToTableMap(pageMetas);
-            var allowedRefsMap = await BuildAllowedRefsMapAsync(catalogId, techToTableMap);
-
-            await TriggerVisualIngestAsync(client, catalogId, catalog.PdfUrl, technicalPages, allowedRefsMap);
-            _logger.LogInformation("✅ visual-ingest tetiklendi.");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning($"⚠️ visual-ingest tetiklenemedi: {ex.Message}");
-        }
-
         try
         {
             _logger.LogInformation("🚂 Python'a eğitim emri gönderiliyor...");
@@ -351,34 +177,6 @@ public class CatalogProcessorService
         catch (Exception ex)
         {
             _logger.LogWarning($"⚠️ Eğitim tetiklenemedi (Sorun değil, sonraki katalogda öğrenir): {ex.Message}");
-        }
-    }
-
-    private async Task TriggerVisualIngestAsync(
-        HttpClient client,
-        Guid catalogId,
-        string pdfUrl,
-        List<int> technicalPages,
-        Dictionary<int, List<string>> allowedRefsMap)
-    {
-        var pdfPath = GetFullPath(pdfUrl);
-        if (pdfPath == null)
-        {
-            _logger.LogWarning("⚠️ PDF dosyası bulunamadı, visual-ingest atlandı.");
-            return;
-        }
-
-        using var fs = File.OpenRead(pdfPath);
-        using var content = new MultipartFormDataContent();
-        content.Add(new StringContent(catalogId.ToString()), "catalog_id");
-        content.Add(new StringContent(JsonSerializer.Serialize(technicalPages)), "technical_pages");
-        content.Add(new StringContent(JsonSerializer.Serialize(allowedRefsMap)), "allowed_refs_map");
-        content.Add(new StreamContent(fs), "file", Path.GetFileName(pdfPath));
-
-        var response = await client.PostAsync($"{PYTHON_API_URL}/api/visual-ingest", content);
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning($"⚠️ visual-ingest hata: {await response.Content.ReadAsStringAsync()}");
         }
     }
 

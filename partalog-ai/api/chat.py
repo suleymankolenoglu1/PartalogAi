@@ -22,7 +22,7 @@ from config import settings
 
 # ✅ Gerekli Servisler (exact_match_search eklendi)
 from services.embedding import get_text_embedding 
-from services.vector_db import search_vector_db, exact_match_search
+from services.vector_db import search_vector_db, exact_match_search, search_visual_vector_db, update_visual_embedding_in_db
 
 router = APIRouter()
 
@@ -76,20 +76,29 @@ async def analyze_image_with_gemini(image_bytes: bytes, user_hint: str = "") -> 
         return {}
 
     prompt = f"""
-    You are a spare-parts visual analyst for industrial machines.
-    Analyze the uploaded part photo and return JSON ONLY:
+    Sen bir sanayi yedek parça görsel analiz uzmanısın.
+    Yüklenen makine parçası fotoğrafını analiz et ve SADECE JSON döndür:
     {{
-      "candidate_part_name": "string or null",
-      "detected_brand_text": "string or null",
-      "machine_type_hint": "string or null",
-      "questions_for_user": ["question1", "question2", "question3"],
+      "candidate_part_name": "Parçanın Türkçe adı (tahmin). Örn: 'İğne Barı', 'Baskı Ayağı', 'Vida'",
+      "detected_brand_text": "Görselde okunan marka/model yazısı. Örn: 'JUKI', 'TYPICAL', null",
+      "visible_codes": "Görselde görünen parça kodu, seri no veya barkod. Örn: 'B2424-354-000', null",
+      "machine_type_hint": "Makine türü tahmini. Örn: 'Overlok', 'Düz Dikiş', 'Reçme', null",
+      "part_category": "Geniş kategori tek kelime. Örn: 'vida', 'yay', 'iğne', 'plaka', 'mil', 'dişli', 'baskı_ayağı'",
+      "material_hint": "Malzeme tahmini. Örn: 'metal', 'plastik', 'kauçuk', null",
+      "shape_tags": ["şekil etiketleri listesi. Örn: 'silindirik', 'düz', 'L_şekli', 'flanşlı'"],
+      "visual_description": "Parçanın görsel özelliklerini açıklayan 1-2 cümle Türkçe. Renk, şekil, boyut ipuçları, bağlantı noktaları.",
+      "embedding_text": "PartName + category + material + shape + brand bilgilerini birleştiren kısa metin. Bu alan VisualEmbedding üretmek için kullanılacak. Örn: 'iğne barı overlok metal silindirik JUKI'",
+      "questions_for_user": ["Belirsizlik varsa kullanıcıya sorulacak max 3 Türkçe soru. Belirgin ise boş liste."],
       "confidence": 0.0
     }}
-    Rules:
-    - Read any visible text/brand from the image.
-    - If uncertain, keep confidence low.
-    - Ask practical follow-up questions to identify exact part.
-    User hint: {user_hint or "none"}
+
+    KURALLAR:
+    - Türkçe terminoloji kullan. 'needle bar' değil 'iğne barı' de.
+    - Görselde yazı/kod/barkod varsa kesinlikle oku, visible_codes alanına yaz.
+    - embedding_text alanını MUTLAKA doldur, asla null bırakma — bu alan veritabanında görsel arama için kritik.
+    - Emin değilsen confidence'ı düşür ve questions_for_user doldur.
+    - shape_tags her zaman liste olsun, boş olsa bile [].
+    - User hint: {user_hint or "yok"}
     """
 
     payload = {
@@ -271,6 +280,8 @@ async def chat_endpoint(
 
             img_part = image_analysis.get("candidate_part_name")
             img_brand = image_analysis.get("detected_brand_text")
+            img_code = image_analysis.get("visible_codes")  # YENİ
+
             if (not extracted_part) and img_part:
                 extracted_part = img_part
                 analysis["part_name"] = img_part
@@ -280,6 +291,12 @@ async def chat_endpoint(
             if (not extracted_brand) and img_brand:
                 extracted_brand = img_brand
                 analysis["brand"] = img_brand
+            if (not extracted_code) and img_code:  # YENİ
+                extracted_code = img_code
+                analysis["part_code"] = img_code
+                if intent == "CHAT":
+                    intent = "SEARCH"
+                    analysis["intent"] = "SEARCH"
 
         parts = analysis.get("parts")
         if not parts:
@@ -316,7 +333,49 @@ async def chat_endpoint(
 
         # ✅ Multi-part & Hybrid Search
         all_sources = []
-        
+
+        # --- YENİ: VISUAL SEARCH (VisualEmbedding dolu parçalarda önce ara) ---
+        visual_sources = []
+        if file is not None and image_analysis:
+            embedding_text_for_search = image_analysis.get("embedding_text")
+            if embedding_text_for_search:
+                visual_query_vector = get_text_embedding(embedding_text_for_search)
+                if visual_query_vector:
+                    visual_results = await search_visual_vector_db(
+                        query_vector=visual_query_vector,
+                        brand_filter=extracted_brand,
+                        limit=5,
+                        catalog_ids=catalog_ids_list,
+                        min_similarity=0.78,
+                    )
+                    for vr in visual_results:
+                        p_code_db = vr.get("PartCode", "-")
+                        p_name_db = vr.get("PartName", "Bilinmeyen")
+                        p_brand_db = vr.get("MachineBrand", "-")
+                        p_model_db = vr.get("MachineModel", "")
+                        p_desc_db = vr.get("Description", "")
+                        visual_img_url = vr.get("VisualImageUrl")
+                        safe_code = urllib.parse.quote(p_code_db.strip())
+                        buy_link = f"{SHOP_BASE_URL}{safe_code}"
+                        if not any(s["code"] == p_code_db for s in visual_sources):
+                            visual_sources.append({
+                                "code": p_code_db,
+                                "name": p_name_db,
+                                "brand": p_brand_db,
+                                "buy_url": buy_link,
+                                "machine_model": p_model_db,
+                                "description": p_desc_db,
+                                "query": embedding_text_for_search,
+                                "visual_match": True,
+                                "visual_image_url": visual_img_url,
+                                "visual_similarity": vr.get("visual_similarity"),
+                            })
+                    if visual_sources:
+                        logger.success(f"🖼️ Visual Search ile {len(visual_sources)} eşleşme bulundu!")
+
+        # Görsel eşleşmeler önce gelir
+        all_sources = list(visual_sources)
+
         # Eğer tek parça varsa ya da liste varsa hepsini dön (Hybrid Mantığı)
         for part in parts:
             p_code = part.get("part_code")
@@ -445,6 +504,7 @@ async def visual_feedback_endpoint(
         if not part_name and not part_code:
             return {"success": False, "message": "part_name veya part_code zorunlu."}
 
+        # 1. Dosyayı kaydet (mevcut davranış korunuyor)
         record = save_user_feedback_sample(
             file_bytes=image_bytes,
             original_filename=file.filename,
@@ -456,9 +516,42 @@ async def visual_feedback_endpoint(
             note=note,
         )
 
+        # 2. YENİ: Görsel analiz yap → embedding_text üret → VisualEmbedding DB'ye yaz
+        visual_embedding_saved = False
+        try:
+            # VLM analizi (embedding_text için)
+            vlm_result = await analyze_image_with_gemini(image_bytes, user_hint=part_name or "")
+            embedding_text = vlm_result.get("embedding_text")
+
+            # Fallback: embedding_text boşsa part_name + part_code ile oluştur
+            if not embedding_text:
+                parts_text = " ".join(filter(None, [part_name, part_code, machine_brand, machine_type]))
+                embedding_text = parts_text if parts_text else None
+
+            if embedding_text:
+                visual_vector = get_text_embedding(embedding_text)
+                if visual_vector and part_code:
+                    # VisualEmbedding'i DB'ye yaz
+                    saved = await update_visual_embedding_in_db(
+                        part_code=part_code,
+                        visual_vector=visual_vector,
+                        visual_image_url=record.get("image_url"),
+                        visual_shape_tags=vlm_result.get("shape_tags"),
+                        visual_ocr_text=vlm_result.get("visible_codes"),
+                    )
+                    visual_embedding_saved = saved
+                    if saved:
+                        logger.success(f"✅ VisualEmbedding güncellendi: {part_code}")
+                    else:
+                        logger.warning(f"⚠️ VisualEmbedding yazılamadı (part_code DB'de bulunamadı?): {part_code}")
+        except Exception as e:
+            logger.error(f"VisualEmbedding güncelleme hatası: {e}")
+            # Embedding hatası feedback kaydını engellemez
+
         return {
             "success": True,
             "message": "Kullanıcı geri bildirimi kaydedildi.",
+            "visual_embedding_saved": visual_embedding_saved,
             "record": record,
         }
     except Exception as e:
