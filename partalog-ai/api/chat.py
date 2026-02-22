@@ -8,12 +8,15 @@ Partalog AI - Chat API (Final v4.2 - Turkish Native Mode + Hybrid Search 🇹�
 """
 
 import aiohttp
+import asyncio
 import base64
+import io
 import json
 import os
 import re
 import urllib.parse
 import uuid
+from PIL import Image
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Form, File, UploadFile
@@ -74,6 +77,16 @@ def _parse_json_from_text(text: str) -> dict:
 async def analyze_image_with_gemini(image_bytes: bytes, user_hint: str = "") -> dict:
     if not image_bytes:
         return {}
+
+    # Resize to max 1024x1024 before sending (saves bandwidth & latency)
+    try:
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        image.thumbnail((1024, 1024))
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG", quality=85)
+        image_bytes = buffered.getvalue()
+    except Exception as e:
+        logger.warning(f"Image resize failed, using original bytes: {e}")
 
     prompt = f"""
     Sen bir sanayi yedek parça görsel analiz uzmanısın.
@@ -270,27 +283,34 @@ async def chat_endpoint(
         except Exception:
             catalog_ids_list = []
 
-        # 1. ANALİZ ET (Router)
+        # 1. ANALİZ ET (Router) — eğer dosya varsa her iki analizi paralel çalıştır
         try:
             history_list_for_intent = json.loads(history) if isinstance(history, str) else (history or [])
         except Exception:
             history_list_for_intent = []
 
-        analysis = await analyze_intent_with_gemini(user_query, history=history_list_for_intent)
-        
+        image_analysis = {}
+
+        if file is not None:
+            image_bytes = await file.read()
+            results = await asyncio.gather(
+                analyze_intent_with_gemini(user_query, history=history_list_for_intent),
+                analyze_image_with_gemini(image_bytes, user_query),
+                return_exceptions=True
+            )
+            analysis = results[0] if isinstance(results[0], dict) else {"intent": "SEARCH", "brand": None, "part_name": user_query, "machine_group": None}
+            image_analysis = results[1] if isinstance(results[1], dict) else {}
+            analysis["image_analysis"] = image_analysis
+        else:
+            analysis = await analyze_intent_with_gemini(user_query, history=history_list_for_intent)
+
         intent = analysis.get("intent", "CHAT")
         extracted_brand = analysis.get("brand")
         extracted_part = analysis.get("part_name")
         extracted_code = analysis.get("part_code")
         extracted_dim = analysis.get("dimensions")
-        
-        image_analysis = {}
 
         if file is not None:
-            image_bytes = await file.read()
-            image_analysis = await analyze_image_with_gemini(image_bytes, user_query)
-            analysis["image_analysis"] = image_analysis
-
             img_part = image_analysis.get("candidate_part_name")
             img_brand = image_analysis.get("detected_brand_text")
             img_code = image_analysis.get("visible_codes")  # YENİ

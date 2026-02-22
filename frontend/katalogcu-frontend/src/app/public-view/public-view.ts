@@ -158,7 +158,8 @@ export class PublicViewComponent implements OnInit {
       this.searchText, 
       this.selectedImage, 
       this.chatHistory, 
-      this.userId || undefined
+      this.userId || undefined,
+      this.visibleCatalogs.map(c => c.id)
     ).subscribe({
       next: (res: any) => { 
         this.aiState.isLoading = false;
