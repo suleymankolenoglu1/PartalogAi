@@ -1,11 +1,13 @@
-import requests
+import asyncio
+import httpx
 from loguru import logger
 from config import settings
 import os
 
-def get_text_embedding(text: str):
+async def get_text_embedding(text: str):
     """
     Verilen metni Google Gemini 'gemini-embedding-001' modelini kullanarak vektöre çevirir.
+    Async (httpx) kullanılır — FastAPI event loop'u bloklamaz.
     Veritabanı 3072 boyutuna güncellendiği için veri olduğu gibi (RAW) iletilir.
     """
     
@@ -26,14 +28,19 @@ def get_text_embedding(text: str):
     
     url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:embedContent?key={api_key}"
     
-    # 2. PAYLOAD (Parametre yok, sınırlama yok. Ne varsa gelsin.)
+    # 2. PAYLOAD
     payload = {
         "model": model_name,
         "content": {"parts": [{"text": text}]}
     }
     
     try:
-        response = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
         
         if response.status_code != 200:
             logger.error(f"Gemini Embedding API Hatası: {response.text}")
@@ -47,10 +54,8 @@ def get_text_embedding(text: str):
             return None
 
         # 3. KONTROL MEKANİZMASI (Sadece Loglama)
-        # Artık hata verip durdurmuyoruz. 3072 gelirse "Başım üstüne" diyoruz.
         vec_len = len(vector)
         
-        # Eğer çok küçük bir vektör gelirse (örn: hatalı bir durum) uyaralım ama yine de dönelim.
         if vec_len < 768:
              logger.warning(f"⚠️ Dikkat: Vektör boyutu beklenenden küçük geldi: {vec_len}")
         

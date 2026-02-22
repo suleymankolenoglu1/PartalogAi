@@ -21,6 +21,7 @@ from config import settings
 # --- 3. Servisler ---
 # services/embedding.py -> Senin sisteminde 3072 boyutlu vektör üretiyor.
 from services.embedding import get_text_embedding 
+from services.vector_db import init_db_pool, close_db_pool
 
 # --- 4. API Routerları (Uç Noktalar) ---
 # Buradaki api.chat modülü artık 'services.vector_db' kullanıyor (database hatası yok)
@@ -71,10 +72,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ EasyOCR Hatası: {e}")
     
     logger.info(f"📍 Servis Yayında: http://{settings.HOST}:{settings.PORT}")
+    
+    # C. DB Connection Pool Başlat
+    await init_db_pool()
+    
     yield
     # Kapanış
     logger.info("👋 Servis durduruluyor, modeller temizleniyor...")
     models.clear()
+    await close_db_pool()
 
 # --- 7. Uygulama Tanımı ---
 app = FastAPI(
@@ -123,7 +129,7 @@ async def generate_embedding_endpoint(req: EmbeddingRequest):
 
     try:
         # services/embedding.py içindeki fonksiyonu çağır
-        vector = get_text_embedding(req.text)
+        vector = await get_text_embedding(req.text)
         
         if not vector:
              raise HTTPException(status_code=500, detail="Vektör oluşturulamadı (Google API hatası).")
