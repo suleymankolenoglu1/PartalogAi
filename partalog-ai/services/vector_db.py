@@ -1,8 +1,9 @@
 """
-Partalog AI - Vector Database Service (Async/Pgvector/3072 + Exact Match)
+Partalog AI - Vector Database Service (Async/Pgvector/3072 + Exact Match + Connection Pool)
 ---------------------------------------------------------
 Görevi: C# tarafından oluşturulan 3072'lik vektörleri aramak ve 
 Parça Kodu (PartCode) ile birebir eşleşme (Hard-Boost) yapmak.
+v2: asyncpg.Pool ile bağlantı havuzu kullanılıyor.
 """
 
 import asyncpg
@@ -10,41 +11,94 @@ import json
 from loguru import logger
 from config import settings
 
-async def get_db_connection():
+# =============================================
+# 🏊 CONNECTION POOL (uygulama ömrünce yaşar)
+# =============================================
+_pool: asyncpg.Pool | None = None
+
+
+def _get_dsn() -> str | None:
+    dsn = getattr(settings, "DB_CONNECTION_STRING", None)
+    if not dsn:
+        dsn = getattr(settings, "DATABASE_URL", None)
+    return dsn
+
+
+async def init_db_pool():
     """
-    Asenkron veritabanı bağlantısı (asyncpg).
-    Config dosyasındaki farklı isimlendirmeleri (DB_CONNECTION_STRING veya DATABASE_URL) yönetir.
+    Uygulama startup'ında çağrılmalı (main.py lifespan).
+    Pool'u oluşturur.
     """
+    global _pool
+    dsn = _get_dsn()
+    if not dsn:
+        logger.critical("❌ HATA: Config dosyasında Veritabanı Bağlantı Linki bulunamadı!")
+        return
     try:
-        # 1. Önce senin muhtemel ayar ismini deneriz
-        dsn = getattr(settings, "DB_CONNECTION_STRING", None)
-        
-        # 2. Bulamazsa standart ismi deneriz
-        if not dsn:
-            dsn = getattr(settings, "DATABASE_URL", None)
-            
-        if not dsn:
-            logger.critical("❌ HATA: Config dosyasında Veritabanı Bağlantı Linki bulunamadı!")
-            return None
+        _pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
+        logger.success("✅ DB Connection Pool oluşturuldu.")
+    except Exception as e:
+        logger.error(f"❌ DB Pool Oluşturma Hatası: {e}")
 
-        # Bağlantıyı kur
-        return await asyncpg.connect(dsn)
 
+async def close_db_pool():
+    """
+    Uygulama shutdown'ında çağrılmalı (main.py lifespan).
+    """
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+        logger.info("🔌 DB Connection Pool kapatıldı.")
+
+
+async def _get_conn():
+    """
+    Pool varsa pool'dan, yoksa tek bağlantı açar (graceful fallback).
+    """
+    global _pool
+    if _pool:
+        return await _pool.acquire(), True   # (conn, from_pool)
+    # Pool henüz başlatılmadıysa tek bağlantı aç
+    dsn = _get_dsn()
+    if not dsn:
+        return None, False
+    try:
+        conn = await asyncpg.connect(dsn)
+        return conn, False
     except Exception as e:
         logger.error(f"❌ Veritabanı Bağlantı Hatası: {e}")
-        return None
+        return None, False
 
+
+async def _release_conn(conn, from_pool: bool):
+    """
+    Bağlantıyı pool'a iade eder veya kapatır.
+    """
+    global _pool
+    if conn is None:
+        return
+    try:
+        if from_pool and _pool:
+            await _pool.release(conn)
+        else:
+            await conn.close()
+    except Exception:
+        pass
+
+# =============================================
+# 🔍 EXACT MATCH
+# =============================================
 async def exact_match_search(part_code: str, brand_filter: str = None, catalog_ids: list = None, limit: int = 5):
     """
     Vektör (Semantic) arama YAPMADAN, parça koduna (PartCode) göre birebir/yakın eşleşme arar.
     Chatbot'ta kod belirtilmişse ilk olarak "Hard-Boost" için kullanılır.
     """
-    conn = await get_db_connection()
+    conn, from_pool = await _get_conn()
     if not conn:
         return []
 
     try:
-        # Puanı 1.0 (Tam eşleşme) olarak döndürüyoruz ki frontend veya chat formatı bozulmasın.
         sql = """
             SELECT 
                 "Id",
@@ -60,61 +114,47 @@ async def exact_match_search(part_code: str, brand_filter: str = None, catalog_i
             WHERE "PartCode" ILIKE $1
         """
         
-        # ILIKE kullanarak büyük/küçük harf duyarlılığını aşıyoruz.
-        # '%kod%' formatı, kodun içinde geçmesi durumunda da (örn: B2424 aranınca B2424-354) bulmasını sağlar.
         params = [f"%{part_code}%"] 
         param_idx = 2
 
-        # Kullanıcıya ait katalog filtresi
         if catalog_ids:
             sql += f" AND \"CatalogId\" = ANY(${param_idx})"
             params.append(catalog_ids)
             param_idx += 1
 
-        # Marka Filtresi
         if brand_filter:
             sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
             params.append(f"%{brand_filter}%")
             param_idx += 1
             
-        # Limit
         sql += f" LIMIT ${param_idx}"
         params.append(limit)
 
         results = await conn.fetch(sql, *params)
-        
-        # Dict listesine çevir
         return [dict(row) for row in results]
 
     except Exception as e:
         logger.error(f"❌ Exact Match Arama Hatası: {e}")
         return []
     finally:
-        if conn:
-            await conn.close()
+        await _release_conn(conn, from_pool)
 
 
+# =============================================
+# 🧠 VECTOR SEARCH (Semantic / Embedding)
+# =============================================
 async def search_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None):
     """
     Vektörel benzerlik (Semantic) araması yapar.
-    
-    Args:
-        query_vector (list): 3072 boyutlu float listesi.
-        brand_filter (str): Marka filtresi (Opsiyonel).
-        limit (int): Sonuç sayısı.
-        catalog_ids (list): Kullanıcıya ait katalog ID listesi (Opsiyonel).
     """
-    conn = await get_db_connection()
+    conn, from_pool = await _get_conn()
     if not conn:
         return []
 
     try:
-        # 1. Boyut Güvenlik Kontrolü (3072)
         if len(query_vector) != 3072:
             logger.warning(f"⚠️ Vektör boyutu 3072 değil! Gelen: {len(query_vector)}")
 
-        # 2. SQL Sorgusu (Cosine Similarity: <=>)
-        # asyncpg'de parametreler $1, $2 diye gider.
         sql = """
             SELECT 
                 "Id",
@@ -130,47 +170,41 @@ async def search_vector_db(query_vector: list, brand_filter: str = None, limit: 
             WHERE 1=1
         """
         
-        # pgvector için vektörü string formatında gönderiyoruz '[0.1, 0.2...]'
         params = [str(query_vector)]
         param_idx = 2
 
-        # ✅ Catalog filtresi (kullanıcıya ait kataloglar)
         if catalog_ids:
             sql += f" AND \"CatalogId\" = ANY(${param_idx})"
             params.append(catalog_ids)
             param_idx += 1
 
-        # 3. Marka Filtresi (Varsa)
         if brand_filter:
             sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
             params.append(f"%{brand_filter}%")
             param_idx += 1
             
-        # 4. Sıralama ve Limit
         sql += f" ORDER BY similarity DESC LIMIT ${param_idx}"
         params.append(limit)
 
-        # 5. Çalıştır
         results = await conn.fetch(sql, *params)
-        
-        # Sonuçları Dictionary listesine çevir
         return [dict(row) for row in results]
 
     except Exception as e:
         logger.error(f"❌ Vektör Arama Hatası: {e}")
         return []
     finally:
-        if conn:
-            await conn.close()
+        await _release_conn(conn, from_pool)
 
 
+# =============================================
+# 🖼️ VISUAL VECTOR SEARCH
+# =============================================
 async def search_visual_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, min_similarity: float = 0.75):
     """
     VisualEmbedding sütunu üzerinden görsel benzerlik araması yapar.
     Yalnızca VisualEmbedding dolu olan kayıtlarda arar.
-    Foto→foto eşleşmesi için kullanılır.
     """
-    conn = await get_db_connection()
+    conn, from_pool = await _get_conn()
     if not conn:
         return []
 
@@ -212,8 +246,6 @@ async def search_visual_vector_db(query_vector: list, brand_filter: str = None, 
 
         results = await conn.fetch(sql, *params)
         rows = [dict(row) for row in results]
-
-        # min_similarity filtresi
         rows = [r for r in rows if (r.get("visual_similarity") or 0) >= min_similarity]
         return rows
 
@@ -221,10 +253,12 @@ async def search_visual_vector_db(query_vector: list, brand_filter: str = None, 
         logger.error(f"❌ Visual Vektör Arama Hatası: {e}")
         return []
     finally:
-        if conn:
-            await conn.close()
+        await _release_conn(conn, from_pool)
 
 
+# =============================================
+# ✏️ VISUAL EMBEDDING GÜNCELLEME
+# =============================================
 async def update_visual_embedding_in_db(
     part_code: str,
     visual_vector: list,
@@ -235,9 +269,8 @@ async def update_visual_embedding_in_db(
     """
     Feedback onayında VisualEmbedding, VisualImageUrl, VisualShapeTags, VisualOcrText
     alanlarını DB'de günceller.
-    part_code ile eşleşen TÜM CatalogItem'ları günceller.
     """
-    conn = await get_db_connection()
+    conn, from_pool = await _get_conn()
     if not conn:
         return False
 
@@ -261,7 +294,6 @@ async def update_visual_embedding_in_db(
             f"%{part_code}%",
         )
 
-        # asyncpg "UPDATE N" string döndürür
         updated_count = int(result.split()[-1]) if result else 0
         logger.info(f"VisualEmbedding UPDATE: {updated_count} satır güncellendi (part_code={part_code})")
         return updated_count > 0
@@ -270,5 +302,4 @@ async def update_visual_embedding_in_db(
         logger.error(f"❌ VisualEmbedding DB Güncelleme Hatası: {e}")
         return False
     finally:
-        if conn:
-            await conn.close()
+        await _release_conn(conn, from_pool)

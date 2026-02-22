@@ -183,24 +183,31 @@ def save_user_feedback_sample(
 # =========================================================
 # 🕵️‍♂️ ROUTER: NİYET, KOD VE ÖLÇÜ ANALİZİ (GÜNCELLENDİ)
 # =========================================================
-async def analyze_intent_with_gemini(text: str) -> dict:
-    system_prompt = """
+async def analyze_intent_with_gemini(text: str, history: list = None) -> dict:
+    # Son 4 mesajı bağlam olarak al
+    context_block = ""
+    if history:
+        recent = history[-4:] if len(history) > 4 else history
+        lines = [f"{'Kullanıcı' if m.get('role')=='user' else 'Asistan'}: {m.get('text','').strip()}" for m in recent]
+        context_block = "\nSon mesajlar (bağlam için):\n" + "\n".join(lines) + "\n"
+
+    system_prompt = f"""
     GÖREV: Bir sanayi yedek parça asistanı olarak kullanıcı mesajını analiz et.
-    
+    {context_block}
     ÇIKTI FORMATI (JSON):
-    {
+    {{
         "intent": "SEARCH" | "CHAT" | "PRICE" | "STOCK" | "COMPATIBILITY" | "HELP" | "COMPARE",
         "brand": "Marka Varsa Buraya (TYPICAL, JUKI, YAMATO, PEGASUS, BROTHER...)",
         "part_name": "Aranan Parçanın SAF TÜRKÇE ADI (Sıfatları ve ölçüleri at, kök ismi bul)",
         "part_code": "Parça kodu BİREBİR geçiyorsa buraya (örn: B2424-354-000, 110-40056)",
         "dimensions": "Sorgudaki ölçü, metrik veya ebat bilgisi (örn: 5mm, 3/16, M3, 10x20)",
         "parts": [
-          {"part_name": "...", "part_code": null, "dimensions": null},
-          {"part_name": "...", "part_code": null, "dimensions": null}
+          {{"part_name": "...", "part_code": null, "dimensions": null}},
+          {{"part_name": "...", "part_code": null, "dimensions": null}}
         ],
         "machine_group": "Makine Grubu (Reçme, Overlok, Düz...)",
         "confidence": 0.0-1.0
-    }
+    }}
 
     KURALLAR:
     1. ASLA İngilizceye çevirme. Kullanıcı "Vida" dediyse "VİDA" al. "SCREW" DEME!
@@ -208,6 +215,7 @@ async def analyze_intent_with_gemini(text: str) -> dict:
     3. ÖLÇÜ NORMALİZASYONU: "5 mm", "5milimetre" gibi ifadeleri "dimensions" alanına "5mm" olarak temizle.
     4. KOD TESPİTİ: Harf/Rakam karışık spesifik bir şey yazıldıysa (örn: S08084-001) bunu kesinlikle "part_code" alanına al!
     5. Birden fazla parça varsa "parts" listesine hepsini koy.
+    6. BAĞLAM KULLANIMI: Kullanıcı "bunun", "bu parçanın", "onun fiyatı" gibi şeyler yazarsa, son mesajlardaki parçaya atıfta bulunduğunu anla ve o parçayı part_name/part_code'a koy.
     """
     payload = {
         "contents": [{"parts": [{"text": system_prompt + f"\n\nKULLANICI MESAJI: {text}"}]}],
@@ -263,7 +271,12 @@ async def chat_endpoint(
             catalog_ids_list = []
 
         # 1. ANALİZ ET (Router)
-        analysis = await analyze_intent_with_gemini(user_query)
+        try:
+            history_list_for_intent = json.loads(history) if isinstance(history, str) else (history or [])
+        except Exception:
+            history_list_for_intent = []
+
+        analysis = await analyze_intent_with_gemini(user_query, history=history_list_for_intent)
         
         intent = analysis.get("intent", "CHAT")
         extracted_brand = analysis.get("brand")
@@ -338,9 +351,13 @@ async def chat_endpoint(
         visual_sources = []
         if file is not None and image_analysis:
             embedding_text_for_search = image_analysis.get("embedding_text")
+            visible_codes_from_img = image_analysis.get("visible_codes")
+
             if embedding_text_for_search:
-                visual_query_vector = get_text_embedding(embedding_text_for_search)
+                visual_query_vector = await get_text_embedding(embedding_text_for_search)
+
                 if visual_query_vector:
+                    # ADIM 1: Yüksek eşikle VisualEmbedding araması
                     visual_results = await search_visual_vector_db(
                         query_vector=visual_query_vector,
                         brand_filter=extracted_brand,
@@ -348,6 +365,53 @@ async def chat_endpoint(
                         catalog_ids=catalog_ids_list,
                         min_similarity=0.78,
                     )
+                    logger.info(f"🖼️ Visual Search (≥0.78): {len(visual_results)} sonuç")
+
+                    # ADIM 2: Sonuç yoksa eşiği düşür
+                    if not visual_results:
+                        logger.info("🖼️ Visual Search fallback: eşik 0.60'a düşürülüyor...")
+                        visual_results = await search_visual_vector_db(
+                            query_vector=visual_query_vector,
+                            brand_filter=extracted_brand,
+                            limit=5,
+                            catalog_ids=catalog_ids_list,
+                            min_similarity=0.60,
+                        )
+                        logger.info(f"🖼️ Visual Search (≥0.60): {len(visual_results)} sonuç")
+
+                    # ADIM 3: Hâlâ yok ise normal Embedding araması yap
+                    if not visual_results:
+                        logger.info("🖼️ Visual Search tamamen başarısız. Normal Embedding aramasına fallback...")
+                        text_fallback_vector = await get_text_embedding(embedding_text_for_search)
+                        if text_fallback_vector:
+                            text_fallback_results = await search_vector_db(
+                                query_vector=text_fallback_vector,
+                                brand_filter=extracted_brand,
+                                limit=5,
+                                catalog_ids=catalog_ids_list,
+                            )
+                            for r in text_fallback_results:
+                                r["visual_similarity"] = r.get("similarity", 0)
+                                r["visual_match"] = False
+                            visual_results = text_fallback_results
+                            logger.info(f"📝 Text Embedding fallback: {len(visual_results)} sonuç")
+
+                    # ADIM 4: Görselde kod okunmuşsa exact match de dene
+                    if not visual_results and visible_codes_from_img:
+                        logger.info(f"🔍 Görseldeki kod ile exact match: {visible_codes_from_img}")
+                        code_results = await exact_match_search(
+                            visible_codes_from_img,
+                            brand_filter=extracted_brand,
+                            catalog_ids=catalog_ids_list,
+                            limit=5,
+                        )
+                        for r in code_results:
+                            r["visual_similarity"] = 1.0
+                            r["visual_match"] = True
+                        visual_results = code_results
+                        logger.info(f"🔍 Exact match (görselden kod): {len(visual_results)} sonuç")
+
+                    # visual_results'ı visual_sources'a ekle
                     for vr in visual_results:
                         p_code_db = vr.get("PartCode", "-")
                         p_name_db = vr.get("PartName", "Bilinmeyen")
@@ -366,12 +430,12 @@ async def chat_endpoint(
                                 "machine_model": p_model_db,
                                 "description": p_desc_db,
                                 "query": embedding_text_for_search,
-                                "visual_match": True,
+                                "visual_match": vr.get("visual_match", True),
                                 "visual_image_url": visual_img_url,
                                 "visual_similarity": vr.get("visual_similarity"),
                             })
                     if visual_sources:
-                        logger.success(f"🖼️ Visual Search ile {len(visual_sources)} eşleşme bulundu!")
+                        logger.success(f"🖼️ Visual Search toplam {len(visual_sources)} eşleşme bulundu!")
 
         # Görsel eşleşmeler önce gelir
         all_sources = list(visual_sources)
@@ -394,7 +458,7 @@ async def chat_endpoint(
                 logger.info(f"🧠 Kod yok veya bulunamadı. Vektör (Semantic) aranıyor: {p_name}")
                 # Vektör gücünü arttırmak için ölçüyü de ekle
                 search_query = f"{p_name} {p_dim}" if p_dim else p_name
-                query_vector = get_text_embedding(search_query)
+                query_vector = await get_text_embedding(search_query)
                 
                 if query_vector:
                     part_results = await search_vector_db(
@@ -441,21 +505,35 @@ async def chat_endpoint(
             
         context_text = "\n".join(context_lines)
 
+        # History'yi parse et
+        history_text = ""
+        try:
+            history_list = json.loads(history) if isinstance(history, str) else (history or [])
+            recent = history_list[-6:] if len(history_list) > 6 else history_list
+            lines = []
+            for msg in recent:
+                role_label = "Kullanıcı" if msg.get("role") == "user" else "Sen (Asistan)"
+                lines.append(f"{role_label}: {msg.get('text', '').strip()}")
+            history_text = "\n".join(lines)
+        except Exception:
+            history_text = ""
+
         # 5. FİNAL CEVAP
         final_prompt = f"""
-        Sen sanayi yedek parça uzmanısın (Partalog AI).
-        
-        KULLANICI SORUSU: "{user_query}"
-        
-        DEPODAN BULDUĞUN PARÇALAR:
-        {context_text}
-        
-        GÖREV:
-        1. Kullanıcıya bulduğun parçaları listele.
-        2. Marka, Model ve özellikle ölçü (varsa) uyumuna dikkat çek.
-        3. Samimi, kısa ve öz, usta ağzıyla konuş.
-        4. Link verme, zaten sistem gösterecek.
-        """
+Sen sanayi yedek parça uzmanısın (Partalog AI). Kısa, samimi, usta ağzıyla konuş.
+
+{"SOHBET GEÇMİŞİ (bağlam için kullan):" + chr(10) + history_text + chr(10) if history_text else ""}
+ŞİMDİKİ KULLANICI SORUSU: "{user_query}"
+
+DEPODAN BULDUĞUN PARÇALAR:
+{context_text}
+
+GÖREV:
+1. Bulduğun parçaları özetle. Marka, model, ölçü uyumuna dikkat çek.
+2. Sohbet geçmişindeki bağlamı kullan — kullanıcı "bu parçanın fiyatı ne?" derse hangi parçadan bahsettiğini geçmişten anla.
+3. Link verme, sistem zaten gösterecek.
+4. Maksimum 3-4 cümle yaz.
+"""
 
         async with aiohttp.ClientSession() as session:
             payload = {"contents": [{"parts": [{"text": final_prompt}]}]}
@@ -529,7 +607,7 @@ async def visual_feedback_endpoint(
                 embedding_text = parts_text if parts_text else None
 
             if embedding_text:
-                visual_vector = get_text_embedding(embedding_text)
+                visual_vector = await get_text_embedding(embedding_text)
                 if visual_vector and part_code:
                     # VisualEmbedding'i DB'ye yaz
                     saved = await update_visual_embedding_in_db(
