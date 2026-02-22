@@ -220,6 +220,30 @@
     background-color: #f0f7ff; border-left: 4px solid var(--accent-blue); padding-left: 11px;
 }
 
+/* Hotspot tıklamasından gelen highlight */
+.table-row.selected-from-hotspot {
+  background-color: #fffbe6;
+  border-left: 3px solid #f59e0b;
+  transition: background-color 0.3s ease;
+}
+
+/* Flash animasyonu (tıklanınca 1 kez yanıp söner) */
+@keyframes hotspot-flash-anim {
+  0%   { background-color: #fff3cd; }
+  50%  { background-color: #fde68a; }
+  100% { background-color: #fffbe6; }
+}
+
+.table-row.hotspot-flash {
+  animation: hotspot-flash-anim 0.6s ease;
+}
+
+/* Seçili parçanın satırı zaten highlight ise üstüne binmesin */
+.table-row.highlight.selected-from-hotspot {
+  background-color: #dbeafe;
+  border-left: 3px solid #3b82f6;
+}
+
 .cell-ref-circle {
     width: 32px; height: 32px; background: #e5e5ea; color: #333;
     border-radius: 50%; display: flex; align-items: center; justify-content: center;
@@ -247,6 +271,15 @@
 }
 .add-cart-btn:hover { background: var(--accent-blue); color: white; border-color: var(--accent-blue); }
 .add-cart-btn span { font-size: 18px; }
+
+/* Seçili parçanın sepet butonu daha belirgin */
+.add-cart-btn.add-cart-btn--active {
+  background-color: #0066CC;
+  color: white;
+  border-color: #0066CC;
+  transform: scale(1.1);
+  transition: all 0.2s ease;
+}
 
 .arrow-icon { color: #d1d1d6; font-size: 20px; }
 
