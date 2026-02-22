@@ -175,7 +175,10 @@ export class PublicViewComponent implements OnInit {
             model: part.model,
             price: part.price,
             stockStatus: part.stockStatus || 'Stokta Yok', 
-            imageUrl: part.imageUrl
+            imageUrl: part.imageUrl,
+            visualMatch: part.visualMatch ?? false,
+            visualImageUrl: part.visualImageUrl ?? null,
+            visualSimilarity: part.visualSimilarity ?? null,
           })),
           compareGroups: (res.compareGroups || []).map((group: any) => ({
             query: group.query,
@@ -189,7 +192,10 @@ export class PublicViewComponent implements OnInit {
               model: part.model,
               price: part.price,
               stockStatus: part.stockStatus || 'Stokta Yok', 
-              imageUrl: part.imageUrl
+              imageUrl: part.imageUrl,
+              visualMatch: part.visualMatch ?? false,
+              visualImageUrl: part.visualImageUrl ?? null,
+              visualSimilarity: part.visualSimilarity ?? null,
             }))
           })),
           debugInfo: res.debugInfo
