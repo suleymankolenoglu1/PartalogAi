@@ -179,25 +179,32 @@
                                                             <div class="text-xs font-bold text-[#0066CC]">{{ part.price | currency:'TRY':'symbol-narrow' }}</div>
                                                         }
                                                     </div>
-                                                    <div class="text-xs text-[#86868B]">{{ part.name }}</div>
+                                                    <div class="text-xs text-[#86868B]">
+                                                        {{ part.name }}
+                                                        @if(part.visualMatch) {
+                                                            <span class="visual-match-badge">🎯 Görsel Eşleşme</span>
+                                                        }
+                                                    </div>
                                                     <div class="text-[11px] text-[#86868B] mt-1">{{ part.stockStatus }}</div>
 
                                                     @if(selectedImage) {
-                                                        <div class="mt-2">
-                                                            <button
-                                                                (click)="savePartFeedback(part)"
-                                                                [disabled]="savingFeedbackCode === getPartFeedbackKey(part) || isFeedbackSaved(part)"
-                                                                class="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition-all whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
-                                                                [ngClass]="isFeedbackSaved(part) ? 'border-green-200 text-green-700 bg-green-50' : 'border-blue-500 text-blue-600 hover:bg-blue-600 hover:text-white'"
-                                                            >
-                                                                @if(isFeedbackSaved(part)) {
-                                                                    Kaydedildi
-                                                                } @else if(savingFeedbackCode === getPartFeedbackKey(part)) {
-                                                                    Kaydediliyor...
-                                                                } @else {
-                                                                    Bu Parça Doğru
-                                                                }
-                                                            </button>
+                                                        <div class="feedback-row">
+                                                            @if(isFeedbackSaved(part)) {
+                                                                <span class="feedback-saved">✅ Kaydedildi</span>
+                                                            } @else {
+                                                                <button
+                                                                    class="feedback-btn"
+                                                                    [class.saving]="savingFeedbackCode === getPartFeedbackKey(part)"
+                                                                    [disabled]="savingFeedbackCode === getPartFeedbackKey(part)"
+                                                                    (click)="savePartFeedback(part)"
+                                                                    title="Bu parçanın görselini eğitim verisi olarak kaydet">
+                                                                    @if(savingFeedbackCode === getPartFeedbackKey(part)) {
+                                                                        <span class="spinner-xs"></span>
+                                                                    } @else {
+                                                                        <span>👍 Bu benim parçam</span>
+                                                                    }
+                                                                </button>
+                                                            }
                                                         </div>
                                                     }
                                                 </div>
@@ -227,7 +234,12 @@
                                             }
                                         </div>
                                         
-                                        <div class="text-xs text-gray-500 truncate" title="{{part.name}}">{{ part.name }}</div>
+                                        <div class="text-xs text-gray-500 truncate" title="{{part.name}}">
+                                            {{ part.name }}
+                                            @if(part.visualMatch) {
+                                                <span class="visual-match-badge">🎯 Görsel Eşleşme</span>
+                                            }
+                                        </div>
                                         
                                         <div class="text-[10px] mt-1 font-medium flex items-center gap-1"
                                              [class.text-green-600]="part.stockStatus === 'Stokta Var'"
@@ -237,24 +249,28 @@
                                                   [class.bg-red-500]="part.stockStatus === 'Stokta Yok'"></span>
                                             {{ part.stockStatus }}
                                         </div>
-                                    </div>
 
-                                    @if(selectedImage) {
-                                        <button
-                                            (click)="savePartFeedback(part)"
-                                            [disabled]="savingFeedbackCode === getPartFeedbackKey(part) || isFeedbackSaved(part)"
-                                            class="text-xs font-bold px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
-                                            [ngClass]="isFeedbackSaved(part) ? 'border-green-200 text-green-700 bg-green-50' : 'border-blue-500 text-blue-600 hover:bg-blue-600 hover:text-white'"
-                                        >
-                                            @if(isFeedbackSaved(part)) {
-                                                Kaydedildi
-                                            } @else if(savingFeedbackCode === getPartFeedbackKey(part)) {
-                                                Kaydediliyor...
-                                            } @else {
-                                                Bu Parça Doğru
-                                            }
-                                        </button>
-                                    }
+                                        @if(selectedImage) {
+                                            <div class="feedback-row">
+                                                @if(isFeedbackSaved(part)) {
+                                                    <span class="feedback-saved">✅ Kaydedildi</span>
+                                                } @else {
+                                                    <button
+                                                        class="feedback-btn"
+                                                        [class.saving]="savingFeedbackCode === getPartFeedbackKey(part)"
+                                                        [disabled]="savingFeedbackCode === getPartFeedbackKey(part)"
+                                                        (click)="savePartFeedback(part)"
+                                                        title="Bu parçanın görselini eğitim verisi olarak kaydet">
+                                                        @if(savingFeedbackCode === getPartFeedbackKey(part)) {
+                                                            <span class="spinner-xs"></span>
+                                                        } @else {
+                                                            <span>👍 Bu benim parçam</span>
+                                                        }
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
                                     
                                     @if(part.catalogId) {
                                         <button (click)="openCatalog(part.catalogId)" 
