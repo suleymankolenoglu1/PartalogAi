@@ -162,3 +162,113 @@ async def search_vector_db(query_vector: list, brand_filter: str = None, limit: 
     finally:
         if conn:
             await conn.close()
+
+
+async def search_visual_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, min_similarity: float = 0.75):
+    """
+    VisualEmbedding sütunu üzerinden görsel benzerlik araması yapar.
+    Yalnızca VisualEmbedding dolu olan kayıtlarda arar.
+    Foto→foto eşleşmesi için kullanılır.
+    """
+    conn = await get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        if len(query_vector) != 3072:
+            logger.warning(f"⚠️ Visual vektör boyutu 3072 değil! Gelen: {len(query_vector)}")
+
+        sql = """
+            SELECT 
+                "Id",
+                "PartCode",
+                "PartName",
+                "MachineBrand",
+                "MachineModel",
+                "MachineGroup",
+                "Description",
+                "Dimensions",
+                "VisualImageUrl",
+                1 - ("VisualEmbedding" <=> $1) as visual_similarity
+            FROM "CatalogItems"
+            WHERE "VisualEmbedding" IS NOT NULL
+        """
+
+        params = [str(query_vector)]
+        param_idx = 2
+
+        if catalog_ids:
+            sql += f" AND \"CatalogId\" = ANY(${param_idx})"
+            params.append(catalog_ids)
+            param_idx += 1
+
+        if brand_filter:
+            sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
+            params.append(f"%{brand_filter}%")
+            param_idx += 1
+
+        sql += f" ORDER BY visual_similarity DESC LIMIT ${param_idx}"
+        params.append(limit)
+
+        results = await conn.fetch(sql, *params)
+        rows = [dict(row) for row in results]
+
+        # min_similarity filtresi
+        rows = [r for r in rows if (r.get("visual_similarity") or 0) >= min_similarity]
+        return rows
+
+    except Exception as e:
+        logger.error(f"❌ Visual Vektör Arama Hatası: {e}")
+        return []
+    finally:
+        if conn:
+            await conn.close()
+
+
+async def update_visual_embedding_in_db(
+    part_code: str,
+    visual_vector: list,
+    visual_image_url: str = None,
+    visual_shape_tags: list = None,
+    visual_ocr_text: str = None,
+) -> bool:
+    """
+    Feedback onayında VisualEmbedding, VisualImageUrl, VisualShapeTags, VisualOcrText
+    alanlarını DB'de günceller.
+    part_code ile eşleşen TÜM CatalogItem'ları günceller.
+    """
+    conn = await get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        shape_tags_json = json.dumps(visual_shape_tags, ensure_ascii=False) if visual_shape_tags else None
+
+        result = await conn.execute(
+            """
+            UPDATE "CatalogItems"
+            SET
+                "VisualEmbedding"  = $1,
+                "VisualImageUrl"   = COALESCE($2, "VisualImageUrl"),
+                "VisualShapeTags"  = COALESCE($3, "VisualShapeTags"),
+                "VisualOcrText"    = COALESCE($4, "VisualOcrText")
+            WHERE "PartCode" ILIKE $5
+            """,
+            str(visual_vector),
+            visual_image_url,
+            shape_tags_json,
+            visual_ocr_text,
+            f"%{part_code}%",
+        )
+
+        # asyncpg "UPDATE N" string döndürür
+        updated_count = int(result.split()[-1]) if result else 0
+        logger.info(f"VisualEmbedding UPDATE: {updated_count} satır güncellendi (part_code={part_code})")
+        return updated_count > 0
+
+    except Exception as e:
+        logger.error(f"❌ VisualEmbedding DB Güncelleme Hatası: {e}")
+        return False
+    finally:
+        if conn:
+            await conn.close()
