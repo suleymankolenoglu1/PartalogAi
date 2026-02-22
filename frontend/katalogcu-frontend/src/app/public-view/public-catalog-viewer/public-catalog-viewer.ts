@@ -211,21 +211,34 @@ export class PublicCatalogViewerComponent implements OnInit {
   // --- ETKİLEŞİM ---
   onHotspotClick(label: string) {
     this.selectedPartLabel = label;
-    // Listede bul ve seç
-    this.selectedItem = this.pageItems.find(p => p.refNo === label) || null;
-    
-    // HTML highlight güncelle
+
+    // refNo VEYA partCode ile eşleştir
+    this.selectedItem = this.pageItems.find(
+      p => p.refNo === label || p.partCode === label
+    ) || null;
+
     if (this.selectedItem && this.selectedItem.isStocked) {
-        this.selectedProductId = this.selectedItem.productId || null;
+      this.selectedProductId = this.selectedItem.productId || null;
     } else {
-        this.selectedProductId = null;
+      this.selectedProductId = null;
     }
-    
+
     if (this.selectedItem) {
-       setTimeout(() => {
+      // Arama filtresini temizle ki highlight görünsün
+      if (this.searchQuery) {
+        this.searchQuery = '';
+        this.filteredItems = [...this.pageItems];
+      }
+
+      setTimeout(() => {
         const row = document.getElementById('row-' + this.selectedItem?.catalogItemId);
-        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-       }, 100);
+        if (row) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Kısa bir "flash" efekti için geçici class ekle
+          row.classList.add('hotspot-flash');
+          setTimeout(() => row.classList.remove('hotspot-flash'), 1200);
+        }
+      }, 50);
     }
   }
 
