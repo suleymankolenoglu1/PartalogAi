@@ -258,7 +258,10 @@ namespace Katalogcu.API.Controllers
                 .Select(c => new { c.Id, c.Name, c.Status, PartCount = _context.Products.Count(p => p.CatalogId == c.Id), c.CreatedDate })
                 .ToListAsync();
 
-            return Ok(new { TotalCatalogs = totalCatalogs, TotalParts = totalParts, TotalViews = 15240, PendingCount = pendingCount, RecentCatalogs = recentCatalogs });
+            var visualEmbeddingCount = await _context.CatalogItems
+                .CountAsync(ci => ci.Catalog.UserId == userId && ci.VisualEmbedding != null);
+
+            return Ok(new { TotalCatalogs = totalCatalogs, TotalParts = totalParts, TotalViews = 15240, PendingCount = pendingCount, RecentCatalogs = recentCatalogs, VisualEmbeddingCount = visualEmbeddingCount });
         }
 
         [HttpGet]
