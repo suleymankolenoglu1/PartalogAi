@@ -21,6 +21,9 @@ public interface IPartalogAiService
     // 4. EXPERT CHAT (Yedek Parça Asistanı)
     Task<AiChatResponseDto> GetExpertChatResponseAsync(AiChatRequestDto request);
 
+    // 4.1 Kullanıcı görsel geri bildirimi kaydet
+    Task<VisualFeedbackResponseDto> SaveVisualFeedbackAsync(VisualFeedbackRequestDto request);
+
     // 5. EĞİTİM TETİKLEYİCİ (Admin)
     Task TriggerTrainingAsync();
 
@@ -182,6 +185,65 @@ public class PartalogAiService : IPartalogAiService
         {
             _logger.LogError(ex, "Chat servisi hatası.");
             return new AiChatResponseDto { Answer = "Sistem hatası oluştu." };
+        }
+    }
+
+    // --- 4.1 Görsel Geri Bildirim Kaydı ---
+    public async Task<VisualFeedbackResponseDto> SaveVisualFeedbackAsync(VisualFeedbackRequestDto request)
+    {
+        try
+        {
+            if (request.Image == null)
+            {
+                return new VisualFeedbackResponseDto
+                {
+                    Success = false,
+                    Message = "Görsel dosyası zorunlu."
+                };
+            }
+
+            using var content = new MultipartFormDataContent();
+
+            content.Add(new StringContent(request.PartName ?? string.Empty), "part_name");
+            content.Add(new StringContent(request.PartCode ?? string.Empty), "part_code");
+            content.Add(new StringContent(request.MachineBrand ?? string.Empty), "machine_brand");
+            content.Add(new StringContent(request.MachineType ?? string.Empty), "machine_type");
+            content.Add(new StringContent(request.UserId ?? string.Empty), "user_id");
+            content.Add(new StringContent(request.Note ?? string.Empty), "note");
+
+            var fileStream = request.Image.OpenReadStream();
+            var fileContent = new StreamContent(fileStream);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(request.Image.ContentType ?? "image/jpeg");
+            content.Add(fileContent, "file", request.Image.FileName);
+
+            var response = await _httpClient.PostAsync("/api/chat/visual-feedback", content);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Visual feedback API Hatası ({StatusCode}): {Body}", response.StatusCode, responseBody);
+                return new VisualFeedbackResponseDto
+                {
+                    Success = false,
+                    Message = "Visual feedback servisi hatası."
+                };
+            }
+
+            var result = JsonSerializer.Deserialize<VisualFeedbackResponseDto>(responseBody, _jsonOptions);
+            return result ?? new VisualFeedbackResponseDto
+            {
+                Success = false,
+                Message = "Visual feedback cevabı anlaşılamadı."
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Visual feedback kaydetme hatası.");
+            return new VisualFeedbackResponseDto
+            {
+                Success = false,
+                Message = "Sistem hatası oluştu."
+            };
         }
     }
 
@@ -364,4 +426,27 @@ public class ProductItemDto
     [JsonPropertyName("description")] public string? Description { get; set; }
     [JsonPropertyName("quantity")] public int Quantity { get; set; }
     [JsonPropertyName("dimensions")] public string? Dimensions { get; set; }
+}
+
+public class VisualFeedbackRequestDto
+{
+    public IFormFile? Image { get; set; }
+    public string? PartName { get; set; }
+    public string? PartCode { get; set; }
+    public string? MachineBrand { get; set; }
+    public string? MachineType { get; set; }
+    public string? UserId { get; set; }
+    public string? Note { get; set; }
+}
+
+public class VisualFeedbackResponseDto
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    [JsonPropertyName("record")]
+    public object? Record { get; set; }
 }

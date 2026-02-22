@@ -376,6 +376,47 @@ namespace Katalogcu.API.Controllers
             }
         }
 
+        [HttpPost("visual-feedback")]
+        public async Task<IActionResult> SaveVisualFeedback([FromForm] VisualFeedbackRequestDto request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (userId == Guid.Empty && !string.IsNullOrWhiteSpace(request.UserId))
+                {
+                    Guid.TryParse(request.UserId, out userId);
+                }
+
+                if (request.Image == null)
+                {
+                    return BadRequest(new { success = false, message = "Fotoğraf zorunlu." });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.PartName) && string.IsNullOrWhiteSpace(request.PartCode))
+                {
+                    return BadRequest(new { success = false, message = "partName veya partCode zorunlu." });
+                }
+
+                if (userId != Guid.Empty)
+                {
+                    request.UserId = userId.ToString();
+                }
+
+                var result = await _aiService.SaveVisualFeedbackAsync(request);
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Visual feedback kaydetme hatası.");
+                return StatusCode(500, new { success = false, message = "Sistem hatası oluştu." });
+            }
+        }
+
         // --- YARDIMCI METODLAR ---
 
         private static List<string> ExtractPartsFromDebugIntent(JsonElement intentElement)

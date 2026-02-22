@@ -121,6 +121,44 @@
                         {{ aiState.response.replySuggestion }}
                     </div>
 
+                    @if(
+                        selectedImage &&
+                        (
+                            (aiState.response.products && aiState.response.products.length > 0) ||
+                            (aiState.response.compareGroups && aiState.response.compareGroups.length > 0)
+                        )
+                    ) {
+                        <div class="mb-4 p-3 rounded-xl bg-[#F5F5F7] border border-[#E5E5EA]">
+                            <div class="text-xs font-semibold text-[#1D1D1F] mb-2">Parçayı doğrulayıp veri setine kaydet</div>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <input
+                                    [(ngModel)]="feedbackMachineBrand"
+                                    type="text"
+                                    placeholder="Marka (örn: JUKI)"
+                                    class="h-9 px-3 rounded-lg border border-[#D2D2D7] bg-white text-xs outline-none focus:border-[#0066CC]"
+                                />
+                                <input
+                                    [(ngModel)]="feedbackMachineType"
+                                    type="text"
+                                    placeholder="Makine türü/model"
+                                    class="h-9 px-3 rounded-lg border border-[#D2D2D7] bg-white text-xs outline-none focus:border-[#0066CC]"
+                                />
+                                <input
+                                    [(ngModel)]="feedbackNote"
+                                    type="text"
+                                    placeholder="Not (opsiyonel)"
+                                    class="h-9 px-3 rounded-lg border border-[#D2D2D7] bg-white text-xs outline-none focus:border-[#0066CC]"
+                                />
+                            </div>
+                            @if(feedbackMessage) {
+                                <div class="text-xs text-green-700 mt-2">{{ feedbackMessage }}</div>
+                            }
+                            @if(feedbackError) {
+                                <div class="text-xs text-red-600 mt-2">{{ feedbackError }}</div>
+                            }
+                        </div>
+                    }
+
                     @if(aiState.response.compareGroups && aiState.response.compareGroups.length > 0) {
                         <div class="mt-6 border-t border-gray-100 pt-4">
                             <div class="grid gap-4"
@@ -143,6 +181,25 @@
                                                     </div>
                                                     <div class="text-xs text-[#86868B]">{{ part.name }}</div>
                                                     <div class="text-[11px] text-[#86868B] mt-1">{{ part.stockStatus }}</div>
+
+                                                    @if(selectedImage) {
+                                                        <div class="mt-2">
+                                                            <button
+                                                                (click)="savePartFeedback(part)"
+                                                                [disabled]="savingFeedbackCode === getPartFeedbackKey(part) || isFeedbackSaved(part)"
+                                                                class="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition-all whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                [ngClass]="isFeedbackSaved(part) ? 'border-green-200 text-green-700 bg-green-50' : 'border-blue-500 text-blue-600 hover:bg-blue-600 hover:text-white'"
+                                                            >
+                                                                @if(isFeedbackSaved(part)) {
+                                                                    Kaydedildi
+                                                                } @else if(savingFeedbackCode === getPartFeedbackKey(part)) {
+                                                                    Kaydediliyor...
+                                                                } @else {
+                                                                    Bu Parça Doğru
+                                                                }
+                                                            </button>
+                                                        </div>
+                                                    }
                                                 </div>
                                             }
                                             @if(!group.results || group.results.length === 0) {
@@ -181,6 +238,23 @@
                                             {{ part.stockStatus }}
                                         </div>
                                     </div>
+
+                                    @if(selectedImage) {
+                                        <button
+                                            (click)="savePartFeedback(part)"
+                                            [disabled]="savingFeedbackCode === getPartFeedbackKey(part) || isFeedbackSaved(part)"
+                                            class="text-xs font-bold px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
+                                            [ngClass]="isFeedbackSaved(part) ? 'border-green-200 text-green-700 bg-green-50' : 'border-blue-500 text-blue-600 hover:bg-blue-600 hover:text-white'"
+                                        >
+                                            @if(isFeedbackSaved(part)) {
+                                                Kaydedildi
+                                            } @else if(savingFeedbackCode === getPartFeedbackKey(part)) {
+                                                Kaydediliyor...
+                                            } @else {
+                                                Bu Parça Doğru
+                                            }
+                                        </button>
+                                    }
                                     
                                     @if(part.catalogId) {
                                         <button (click)="openCatalog(part.catalogId)" 

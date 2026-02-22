@@ -53,6 +53,13 @@ export class PublicViewComponent implements OnInit {
 
   selectedImage: File | null = null;
   selectedImagePreview: string | null = null;
+  feedbackMachineBrand = '';
+  feedbackMachineType = '';
+  feedbackNote = '';
+  feedbackMessage: string | null = null;
+  feedbackError: string | null = null;
+  savingFeedbackCode: string | null = null;
+  savedFeedbackKeys = new Set<string>();
 
   // --- Müşteri Form Modeli ---
   customerForm = { name: '', phone: '', email: '', note: '' };
@@ -116,6 +123,13 @@ export class PublicViewComponent implements OnInit {
   clearImage() {
     this.selectedImage = null;
     this.selectedImagePreview = null;
+    this.feedbackMachineBrand = '';
+    this.feedbackMachineType = '';
+    this.feedbackNote = '';
+    this.feedbackMessage = null;
+    this.feedbackError = null;
+    this.savingFeedbackCode = null;
+    this.savedFeedbackKeys.clear();
     if (!this.searchText) {
         this.aiState.isActive = false;
         this.aiState.response = null; // Ekranı temizle
@@ -158,6 +172,7 @@ export class PublicViewComponent implements OnInit {
             description: part.description, 
             catalogId: part.catalogId, 
             pageNumber: part.pageNumber || '1',
+            model: part.model,
             price: part.price,
             stockStatus: part.stockStatus || 'Stokta Yok', 
             imageUrl: part.imageUrl
@@ -171,6 +186,7 @@ export class PublicViewComponent implements OnInit {
               description: part.description, 
               catalogId: part.catalogId, 
               pageNumber: part.pageNumber || '1',
+              model: part.model,
               price: part.price,
               stockStatus: part.stockStatus || 'Stokta Yok', 
               imageUrl: part.imageUrl
@@ -180,6 +196,8 @@ export class PublicViewComponent implements OnInit {
         };
 
         this.chatHistory.push({ role: 'assistant', text: res.replySuggestion });
+        this.feedbackMessage = null;
+        this.feedbackError = null;
       },
       error: (err) => {
         this.aiState.isLoading = false;
@@ -221,5 +239,54 @@ export class PublicViewComponent implements OnInit {
 
   openCatalog(catalogId: string) {
     this.router.navigate(['/view', catalogId]); 
+  }
+
+  getPartFeedbackKey(part: any): string {
+    return `${part?.code || ''}_${part?.id || ''}`;
+  }
+
+  isFeedbackSaved(part: any): boolean {
+    return this.savedFeedbackKeys.has(this.getPartFeedbackKey(part));
+  }
+
+  savePartFeedback(part: any) {
+    if (!this.selectedImage) {
+      this.feedbackError = 'Önce parça fotoğrafı yükleyin.';
+      this.feedbackMessage = null;
+      return;
+    }
+
+    const feedbackKey = this.getPartFeedbackKey(part);
+    this.savingFeedbackCode = feedbackKey;
+    this.feedbackMessage = null;
+    this.feedbackError = null;
+
+    this.aiService.saveVisualFeedback({
+      image: this.selectedImage,
+      partName: part?.name,
+      partCode: part?.code,
+      machineBrand: this.feedbackMachineBrand || undefined,
+      machineType: this.feedbackMachineType || part?.model || undefined,
+      userId: this.userId || undefined,
+      note: this.feedbackNote || this.searchText || undefined
+    }).subscribe({
+      next: (res) => {
+        this.savingFeedbackCode = null;
+        if (res?.success) {
+          this.savedFeedbackKeys.add(feedbackKey);
+          this.feedbackMessage = `${part?.code || part?.name || 'Parça'} için görsel doğrulama kaydedildi.`;
+          this.feedbackError = null;
+        } else {
+          this.feedbackError = res?.message || 'Görsel geri bildirim kaydedilemedi.';
+          this.feedbackMessage = null;
+        }
+      },
+      error: (err) => {
+        console.error('Visual feedback error:', err);
+        this.savingFeedbackCode = null;
+        this.feedbackError = 'Görsel geri bildirim kaydedilirken hata oluştu.';
+        this.feedbackMessage = null;
+      }
+    });
   }
 }

@@ -10,6 +10,7 @@ import json
 import io
 import asyncio
 import fitz  # ✅ PDF render
+import re
 from PIL import Image
 from fastapi import APIRouter, UploadFile, File, Query
 from pydantic import BaseModel, Field
@@ -49,6 +50,36 @@ class MetadataResponse(BaseModel):
     machine_brand: Optional[str] = None
     machine_group: str = "General"
     catalog_title: str
+
+
+_FASTENER_KEYWORDS = (
+    "VİDA",
+    "SOMUN",
+    "PUL",
+    "CİVATA",
+    "CIVATA",
+)
+
+
+def _extract_dimensions_from_name(name: str) -> Optional[str]:
+    if not name:
+        return None
+
+    tokens = re.split(r"\s+", name)
+    candidates = []
+    for token in tokens:
+        t = token.strip(" ,;:()[]{}")
+        if not t:
+            continue
+        if not re.search(r"\d", t):
+            continue
+        if re.search(r"[xX/\\-]", t) or re.match(r"(?i)^M\d", t) or re.search(r"(?i)\d\s*(mm|cm|in|inch|\"|')", t):
+            candidates.append(t)
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=len)
 
 # --- Endpoints ---
 
@@ -174,13 +205,17 @@ async def extract_table(
        - "Washer" -> "PUL"
        - "Crank Shaft" -> "KRANK"
 
+    6. **FASTENER SIZES ARE CRITICAL:**
+       - If the part name includes size/spec like M3, M3x5, M3-0.5x5, 3/16, 5mm, etc. KEEP IT.
+       - Example: "Screw M3-0.5x5" -> "VİDA M3-0.5x5" (do not drop the size).
+
     OUTPUT RULES:
     1. **FORMAT:** JSON List only.
     2. **FIELDS:**
        - "ref_no": Reference number.
        - "part_code": Exact part code (Remove spaces, fix OCR errors).
        - "part_name": **THE TRANSLATED TURKISH NAME** (Uppercase).
-       - "dimensions": Extract measurements (M4x10, 3/16, 5mm) to this field.
+       - "dimensions": Extract measurements (M4x10, M3-0.5x5, 3/16, 5mm) to this field.
        - "qty": Quantity.
 
     RETURN JSON LIST ONLY. NO MARKDOWN.
@@ -223,10 +258,21 @@ async def extract_table(
                                 if not raw_name:
                                     raw_name = p_code
 
+                                raw_name_upper = raw_name.upper()
+
+                                if not dims:
+                                    name_dims = _extract_dimensions_from_name(raw_name_upper)
+                                    if name_dims:
+                                        dims = name_dims
+
+                                if dims and any(k in raw_name_upper for k in _FASTENER_KEYWORDS):
+                                    if dims.upper() not in raw_name_upper:
+                                        raw_name_upper = f"{raw_name_upper} {dims.upper()}".strip()
+
                                 products.append(ProductResult(
                                     ref_number=str(item.get("ref_no") or "0"),
                                     part_code=p_code,
-                                    part_name=raw_name.upper(),
+                                    part_name=raw_name_upper,
                                     description=str(item.get("remarks") or "").strip(),
                                     quantity=1,
                                     dimensions=dims

@@ -1,7 +1,8 @@
 """
-Partalog AI - Vector Database Service (Async/Pgvector/3072)
+Partalog AI - Vector Database Service (Async/Pgvector/3072 + Exact Match)
 ---------------------------------------------------------
-Görevi: C# tarafından oluşturulan 3072'lik vektörleri okumak ve aramak.
+Görevi: C# tarafından oluşturulan 3072'lik vektörleri aramak ve 
+Parça Kodu (PartCode) ile birebir eşleşme (Hard-Boost) yapmak.
 """
 
 import asyncpg
@@ -33,9 +34,69 @@ async def get_db_connection():
         logger.error(f"❌ Veritabanı Bağlantı Hatası: {e}")
         return None
 
+async def exact_match_search(part_code: str, brand_filter: str = None, catalog_ids: list = None, limit: int = 5):
+    """
+    Vektör (Semantic) arama YAPMADAN, parça koduna (PartCode) göre birebir/yakın eşleşme arar.
+    Chatbot'ta kod belirtilmişse ilk olarak "Hard-Boost" için kullanılır.
+    """
+    conn = await get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        # Puanı 1.0 (Tam eşleşme) olarak döndürüyoruz ki frontend veya chat formatı bozulmasın.
+        sql = """
+            SELECT 
+                "Id",
+                "PartCode",
+                "PartName",
+                "MachineBrand",
+                "MachineModel", 
+                "MachineGroup",
+                "Description",
+                "Dimensions",
+                1.0 as similarity 
+            FROM "CatalogItems"
+            WHERE "PartCode" ILIKE $1
+        """
+        
+        # ILIKE kullanarak büyük/küçük harf duyarlılığını aşıyoruz.
+        # '%kod%' formatı, kodun içinde geçmesi durumunda da (örn: B2424 aranınca B2424-354) bulmasını sağlar.
+        params = [f"%{part_code}%"] 
+        param_idx = 2
+
+        # Kullanıcıya ait katalog filtresi
+        if catalog_ids:
+            sql += f" AND \"CatalogId\" = ANY(${param_idx})"
+            params.append(catalog_ids)
+            param_idx += 1
+
+        # Marka Filtresi
+        if brand_filter:
+            sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
+            params.append(f"%{brand_filter}%")
+            param_idx += 1
+            
+        # Limit
+        sql += f" LIMIT ${param_idx}"
+        params.append(limit)
+
+        results = await conn.fetch(sql, *params)
+        
+        # Dict listesine çevir
+        return [dict(row) for row in results]
+
+    except Exception as e:
+        logger.error(f"❌ Exact Match Arama Hatası: {e}")
+        return []
+    finally:
+        if conn:
+            await conn.close()
+
+
 async def search_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None):
     """
-    Vektörel benzerlik araması yapar.
+    Vektörel benzerlik (Semantic) araması yapar.
     
     Args:
         query_vector (list): 3072 boyutlu float listesi.

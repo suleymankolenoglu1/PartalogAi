@@ -11,12 +11,29 @@ export interface AiChatResponse {
   debugInfo?: string;      // Varsa debug bilgisi (hangi tool kullanıldı vs.)
 }
 
+export interface VisualFeedbackRequest {
+  image: File;
+  partName?: string;
+  partCode?: string;
+  machineBrand?: string;
+  machineType?: string;
+  userId?: string;
+  note?: string;
+}
+
+export interface VisualFeedbackResponse {
+  success: boolean;
+  message?: string;
+  record?: any;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class AiService {
   private http = inject(HttpClient);
   private apiUrl = `${environment.apiUrl}/chat/ask`;
+  private feedbackUrl = `${environment.apiUrl}/chat/visual-feedback`;
 
   /**
    * AI'ya mesaj, resim ve sohbet geçmişini gönderir.
@@ -42,5 +59,19 @@ export class AiService {
     if (userId) formData.append('userId', userId);
 
     return this.http.post<AiChatResponse>(this.apiUrl, formData);
+  }
+
+  saveVisualFeedback(payload: VisualFeedbackRequest): Observable<VisualFeedbackResponse> {
+    const formData = new FormData();
+    formData.append('image', payload.image);
+
+    if (payload.partName) formData.append('partName', payload.partName);
+    if (payload.partCode) formData.append('partCode', payload.partCode);
+    if (payload.machineBrand) formData.append('machineBrand', payload.machineBrand);
+    if (payload.machineType) formData.append('machineType', payload.machineType);
+    if (payload.userId) formData.append('userId', payload.userId);
+    if (payload.note) formData.append('note', payload.note);
+
+    return this.http.post<VisualFeedbackResponse>(this.feedbackUrl, formData);
   }
 }
