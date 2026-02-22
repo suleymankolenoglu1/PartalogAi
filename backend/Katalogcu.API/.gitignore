@@ -17,6 +17,9 @@ obj/
 
 backend/Katalogcu.API/wwwroot/uploads/
 
+**/wwwroot/uploads/
+**/wwwroot/wwwroot/uploads/
+
 # --- FRONTEND KALINTILARI (Eğer backend içinde frontend varsa) ---
 node_modules/
 dist/
