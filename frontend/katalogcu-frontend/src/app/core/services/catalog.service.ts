@@ -10,6 +10,7 @@ export interface DashboardStats {
   totalParts: number;
   totalViews: number;
   pendingCount: number;
+  visualEmbeddingCount?: number;  // YENİ: Visual Embedding'li parça sayısı
   recentCatalogs: DashboardCatalogItem[];
 }
 

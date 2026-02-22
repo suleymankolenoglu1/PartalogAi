@@ -1,37 +1,46 @@
 """
-Partalog AI - TEST SEARCH (Filtreli Arama)
-Görevi: Yapay zekanın "İğne" getirmesini engelleyip sadece "Vida" getirmesini sağlamak.
+Partalog AI - TEST SEARCH (Hybrid Search Test)
+Görevi: exact_match_search ve search_vector_db fonksiyonlarını test eder.
 """
 
 import asyncio
-from services.vector_db import search_parts
+from services.vector_db import search_vector_db, exact_match_search
+from services.embedding import get_text_embedding
 
-async def test_hybrid_search():
-    # Senaryo: Kullanıcı "Juki Reçme Vida" dedi.
-    user_query = "Juki coverstitch screw" 
-    
-    print(f"🔍 SORGULANIYOR: '{user_query}'")
-    print("-" * 50)
+async def test_exact_match():
+    print("=" * 50)
+    print("1️⃣ EXACT MATCH (Kod ile arama):")
+    print("=" * 50)
+    # Gerçek bir parça kodu ile test et
+    results = await exact_match_search(part_code="B2424", limit=5)
+    if results:
+        for r in results:
+            print(f"   ✅ {r.get('PartCode')} | {r.get('PartName')} | {r.get('MachineBrand')}")
+    else:
+        print("   ⚠️ Sonuç yok (DB bağlantısını ve parça kodunu kontrol et)")
 
-    # ❌ YANLIŞ YÖNTEM (Sadece Vektör):
-    # Bu, senin az önce yaşadığın sorunu yaratır. Ne bulursa getirir.
-    print("1️⃣ FİLTRESİZ ARAMA (Eski Hatalı Yöntem):")
-    results_raw = await search_parts(user_query, k=5)
-    for r in results_raw:
-        print(f"   - {r['code']} | {r['name']} ({r['similarity']:.4f})")
+async def test_vector_search():
+    print("\n" + "=" * 50)
+    print("2️⃣ VECTOR SEARCH (Semantik arama):")
+    print("=" * 50)
+    query = "Juki overlok iğne barı metal silindirik"
+    print(f"   Sorgu: '{query}'")
     
-    print("\n" + "="*50 + "\n")
-
-    # ✅ DOĞRU YÖNTEM (Hibrit Arama):
-    # Chatbot, kullanıcının "Vida" dediğini anlayıp, veritabanına "SCREW" filtresi yollar.
-    print("2️⃣ FİLTRELİ ARAMA (Hybrid Search - Jilet Gibi):")
+    vector = get_text_embedding(query)
+    if not vector:
+        print("   ❌ Embedding alınamadı (GEMINI_API_KEY kontrol et)")
+        return
     
-    # strict_filter="SCREW" gönderiyoruz. 
-    # Bu sayede veritabanı; vektör uyuşsa bile içinde "SCREW" yazmayanları ÇÖPE ATAR.
-    results_filtered = await search_parts(user_query, strict_filter="SCREW", k=5)
+    print(f"   ✅ Embedding boyutu: {len(vector)}")
     
-    for r in results_filtered:
-        print(f"   - {r['code']} | {r['name']} ({r['dimensions'] if 'dimensions' in r else ''})")
+    results = await search_vector_db(query_vector=vector, limit=5)
+    if results:
+        for r in results:
+            sim = r.get('similarity', 0)
+            print(f"   🔍 {r.get('PartCode')} | {r.get('PartName')} | benzerlik: {sim:.4f}")
+    else:
+        print("   ⚠️ Sonuç yok")
 
 if __name__ == "__main__":
-    asyncio.run(test_hybrid_search())
+    asyncio.run(test_exact_match())
+    asyncio.run(test_vector_search())

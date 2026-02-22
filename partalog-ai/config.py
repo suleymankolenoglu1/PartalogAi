@@ -3,7 +3,7 @@ Partalog AI Service - Configuration (Final v2.1)
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, AliasChoices
 from pathlib import Path
 
 def _clean_env(value: str) -> str:
@@ -26,13 +26,30 @@ class Settings(BaseSettings):
     # --- GEMINI AI ---
     # Hem 'GEMINI_API_KEY' hem de 'GOOGLE_API_KEY' olarak gelsen kabul etsin.
     # .env dosyasında hangisi varsa onu alır.
-    GEMINI_API_KEY: str = Field(default="", validation_alias="GOOGLE_API_KEY")
+    GEMINI_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    )
     GEMINI_VISUAL_MODEL: str = Field(default="gemini-3-pro-preview")
 
     # --- VERİTABANI (YENİ EKLENDİ) ---
     # train_dictionary.py artık şifreyi buradan okuyacak.
     # Varsayılan değer boş, .env dosyasından gelmeli.
-    DB_CONNECTION_STRING: str = Field(default="")
+    DB_CONNECTION_STRING: str = Field(
+        default="",
+        validation_alias=AliasChoices("DB_CONNECTION_STRING", "DATABASE_URL")
+    )
+
+    @property
+    def db_dsn(self) -> str:
+        """asyncpg için temiz DSN döner. postgresql+asyncpg:// → postgresql:// dönüşümü yapar."""
+        raw = self.DB_CONNECTION_STRING
+        if not raw:
+            return ""
+        # SQLAlchemy prefix'ini asyncpg için temizle
+        raw = raw.replace("postgresql+asyncpg://", "postgresql://")
+        raw = raw.replace("postgres://", "postgresql://")
+        return raw.strip().strip('"').strip("'")
 
     # YOLO
     YOLO_MODEL_PATH: str = Field(default="models/best.pt")
