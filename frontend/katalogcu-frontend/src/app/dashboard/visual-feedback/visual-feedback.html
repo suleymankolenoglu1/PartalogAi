@@ -1,0 +1,101 @@
+<div class="vf-page-wrapper">
+
+  <header class="vf-header">
+    <div class="vf-title">
+      <h1>Görsel Feedback</h1>
+      <p>Kullanıcıların "Bu benim parçam" olarak işaretlediği görsel eğitim kayıtları.</p>
+    </div>
+    <button class="apple-btn" (click)="loadFeedback()">
+      <span class="material-symbols-outlined" style="font-size: 18px;">refresh</span>
+      Yenile
+    </button>
+  </header>
+
+  <div class="vf-search-bar">
+    <span class="material-symbols-outlined search-icon">search</span>
+    <input 
+      type="text" 
+      [ngModel]="searchQuery" 
+      (ngModelChange)="onSearch($event)" 
+      placeholder="Parça kodu, adı veya marka ile ara..." 
+      class="vf-search-input">
+  </div>
+
+  <div class="vf-stats-row">
+    <span class="vf-stat-badge">
+      <span class="material-symbols-outlined" style="font-size:16px;">image</span>
+      Toplam: {{ feedbackList.length }} kayıt
+    </span>
+    @if (searchQuery) {
+      <span class="vf-stat-badge">
+        Filtre: {{ filteredList.length }} sonuç
+      </span>
+    }
+  </div>
+
+  @if (isLoading) {
+    <div class="vf-loading">
+      <div class="spinner-md"></div>
+      <span>Yükleniyor...</span>
+    </div>
+  }
+
+  @if (errorMsg) {
+    <div class="vf-error">
+      <span class="material-symbols-outlined">error</span>
+      {{ errorMsg }}
+    </div>
+  }
+
+  @if (!isLoading && !errorMsg) {
+    <div class="vf-table-container">
+      <table class="vf-table">
+        <thead>
+          <tr>
+            <th>GÖRSEL</th>
+            <th>PARÇA KODU</th>
+            <th>PARÇA ADI</th>
+            <th>MARKA / TİP</th>
+            <th>NOT</th>
+            <th>TARİH</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (filteredList.length === 0) {
+            <tr>
+              <td colspan="6" class="vf-empty">
+                <span class="material-symbols-outlined">image_not_supported</span>
+                <p>Henüz görsel feedback kaydı yok.</p>
+              </td>
+            </tr>
+          }
+
+          @for (item of filteredList; track item.id) {
+            <tr>
+              <td>
+                @if (item.imageUrl) {
+                  <img [src]="item.imageUrl" class="vf-thumb" [alt]="item.partCode">
+                } @else {
+                  <div class="vf-no-thumb">
+                    <span class="material-symbols-outlined">image</span>
+                  </div>
+                }
+              </td>
+              <td><code class="part-code">{{ item.partCode || '-' }}</code></td>
+              <td>{{ item.partName || '-' }}</td>
+              <td>
+                <div>{{ item.machineBrand || '-' }}</div>
+                @if (item.machineType) {
+                  <div class="text-muted">{{ item.machineType }}</div>
+                }
+              </td>
+              <td class="note-cell">{{ item.note || '-' }}</td>
+              <td class="date-cell">{{ item.createdAt | date:'d MMM yyyy, HH:mm':'':'tr' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+</div>
