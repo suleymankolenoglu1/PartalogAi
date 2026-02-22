@@ -42,7 +42,7 @@ export class AiService {
    * @param history Önceki konuşmalar (bağlam için)
    * @param userId Public view kullanıcı kimliği
    */
-  sendMessage(text: string, image: File | null, history: any[] = [], userId?: string): Observable<AiChatResponse> {
+  sendMessage(text: string, image: File | null, history: any[] = [], userId?: string, catalogIds?: string[]): Observable<AiChatResponse> {
     const formData = new FormData();
     
     // 1. Metin (Varsa)
@@ -57,6 +57,9 @@ export class AiService {
 
     // ✅ userId ekle
     if (userId) formData.append('userId', userId);
+
+    // ✅ catalog_ids ekle (arama kapsamını bu kataloglarla sınırla)
+    formData.append('catalog_ids', JSON.stringify(catalogIds ?? []));
 
     return this.http.post<AiChatResponse>(this.apiUrl, formData);
   }

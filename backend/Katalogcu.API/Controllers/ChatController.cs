@@ -332,35 +332,6 @@ namespace Katalogcu.API.Controllers
                     }
                 }
 
-                // 🔥 6. AI CEVABINI DÜZELTME (OVERRIDE - V2: ESTETİK AMELİYAT) 🔥
-                if (!string.IsNullOrEmpty(aiResponse.Answer) && finalProducts.Any())
-                {
-                    var bestMatch = finalProducts.First();
-                    var bestName = bestMatch.Name;
-
-                    var badPhrases = new[] { "Unknown Part", "Belirtilmemiş Parça", "İsimsiz Parça", "Bilinmeyen Parça", "İsimsiz" };
-                    bool correctionMade = false;
-
-                    foreach (var phrase in badPhrases)
-                    {
-                        if (aiResponse.Answer.Contains(phrase, StringComparison.OrdinalIgnoreCase))
-                        {
-                            aiResponse.Answer = aiResponse.Answer.Replace(phrase, bestName, StringComparison.OrdinalIgnoreCase);
-                            correctionMade = true;
-                        }
-                    }
-
-                    if (correctionMade && !aiResponse.Answer.Contains(bestMatch.Code))
-                    {
-                        aiResponse.Answer = $"{bestMatch.Code} - {aiResponse.Answer}";
-                    }
-
-                    if (!correctionMade && (aiResponse.Answer.Contains("Unknown Part") || aiResponse.Answer.Contains("Belirtilmemiş")))
-                    {
-                        aiResponse.Answer = $"Aradığınız parça {bestMatch.Code} - {bestMatch.Name}, {bestMatch.Model ?? "ilgili"} makinesi içindir.";
-                    }
-                }
-
                 // 7. CEVAP DÖN
                 return Ok(new ChatResponseDto
                 {
