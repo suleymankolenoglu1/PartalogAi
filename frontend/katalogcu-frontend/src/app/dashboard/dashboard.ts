@@ -1,11 +1,12 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { CatalogService, DashboardStats } from '../core/services/catalog.service'; // Yolu kendi projenize göre düzeltin
+import { RouterLink } from '@angular/router';
+import { CatalogService, DashboardStats } from '../core/services/catalog.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterLink],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css'
 })
@@ -13,7 +14,7 @@ export class DashboardComponent implements OnInit {
   
   private catalogService = inject(CatalogService);
 
-  stats: DashboardStats | null = null;
+  stats: (DashboardStats & { visualEmbeddingCount?: number }) | null = null;
   isLoading = true;
 
   ngOnInit() {

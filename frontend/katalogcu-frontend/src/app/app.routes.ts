@@ -25,6 +25,7 @@ import { SettingsComponent } from './dashboard/settings/settings';
 import { CatalogAddComponent } from './dashboard/catalogs/catalog-add/catalog-add';
 import { PartsAddComponent } from './dashboard/parts/parts-add/parts-add';
 import { PartsImportComponent } from './dashboard/parts/parts-import/parts-import';
+import { VisualFeedbackComponent } from './dashboard/visual-feedback/visual-feedback';
 
 export const routes: Routes = [
   // --- PUBLIC SAYFALAR (Müşteri Tarafı) ---
@@ -62,7 +63,8 @@ export const routes: Routes = [
       { path: 'settings', component: SettingsComponent },
       { path: 'parts', component: PartsComponent },
       { path: 'parts/new', component: PartsAddComponent },
-      { path: 'parts/import', component: PartsImportComponent }
+      { path: 'parts/import', component: PartsImportComponent },
+      { path: 'visual-feedback', component: VisualFeedbackComponent }
     ]
   }
 ];
