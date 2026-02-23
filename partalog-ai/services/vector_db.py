@@ -89,7 +89,7 @@ async def _release_conn(conn, from_pool: bool):
 # =============================================
 # 🔍 EXACT MATCH
 # =============================================
-async def exact_match_search(part_code: str, brand_filter: str = None, catalog_ids: list = None, limit: int = 5):
+async def exact_match_search(part_code: str, brand_filter: str = None, catalog_ids: list = None, limit: int = 5, machine_group_filter: str = None):
     """
     Vektör (Semantic) arama YAPMADAN, parça koduna (PartCode) göre birebir/yakın eşleşme arar.
     Chatbot'ta kod belirtilmişse ilk olarak "Hard-Boost" için kullanılır.
@@ -126,6 +126,11 @@ async def exact_match_search(part_code: str, brand_filter: str = None, catalog_i
             sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
             params.append(f"%{brand_filter}%")
             param_idx += 1
+
+        if machine_group_filter:
+            sql += f" AND \"MachineGroup\" ILIKE ${param_idx}"
+            params.append(f"%{machine_group_filter}%")
+            param_idx += 1
             
         sql += f" LIMIT ${param_idx}"
         params.append(limit)
@@ -143,7 +148,7 @@ async def exact_match_search(part_code: str, brand_filter: str = None, catalog_i
 # =============================================
 # 🧠 VECTOR SEARCH (Semantic / Embedding)
 # =============================================
-async def search_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None):
+async def search_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, machine_group_filter: str = None):
     """
     Vektörel benzerlik (Semantic) araması yapar.
     """
@@ -182,6 +187,11 @@ async def search_vector_db(query_vector: list, brand_filter: str = None, limit: 
             sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
             params.append(f"%{brand_filter}%")
             param_idx += 1
+
+        if machine_group_filter:
+            sql += f" AND \"MachineGroup\" ILIKE ${param_idx}"
+            params.append(f"%{machine_group_filter}%")
+            param_idx += 1
             
         sql += f" ORDER BY similarity DESC LIMIT ${param_idx}"
         params.append(limit)
@@ -199,7 +209,7 @@ async def search_vector_db(query_vector: list, brand_filter: str = None, limit: 
 # =============================================
 # 🖼️ VISUAL VECTOR SEARCH
 # =============================================
-async def search_visual_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, min_similarity: float = 0.75):
+async def search_visual_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, min_similarity: float = 0.75, machine_group_filter: str = None):
     """
     VisualEmbedding sütunu üzerinden görsel benzerlik araması yapar.
     Yalnızca VisualEmbedding dolu olan kayıtlarda arar.
@@ -239,6 +249,11 @@ async def search_visual_vector_db(query_vector: list, brand_filter: str = None, 
         if brand_filter:
             sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
             params.append(f"%{brand_filter}%")
+            param_idx += 1
+
+        if machine_group_filter:
+            sql += f" AND \"MachineGroup\" ILIKE ${param_idx}"
+            params.append(f"%{machine_group_filter}%")
             param_idx += 1
 
         sql += f" ORDER BY visual_similarity DESC LIMIT ${param_idx}"

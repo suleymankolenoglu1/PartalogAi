@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { CatalogService, DashboardStats } from '../core/services/catalog.service';
 
 @Component({
@@ -13,6 +13,7 @@ import { CatalogService, DashboardStats } from '../core/services/catalog.service
 export class DashboardComponent implements OnInit {
   
   private catalogService = inject(CatalogService);
+  private router = inject(Router);
 
   stats: (DashboardStats & { visualEmbeddingCount?: number }) | null = null;
   isLoading = true;
@@ -54,5 +55,9 @@ export class DashboardComponent implements OnInit {
       case 'Pending': return 'ONAY BEKLİYOR';
       default: return status;
     }
+  }
+
+  goToUpload() {
+    this.router.navigate(['/dashboard/catalogs']);
   }
 }

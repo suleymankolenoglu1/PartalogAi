@@ -21,6 +21,15 @@ interface CompareGroup {
   results: any[];
 }
 
+// ✨ Sohbet Mesaj Tipi
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  products?: any[];
+  compareGroups?: CompareGroup[];
+}
+
 @Component({
   selector: 'app-public-view',
   standalone: true,
@@ -49,7 +58,8 @@ export class PublicViewComponent implements OnInit {
   };
 
   // ✨ Sohbet Geçmişi
-  chatHistory: any[] = []; 
+  chatHistory: { role: string; text: string }[] = []; 
+  messages: ChatMessage[] = [];
 
   selectedImage: File | null = null;
   selectedImagePreview: string | null = null;
@@ -74,6 +84,27 @@ export class PublicViewComponent implements OnInit {
       console.error('UserId bulunamadı.');
       this.isLoading = false;
       return;
+    }
+
+    // Load chat history from localStorage
+    const saved = localStorage.getItem('chat_history_partalog');
+    if (saved) {
+      try { 
+        const parsed = JSON.parse(saved);
+        this.messages = parsed;
+        this.chatHistory = parsed.map((m: ChatMessage) => ({ role: m.role, text: m.text }));
+        if (this.messages.length > 0) {
+          this.aiState.isActive = true;
+          const lastAi = [...this.messages].reverse().find(m => m.role === 'assistant');
+          if (lastAi) {
+            this.aiState.response = {
+              replySuggestion: lastAi.text,
+              products: lastAi.products || [],
+              compareGroups: lastAi.compareGroups || [],
+            };
+          }
+        }
+      } catch (e) { console.warn('chat_history_partalog parse error:', e); }
     }
 
     this.loadPublicData(this.userId);
@@ -105,6 +136,22 @@ export class PublicViewComponent implements OnInit {
 
   // --- 🔥 GERÇEK AI ENTEGRASYONU ---
 
+  // 0. Sohbet Geçmişini Kaydet
+  private saveHistory() {
+    localStorage.setItem('chat_history_partalog', JSON.stringify(this.messages));
+  }
+
+  // 0b. Sohbet Geçmişini Temizle
+  clearHistory() {
+    this.messages = [];
+    this.chatHistory = [];
+    localStorage.removeItem('chat_history_partalog');
+    this.aiState.isActive = false;
+    this.aiState.response = null;
+    this.clearImage();
+    this.searchText = '';
+  }
+
   // 1. Dosya Seçimi
   onFileSelected(event: any) {
     const file = event.target.files[0];
@@ -130,7 +177,7 @@ export class PublicViewComponent implements OnInit {
     this.feedbackError = null;
     this.savingFeedbackCode = null;
     this.savedFeedbackKeys.clear();
-    if (!this.searchText) {
+    if (!this.searchText && this.messages.length === 0) {
         this.aiState.isActive = false;
         this.aiState.response = null; // Ekranı temizle
     }
@@ -152,7 +199,11 @@ export class PublicViewComponent implements OnInit {
     this.aiState.isLoading = true;
     this.aiState.response = null;
 
-    this.chatHistory.push({ role: 'user', text: this.searchText || '(Resim Gönderildi)' });
+    const userText = this.searchText || '(Resim Gönderildi)';
+    const userMsg: ChatMessage = { role: 'user', text: userText, timestamp: new Date().toISOString() };
+    this.messages.push(userMsg);
+    this.chatHistory.push({ role: 'user', text: userText });
+    this.saveHistory();
 
     this.aiService.sendMessage(
       this.searchText, 
@@ -164,9 +215,25 @@ export class PublicViewComponent implements OnInit {
       next: (res: any) => { 
         this.aiState.isLoading = false;
         
-        this.aiState.response = {
-          replySuggestion: res.replySuggestion || "Sonuçlar aşağıdadır:", 
-          products: (res.products || []).map((part: any) => ({
+        const mappedProducts = (res.products || []).map((part: any) => ({
+          id: part.id,
+          code: part.code,
+          name: part.name,
+          description: part.description, 
+          catalogId: part.catalogId, 
+          pageNumber: part.pageNumber || '1',
+          model: part.model,
+          price: part.price,
+          stockStatus: part.stockStatus || 'Stokta Yok', 
+          imageUrl: part.imageUrl,
+          visualMatch: part.visualMatch ?? false,
+          visualImageUrl: part.visualImageUrl ?? null,
+          visualSimilarity: part.visualSimilarity ?? null,
+        }));
+
+        const mappedCompareGroups = (res.compareGroups || []).map((group: any) => ({
+          query: group.query,
+          results: (group.results || []).map((part: any) => ({
             id: part.id,
             code: part.code,
             name: part.name,
@@ -180,29 +247,27 @@ export class PublicViewComponent implements OnInit {
             visualMatch: part.visualMatch ?? false,
             visualImageUrl: part.visualImageUrl ?? null,
             visualSimilarity: part.visualSimilarity ?? null,
-          })),
-          compareGroups: (res.compareGroups || []).map((group: any) => ({
-            query: group.query,
-            results: (group.results || []).map((part: any) => ({
-              id: part.id,
-              code: part.code,
-              name: part.name,
-              description: part.description, 
-              catalogId: part.catalogId, 
-              pageNumber: part.pageNumber || '1',
-              model: part.model,
-              price: part.price,
-              stockStatus: part.stockStatus || 'Stokta Yok', 
-              imageUrl: part.imageUrl,
-              visualMatch: part.visualMatch ?? false,
-              visualImageUrl: part.visualImageUrl ?? null,
-              visualSimilarity: part.visualSimilarity ?? null,
-            }))
-          })),
+          }))
+        }));
+
+        this.aiState.response = {
+          replySuggestion: res.replySuggestion || "Sonuçlar aşağıdadır:", 
+          products: mappedProducts,
+          compareGroups: mappedCompareGroups,
           debugInfo: res.debugInfo
         };
 
-        this.chatHistory.push({ role: 'assistant', text: res.replySuggestion });
+        const assistantMsg: ChatMessage = {
+          role: 'assistant',
+          text: res.replySuggestion || "Sonuçlar aşağıdadır:",
+          timestamp: new Date().toISOString(),
+          products: mappedProducts,
+          compareGroups: mappedCompareGroups,
+        };
+        this.messages.push(assistantMsg);
+        this.chatHistory.push({ role: 'assistant', text: assistantMsg.text });
+        this.saveHistory();
+
         this.feedbackMessage = null;
         this.feedbackError = null;
       },

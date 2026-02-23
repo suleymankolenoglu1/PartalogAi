@@ -240,3 +240,75 @@ input::placeholder {
     font-size: 13px;
     margin-top: 8px;
 }
+
+/* =========================================
+   5. SOHBET BALONLARI (Chat Bubbles)
+   ========================================= */
+
+.messages-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 8px 0;
+    overflow-y: auto;
+    max-height: 60vh;
+}
+
+.message-bubble-user {
+    align-self: flex-end;
+    background: #0071e3;
+    color: white;
+    border-radius: 18px 18px 4px 18px;
+    padding: 10px 14px;
+    max-width: 75%;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(0, 113, 227, 0.2);
+}
+
+.message-bubble-ai {
+    align-self: flex-start;
+    background: #f0f0f5;
+    color: #1d1d1f;
+    border-radius: 18px 18px 18px 4px;
+    padding: 10px 14px;
+    max-width: 75%;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.message-time {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 4px;
+    text-align: right;
+}
+
+.message-bubble-ai .message-time {
+    text-align: left;
+}
+
+/* Yükleniyor: 3 nokta animasyonu */
+.loading-dots {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 2px;
+}
+
+.loading-dots span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #86868b;
+    animation: dot-pulse 1.4s infinite ease-in-out;
+}
+
+.loading-dots span:nth-child(1) { animation-delay: 0s; }
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-pulse {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
