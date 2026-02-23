@@ -174,7 +174,7 @@ namespace Katalogcu.API.Controllers
                         return Ok(new ChatResponseDto
                         {
                             ReplySuggestion = anyResults
-                                ? "Birden fazla parça için sonuçları ayrı ayrı listeledim."
+                                ? (aiResponse.Answer ?? "Birden fazla parça için sonuçları ayrı ayrı listeledim.")
                                 : "Birden fazla parça istedin ama uygun sonuç bulamadım.",
                             Products = new List<EnrichedPartResult>(),
                             CompareGroups = compareGroups,
@@ -202,7 +202,7 @@ namespace Katalogcu.API.Controllers
                     return Ok(new ChatResponseDto
                     {
                         ReplySuggestion = anyFallback
-                            ? "Birden fazla parça için sonuçları ayrı ayrı listeledim."
+                            ? (aiResponse.Answer ?? "Birden fazla parça için sonuçları ayrı ayrı listeledim.")
                             : "Birden fazla parça istedin ama uygun sonuç bulamadım.",
                         Products = new List<EnrichedPartResult>(),
                         CompareGroups = compareGroupsFallback,
@@ -230,7 +230,7 @@ namespace Katalogcu.API.Controllers
 
                     return Ok(new ChatResponseDto
                     {
-                        ReplySuggestion = $"Fiyat bilgisi bulunan {priceProducts.Count} parça buldum.",
+                        ReplySuggestion = aiResponse.Answer ?? $"Fiyat bilgisi bulunan {priceProducts.Count} parça buldum.",
                         Products = priceProducts,
                         DebugInfo = $"Intent: PRICE | Code: {intentQuery}"
                     });
@@ -253,7 +253,7 @@ namespace Katalogcu.API.Controllers
 
                     return Ok(new ChatResponseDto
                     {
-                        ReplySuggestion = "Stok durumlarını listeledim.",
+                        ReplySuggestion = aiResponse.Answer ?? "Stok durumlarını listeledim.",
                         Products = stockProducts,
                         DebugInfo = $"Intent: STOCK | Code: {intentQuery}"
                     });
@@ -267,7 +267,7 @@ namespace Katalogcu.API.Controllers
                     return Ok(new ChatResponseDto
                     {
                         ReplySuggestion = compProducts.Any()
-                            ? "Uyumlu model bilgilerini listeledim."
+                            ? (aiResponse.Answer ?? "Uyumlu model bilgilerini listeledim.")
                             : "Uyumluluk için parça bulunamadı.",
                         Products = compProducts,
                         DebugInfo = $"Intent: COMPATIBILITY | Code: {intentQuery}"
