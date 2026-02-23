@@ -28,6 +28,7 @@ interface ChatMessage {
   timestamp: string;
   products?: any[];
   compareGroups?: CompareGroup[];
+  isStreaming?: boolean;
 }
 
 @Component({
@@ -205,80 +206,68 @@ export class PublicViewComponent implements OnInit {
     this.chatHistory.push({ role: 'user', text: userText });
     this.saveHistory();
 
-    this.aiService.sendMessage(
-      this.searchText, 
-      this.selectedImage, 
-      this.chatHistory, 
+    // Streaming asistan mesajı placeholder ekle
+    const streamingMsg: ChatMessage = {
+      role: 'assistant',
+      text: '',
+      timestamp: new Date().toISOString(),
+      products: [],
+      isStreaming: true,
+    };
+    this.messages.push(streamingMsg);
+
+    let streamingText = '';
+
+    this.aiService.sendMessageStream(
+      this.searchText,
+      this.selectedImage,
+      this.chatHistory,
       this.userId || undefined,
       this.visibleCatalogs.map(c => c.id)
     ).subscribe({
-      next: (res: any) => { 
-        this.aiState.isLoading = false;
-        
-        const mappedProducts = (res.products || []).map((part: any) => ({
-          id: part.id,
-          code: part.code,
-          name: part.name,
-          description: part.description, 
-          catalogId: part.catalogId, 
-          pageNumber: part.pageNumber || '1',
-          model: part.model,
-          price: part.price,
-          stockStatus: part.stockStatus || 'Stokta Yok', 
-          imageUrl: part.imageUrl,
-          visualMatch: part.visualMatch ?? false,
-          visualImageUrl: part.visualImageUrl ?? null,
-          visualSimilarity: part.visualSimilarity ?? null,
-        }));
-
-        const mappedCompareGroups = (res.compareGroups || []).map((group: any) => ({
-          query: group.query,
-          results: (group.results || []).map((part: any) => ({
+      next: (event) => {
+        if (event.type === 'sources') {
+          const mappedProducts = (event.sources || []).map((part: any) => ({
             id: part.id,
             code: part.code,
             name: part.name,
-            description: part.description, 
-            catalogId: part.catalogId, 
+            description: part.description,
+            catalogId: part.catalogId,
             pageNumber: part.pageNumber || '1',
             model: part.model,
             price: part.price,
-            stockStatus: part.stockStatus || 'Stokta Yok', 
+            stockStatus: part.stockStatus || 'Stokta Yok',
             imageUrl: part.imageUrl,
             visualMatch: part.visualMatch ?? false,
             visualImageUrl: part.visualImageUrl ?? null,
             visualSimilarity: part.visualSimilarity ?? null,
-          }))
-        }));
-
-        this.aiState.response = {
-          replySuggestion: res.replySuggestion || "Sonuçlar aşağıdadır:", 
-          products: mappedProducts,
-          compareGroups: mappedCompareGroups,
-          debugInfo: res.debugInfo
-        };
-
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          text: res.replySuggestion || "Sonuçlar aşağıdadır:",
-          timestamp: new Date().toISOString(),
-          products: mappedProducts,
-          compareGroups: mappedCompareGroups,
-        };
-        this.messages.push(assistantMsg);
-        this.chatHistory.push({ role: 'assistant', text: assistantMsg.text });
-        this.saveHistory();
-
-        this.feedbackMessage = null;
-        this.feedbackError = null;
+          }));
+          streamingMsg.products = mappedProducts;
+          this.aiState.response = {
+            replySuggestion: '',
+            products: mappedProducts,
+          };
+        } else if (event.type === 'token') {
+          streamingText += event.token;
+          streamingMsg.text = streamingText;
+        } else if (event.type === 'done') {
+          streamingMsg.isStreaming = false;
+          this.aiState.isLoading = false;
+          this.aiState.response = {
+            replySuggestion: streamingText,
+            products: streamingMsg.products || [],
+          };
+          this.chatHistory.push({ role: 'assistant', text: streamingText });
+          this.saveHistory();
+          this.feedbackMessage = null;
+          this.feedbackError = null;
+        }
       },
       error: (err) => {
+        console.error('AI Stream Hatası:', err);
         this.aiState.isLoading = false;
-        console.error('AI Bağlantı Hatası:', err);
-        
-        this.aiState.response = {
-          replySuggestion: "⚠️ Üzgünüm, şu an teknik bir sorun yaşıyorum. Lütfen daha sonra tekrar deneyin.",
-          products: []
-        };
+        streamingMsg.text = '⚠️ Bağlantı hatası, lütfen tekrar deneyin.';
+        streamingMsg.isStreaming = false;
       }
     });
   }

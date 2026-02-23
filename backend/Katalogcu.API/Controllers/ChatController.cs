@@ -16,15 +16,18 @@ namespace Katalogcu.API.Controllers
         private readonly IPartalogAiService _aiService;
         private readonly AppDbContext _context;
         private readonly ILogger<ChatController> _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
 
         public ChatController(
             IPartalogAiService aiService,
             AppDbContext context,
-            ILogger<ChatController> logger)
+            ILogger<ChatController> logger,
+            IHttpClientFactory httpClientFactory)
         {
             _aiService = aiService;
             _context = context;
             _logger = logger;
+            _httpClientFactory = httpClientFactory;
         }
 
         private Guid GetCurrentUserId()
@@ -344,6 +347,67 @@ namespace Katalogcu.API.Controllers
             {
                 _logger.LogError(ex, "Chat Controller Hatası");
                 return StatusCode(500, new { error = "Sistem hatası: " + ex.Message });
+            }
+        }
+
+        private const int StreamBufferSize = 4096;
+
+        [HttpPost("ask-stream")]
+        public async Task AskStream([FromForm] AiChatRequestWithHistoryDto request)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty && !string.IsNullOrWhiteSpace(request.UserId))
+            {
+                Guid.TryParse(request.UserId, out userId);
+            }
+
+            if (userId == Guid.Empty)
+            {
+                Response.StatusCode = 400;
+                return;
+            }
+
+            var catalogIds = await _context.Catalogs
+                .AsNoTracking()
+                .Where(c => c.UserId == userId)
+                .Select(c => c.Id.ToString())
+                .ToListAsync();
+
+            Response.Headers["Content-Type"] = "text/event-stream";
+            Response.Headers["Cache-Control"] = "no-cache";
+            Response.Headers["Connection"] = "keep-alive";
+
+            var httpClient = _httpClientFactory.CreateClient("PartalogAi");
+
+            var formContent = new MultipartFormDataContent();
+            formContent.Add(new StringContent(request.Text ?? ""), "text");
+            formContent.Add(new StringContent(request.History ?? "[]"), "history");
+            formContent.Add(new StringContent(System.Text.Json.JsonSerializer.Serialize(catalogIds)), "catalog_ids");
+            if (request.Image != null)
+            {
+                var imageContent = new StreamContent(request.Image.OpenReadStream());
+                formContent.Add(imageContent, "file", request.Image.FileName);
+            }
+
+            try
+            {
+                var requestMsg = new HttpRequestMessage(HttpMethod.Post, "api/chat/stream") { Content = formContent };
+                using var pythonResponse = await httpClient.SendAsync(requestMsg,
+                    HttpCompletionOption.ResponseHeadersRead);
+
+                using var stream = await pythonResponse.Content.ReadAsStreamAsync();
+                var buffer = new byte[StreamBufferSize];
+                int bytesRead;
+                while ((bytesRead = await stream.ReadAsync(buffer, HttpContext.RequestAborted)) > 0)
+                {
+                    await Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
+                    await Response.Body.FlushAsync(HttpContext.RequestAborted);
+                }
+            }
+            catch (OperationCanceledException) { /* Client disconnected */ }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AskStream proxy hatası");
             }
         }
 
