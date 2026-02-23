@@ -309,6 +309,7 @@ async def chat_endpoint(
         extracted_part = analysis.get("part_name")
         extracted_code = analysis.get("part_code")
         extracted_dim = analysis.get("dimensions")
+        extracted_machine_group = analysis.get("machine_group")
 
         if file is not None:
             img_part = image_analysis.get("candidate_part_name")
@@ -384,6 +385,7 @@ async def chat_endpoint(
                         limit=5,
                         catalog_ids=catalog_ids_list,
                         min_similarity=0.78,
+                        machine_group_filter=extracted_machine_group,
                     )
                     logger.info(f"🖼️ Visual Search (≥0.78): {len(visual_results)} sonuç")
 
@@ -396,6 +398,7 @@ async def chat_endpoint(
                             limit=5,
                             catalog_ids=catalog_ids_list,
                             min_similarity=0.60,
+                            machine_group_filter=extracted_machine_group,
                         )
                         logger.info(f"🖼️ Visual Search (≥0.60): {len(visual_results)} sonuç")
 
@@ -409,6 +412,7 @@ async def chat_endpoint(
                                 brand_filter=extracted_brand,
                                 limit=5,
                                 catalog_ids=catalog_ids_list,
+                                machine_group_filter=extracted_machine_group,
                             )
                             for r in text_fallback_results:
                                 r["visual_similarity"] = r.get("similarity", 0)
@@ -424,6 +428,7 @@ async def chat_endpoint(
                             brand_filter=extracted_brand,
                             catalog_ids=catalog_ids_list,
                             limit=5,
+                            machine_group_filter=extracted_machine_group,
                         )
                         for r in code_results:
                             r["visual_similarity"] = 1.0
@@ -471,7 +476,7 @@ async def chat_endpoint(
             # HİBRİT ADIM 1: EXACT MATCH (TAM EŞLEŞME)
             if p_code:
                 logger.info(f"🔍 Kod tespit edildi ({p_code}). Exact Match aranıyor...")
-                part_results = await exact_match_search(p_code, extracted_brand, catalog_ids_list)
+                part_results = await exact_match_search(p_code, extracted_brand, catalog_ids_list, limit=5, machine_group_filter=extracted_machine_group)
             
             # HİBRİT ADIM 2: VECTOR SEARCH (Eğer kod yoksa veya kodla bulunamadıysa)
             if not part_results and p_name:
@@ -485,7 +490,8 @@ async def chat_endpoint(
                         query_vector, 
                         brand_filter=extracted_brand, 
                         limit=5,
-                        catalog_ids=catalog_ids_list
+                        catalog_ids=catalog_ids_list,
+                        machine_group_filter=extracted_machine_group,
                     )
 
             # Sonuçları listeye toparla
