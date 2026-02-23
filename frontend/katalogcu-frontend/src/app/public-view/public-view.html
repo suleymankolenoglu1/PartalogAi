@@ -116,7 +116,7 @@
                         } @else {
                             <div class="flex flex-col items-start gap-2">
                                 <div class="message-bubble-ai">
-                                    <div class="whitespace-pre-line leading-relaxed">{{ msg.text }}</div>
+                                    <div class="whitespace-pre-line leading-relaxed">{{ msg.text }} @if(msg.isStreaming) {<span class="inline-block w-2 h-4 bg-gray-600 animate-pulse ml-1">▌</span>}</div>
                                     <div class="message-time">{{ msg.timestamp | date:'HH:mm' }}</div>
                                 </div>
 

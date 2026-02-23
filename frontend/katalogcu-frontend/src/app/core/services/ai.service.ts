@@ -2,7 +2,6 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment.development';
-
 // 🔥 GÜNCELLENDİ: Backend (ChatController) Response Yapısı
 // PublicViewComponent'te kullandığımız 'res.replySuggestion' ve 'res.products' ile eşleşmeli.
 export interface AiChatResponse {
@@ -76,5 +75,53 @@ export class AiService {
     if (payload.note) formData.append('note', payload.note);
 
     return this.http.post<VisualFeedbackResponse>(this.feedbackUrl, formData);
+  }
+
+  sendMessageStream(
+    text: string,
+    image: File | null,
+    history: any[],
+    userId?: string,
+    catalogIds?: string[]
+  ): Observable<{type: string; token?: string; sources?: any[]; debug_intent?: any}> {
+    return new Observable(observer => {
+      const formData = new FormData();
+      if (text) formData.append('text', text);
+      if (image) formData.append('image', image);
+      formData.append('history', JSON.stringify(history));
+      if (userId) formData.append('userId', userId);
+      formData.append('catalog_ids', JSON.stringify(catalogIds ?? []));
+
+      const token = localStorage.getItem('auth_token') ?? '';
+      fetch(`${environment.apiUrl}/chat/ask-stream`, {
+        method: 'POST',
+        body: formData,
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(response => {
+        if (!response.body) { observer.error(new Error('SSE bağlantısı kurulamadı.')); return; }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        const read = () => {
+          reader.read().then(({ done, value }) => {
+            if (done) { observer.complete(); return; }
+            const text = decoder.decode(value);
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (line.startsWith('data:')) {
+                try {
+                  const data = JSON.parse(line.slice(5).trim());
+                  observer.next(data);
+                } catch (e) {
+                  console.debug('SSE satırı parse edilemedi:', line);
+                }
+              }
+            }
+            read();
+          }).catch(err => observer.error(err));
+        };
+        read();
+      }).catch(err => observer.error(err));
+    });
   }
 }

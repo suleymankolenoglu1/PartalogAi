@@ -20,6 +20,7 @@ from PIL import Image
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Form, File, UploadFile, Request
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from config import settings
 from core.rate_limiter import limiter
@@ -36,6 +37,7 @@ router = APIRouter()
 
 # ⚡️ Gemini API
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
+GEMINI_STREAM_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key={settings.GEMINI_API_KEY}"
 SHOP_BASE_URL = "https://www.parcagalerisi.com/ara/"
 USER_FEEDBACK_DIR = Path("static/user-generated-parts")
 USER_FEEDBACK_INDEX = USER_FEEDBACK_DIR / "index.jsonl"
@@ -263,344 +265,348 @@ def split_terms(text: str):
     return [p.strip() for p in parts if p.strip()]
 
 # =========================================================
-# 🧠 ANA CHAT ENDPOINT (HİBRİT ARAMA EKLENDİ)
+# 🔧 ORTAK ARAMA YARDIMCISI (send + stream paylaşır)
 # =========================================================
-@router.post("/send")
-@router.post("/expert-chat")
-@limiter.limit(CHAT_RATE_LIMIT)
-async def chat_endpoint(
-    request: Request,
-    text: str = Form(None),   
-    message: str = Form(None),
-    history: str = Form("[]"),
-    catalog_ids: str = Form("[]"),
-    file: UploadFile = File(None),
-):
+async def _prepare_chat_context(
+    text: str | None,
+    message: str | None,
+    history: str,
+    catalog_ids: str,
+    file: UploadFile | None,
+) -> dict:
+    """
+    Intent analizi ve hibrit aramayı çalıştırır. Döndürür:
+    - {"early": True, "response": {...}}   — erken çıkış durumları
+    - {"early": False, "user_query": ..., "all_sources": ...,
+       "analysis": ..., "final_prompt": ...}  — normal durum
+    """
+    user_query = text if text else message
+    if not user_query and not file:
+        return {"early": True, "response": {"answer": "Boş mesaj.", "reply": "Boş mesaj.", "sources": [], "debug_intent": None}}
+    if not user_query and file:
+        user_query = "Yüklenen görseldeki parçayı analiz et."
+
+    logger.info(f"📨 [GİRİŞ] Mesaj: {user_query}")
+
     try:
-        user_query = text if text else message
-        if not user_query and not file:
-            return {"answer": "Boş mesaj.", "reply": "Boş mesaj.", "sources": [], "debug_intent": None}
-        if not user_query and file:
-            user_query = "Yüklenen görseldeki parçayı analiz et."
+        catalog_ids_list = json.loads(catalog_ids) or []
+    except Exception:
+        catalog_ids_list = []
 
-        logger.info(f"📨 [GİRİŞ] Mesaj: {user_query}")
+    # 1. ANALİZ ET (Router) — eğer dosya varsa her iki analizi paralel çalıştır
+    try:
+        history_list_for_intent = json.loads(history) if isinstance(history, str) else (history or [])
+    except Exception:
+        history_list_for_intent = []
 
-        try:
-            catalog_ids_list = json.loads(catalog_ids) or []
-        except Exception:
-            catalog_ids_list = []
+    image_analysis = {}
 
-        # 1. ANALİZ ET (Router) — eğer dosya varsa her iki analizi paralel çalıştır
-        try:
-            history_list_for_intent = json.loads(history) if isinstance(history, str) else (history or [])
-        except Exception:
-            history_list_for_intent = []
+    if file is not None:
+        image_bytes = await file.read()
+        results = await asyncio.gather(
+            analyze_intent_with_gemini(user_query, history=history_list_for_intent),
+            analyze_image_with_gemini(image_bytes, user_query),
+            return_exceptions=True
+        )
+        analysis = results[0] if isinstance(results[0], dict) else {"intent": "SEARCH", "brand": None, "part_name": user_query, "machine_group": None}
+        image_analysis = results[1] if isinstance(results[1], dict) else {}
+        analysis["image_analysis"] = image_analysis
+    else:
+        analysis = await analyze_intent_with_gemini(user_query, history=history_list_for_intent)
 
-        image_analysis = {}
+    intent = analysis.get("intent", "CHAT")
+    extracted_brand = analysis.get("brand")
+    extracted_part = analysis.get("part_name")
+    extracted_code = analysis.get("part_code")
+    extracted_dim = analysis.get("dimensions")
+    extracted_machine_group = analysis.get("machine_group")
 
-        if file is not None:
-            image_bytes = await file.read()
-            results = await asyncio.gather(
-                analyze_intent_with_gemini(user_query, history=history_list_for_intent),
-                analyze_image_with_gemini(image_bytes, user_query),
-                return_exceptions=True
-            )
-            analysis = results[0] if isinstance(results[0], dict) else {"intent": "SEARCH", "brand": None, "part_name": user_query, "machine_group": None}
-            image_analysis = results[1] if isinstance(results[1], dict) else {}
-            analysis["image_analysis"] = image_analysis
+    if file is not None:
+        img_part = image_analysis.get("candidate_part_name")
+        img_brand = image_analysis.get("detected_brand_text")
+        img_code = image_analysis.get("visible_codes")  # YENİ
+
+        if (not extracted_part) and img_part:
+            extracted_part = img_part
+            analysis["part_name"] = img_part
+            if intent == "CHAT":
+                intent = "SEARCH"
+                analysis["intent"] = "SEARCH"
+        if (not extracted_brand) and img_brand:
+            extracted_brand = img_brand
+            analysis["brand"] = img_brand
+        if (not extracted_code) and img_code:  # YENİ
+            extracted_code = img_code
+            analysis["part_code"] = img_code
+            if intent == "CHAT":
+                intent = "SEARCH"
+                analysis["intent"] = "SEARCH"
+
+    parts = analysis.get("parts")
+    if not parts:
+        if extracted_part or extracted_code:
+            parts = [{"part_name": extracted_part, "part_code": extracted_code, "dimensions": extracted_dim}]
         else:
-            analysis = await analyze_intent_with_gemini(user_query, history=history_list_for_intent)
+            parts = []
 
-        intent = analysis.get("intent", "CHAT")
-        extracted_brand = analysis.get("brand")
-        extracted_part = analysis.get("part_name")
-        extracted_code = analysis.get("part_code")
-        extracted_dim = analysis.get("dimensions")
-        extracted_machine_group = analysis.get("machine_group")
+    if len(parts) <= 1 and intent == "SEARCH" and not extracted_code:
+        fallback_parts = split_terms(user_query)
+        if len(fallback_parts) > 1:
+            parts = [{"part_name": p, "part_code": None, "dimensions": None} for p in fallback_parts]
 
-        if file is not None:
-            img_part = image_analysis.get("candidate_part_name")
-            img_brand = image_analysis.get("detected_brand_text")
-            img_code = image_analysis.get("visible_codes")  # YENİ
+    analysis["parts"] = parts
 
-            if (not extracted_part) and img_part:
-                extracted_part = img_part
-                analysis["part_name"] = img_part
-                if intent == "CHAT":
-                    intent = "SEARCH"
-                    analysis["intent"] = "SEARCH"
-            if (not extracted_brand) and img_brand:
-                extracted_brand = img_brand
-                analysis["brand"] = img_brand
-            if (not extracted_code) and img_code:  # YENİ
-                extracted_code = img_code
-                analysis["part_code"] = img_code
-                if intent == "CHAT":
-                    intent = "SEARCH"
-                    analysis["intent"] = "SEARCH"
+    if intent == "CHAT" or (not extracted_part and not extracted_code and not parts):
+        if image_analysis:
+            candidate = image_analysis.get("candidate_part_name") or "parça adı çıkarılamadı"
+            brand_hint = image_analysis.get("detected_brand_text") or "marka okunamadı"
+            questions = image_analysis.get("questions_for_user") or []
+            q_text = " ".join([f"- {q}" for q in questions[:3]]) if questions else "- Makine türü nedir?\n- Marka/model nedir?"
+            msg = (
+                f"Fotoğraftan tahminim: parça '{candidate}', görünen marka: '{brand_hint}'. "
+                f"Doğru parçayı bulmam için şu bilgileri yaz ustam:\n{q_text}"
+            )
+            return {"early": True, "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}}
 
-        parts = analysis.get("parts")
-        if not parts:
-            if extracted_part or extracted_code:
-                parts = [{"part_name": extracted_part, "part_code": extracted_code, "dimensions": extracted_dim}]
-            else:
-                parts = []
-
-        if len(parts) <= 1 and intent == "SEARCH" and not extracted_code:
-            fallback_parts = split_terms(user_query)
-            if len(fallback_parts) > 1:
-                parts = [{"part_name": p, "part_code": None, "dimensions": None} for p in fallback_parts]
-
-        analysis["parts"] = parts
-
-        if intent == "CHAT" or (not extracted_part and not extracted_code and not parts):
-            if image_analysis:
-                candidate = image_analysis.get("candidate_part_name") or "parça adı çıkarılamadı"
-                brand_hint = image_analysis.get("detected_brand_text") or "marka okunamadı"
-                questions = image_analysis.get("questions_for_user") or []
-                q_text = " ".join([f"- {q}" for q in questions[:3]]) if questions else "- Makine türü nedir?\n- Marka/model nedir?"
-                msg = (
-                    f"Fotoğraftan tahminim: parça '{candidate}', görünen marka: '{brand_hint}'. "
-                    f"Doğru parçayı bulmam için şu bilgileri yaz ustam:\n{q_text}"
-                )
-                return {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}
-
-            return {
+        return {
+            "early": True,
+            "response": {
                 "answer": "Aleykümselam ustam. Hangi parçayı arıyorsun? Marka, kod veya parça adı söyle, hemen depoya bakayım.",
                 "reply": "Buyur ustam?",
                 "sources": [],
-                "debug_intent": analysis
-            }
+                "debug_intent": analysis,
+            },
+        }
 
-        # ✅ Multi-part & Hybrid Search
-        all_sources = []
+    # ✅ Multi-part & Hybrid Search
+    all_sources = []
 
-        # --- YENİ: VISUAL SEARCH (VisualEmbedding dolu parçalarda önce ara) ---
-        visual_sources = []
-        if file is not None and image_analysis:
-            embedding_text_for_search = image_analysis.get("embedding_text")
-            visible_codes_from_img = image_analysis.get("visible_codes")
+    # --- YENİ: VISUAL SEARCH (VisualEmbedding dolu parçalarda önce ara) ---
+    visual_sources = []
+    if file is not None and image_analysis:
+        embedding_text_for_search = image_analysis.get("embedding_text")
+        visible_codes_from_img = image_analysis.get("visible_codes")
 
-            if embedding_text_for_search:
-                visual_query_vector = await get_text_embedding(embedding_text_for_search)
+        if embedding_text_for_search:
+            visual_query_vector = await get_text_embedding(embedding_text_for_search)
 
-                if visual_query_vector:
-                    # ADIM 1: Yüksek eşikle VisualEmbedding araması
+            if visual_query_vector:
+                # ADIM 1: Yüksek eşikle VisualEmbedding araması
+                visual_results = await search_visual_vector_db(
+                    query_vector=visual_query_vector,
+                    brand_filter=extracted_brand,
+                    limit=5,
+                    catalog_ids=catalog_ids_list,
+                    min_similarity=0.78,
+                    machine_group_filter=extracted_machine_group,
+                )
+                logger.info(f"🖼️ Visual Search (≥0.78): {len(visual_results)} sonuç")
+
+                # ADIM 2: Sonuç yoksa eşiği düşür
+                if not visual_results:
+                    logger.info("🖼️ Visual Search fallback: eşik 0.60'a düşürülüyor...")
                     visual_results = await search_visual_vector_db(
                         query_vector=visual_query_vector,
                         brand_filter=extracted_brand,
                         limit=5,
                         catalog_ids=catalog_ids_list,
-                        min_similarity=0.78,
+                        min_similarity=0.60,
                         machine_group_filter=extracted_machine_group,
                     )
-                    logger.info(f"🖼️ Visual Search (≥0.78): {len(visual_results)} sonuç")
+                    logger.info(f"🖼️ Visual Search (≥0.60): {len(visual_results)} sonuç")
 
-                    # ADIM 2: Sonuç yoksa eşiği düşür
-                    if not visual_results:
-                        logger.info("🖼️ Visual Search fallback: eşik 0.60'a düşürülüyor...")
-                        visual_results = await search_visual_vector_db(
-                            query_vector=visual_query_vector,
+                # ADIM 3: Hâlâ yok ise normal Embedding araması yap
+                if not visual_results:
+                    logger.info("🖼️ Visual Search tamamen başarısız. Normal Embedding aramasına fallback...")
+                    text_fallback_vector = await get_text_embedding(embedding_text_for_search)
+                    if text_fallback_vector:
+                        text_fallback_results = await search_vector_db(
+                            query_vector=text_fallback_vector,
                             brand_filter=extracted_brand,
                             limit=5,
                             catalog_ids=catalog_ids_list,
-                            min_similarity=0.60,
                             machine_group_filter=extracted_machine_group,
                         )
-                        logger.info(f"🖼️ Visual Search (≥0.60): {len(visual_results)} sonuç")
+                        for r in text_fallback_results:
+                            r["visual_similarity"] = r.get("similarity", 0)
+                            r["visual_match"] = False
+                        visual_results = text_fallback_results
+                        logger.info(f"📝 Text Embedding fallback: {len(visual_results)} sonuç")
 
-                    # ADIM 3: Hâlâ yok ise normal Embedding araması yap
-                    if not visual_results:
-                        logger.info("🖼️ Visual Search tamamen başarısız. Normal Embedding aramasına fallback...")
-                        text_fallback_vector = await get_text_embedding(embedding_text_for_search)
-                        if text_fallback_vector:
-                            text_fallback_results = await search_vector_db(
-                                query_vector=text_fallback_vector,
-                                brand_filter=extracted_brand,
-                                limit=5,
-                                catalog_ids=catalog_ids_list,
-                                machine_group_filter=extracted_machine_group,
-                            )
-                            for r in text_fallback_results:
-                                r["visual_similarity"] = r.get("similarity", 0)
-                                r["visual_match"] = False
-                            visual_results = text_fallback_results
-                            logger.info(f"📝 Text Embedding fallback: {len(visual_results)} sonuç")
+                # ADIM 4: Görselde kod okunmuşsa exact match de dene
+                if not visual_results and visible_codes_from_img:
+                    logger.info(f"🔍 Görseldeki kod ile exact match: {visible_codes_from_img}")
+                    code_results = await exact_match_search(
+                        visible_codes_from_img,
+                        brand_filter=extracted_brand,
+                        catalog_ids=catalog_ids_list,
+                        limit=5,
+                        machine_group_filter=extracted_machine_group,
+                    )
+                    for r in code_results:
+                        r["visual_similarity"] = 1.0
+                        r["visual_match"] = True
+                    visual_results = code_results
+                    logger.info(f"🔍 Exact match (görselden kod): {len(visual_results)} sonuç")
 
-                    # ADIM 4: Görselde kod okunmuşsa exact match de dene
-                    if not visual_results and visible_codes_from_img:
-                        logger.info(f"🔍 Görseldeki kod ile exact match: {visible_codes_from_img}")
-                        code_results = await exact_match_search(
-                            visible_codes_from_img,
-                            brand_filter=extracted_brand,
-                            catalog_ids=catalog_ids_list,
-                            limit=5,
-                            machine_group_filter=extracted_machine_group,
-                        )
-                        for r in code_results:
-                            r["visual_similarity"] = 1.0
-                            r["visual_match"] = True
-                        visual_results = code_results
-                        logger.info(f"🔍 Exact match (görselden kod): {len(visual_results)} sonuç")
+                # visual_results'ı visual_sources'a ekle
+                for vr in visual_results:
+                    p_code_db = vr.get("PartCode", "-")
+                    p_name_db = vr.get("PartName", "Bilinmeyen")
+                    p_brand_db = vr.get("MachineBrand", "-")
+                    p_model_db = vr.get("MachineModel", "")
+                    p_desc_db = vr.get("Description", "")
+                    visual_img_url = vr.get("VisualImageUrl")
+                    safe_code = urllib.parse.quote(p_code_db.strip())
+                    buy_link = f"{SHOP_BASE_URL}{safe_code}"
+                    if not any(s["code"] == p_code_db for s in visual_sources):
+                        visual_sources.append({
+                            "code": p_code_db,
+                            "name": p_name_db,
+                            "brand": p_brand_db,
+                            "buy_url": buy_link,
+                            "machine_model": p_model_db,
+                            "description": p_desc_db,
+                            "query": embedding_text_for_search,
+                            "visual_match": vr.get("visual_match", True),
+                            "visual_image_url": visual_img_url,
+                            "visual_similarity": vr.get("visual_similarity"),
+                        })
+                if visual_sources:
+                    logger.success(f"🖼️ Visual Search toplam {len(visual_sources)} eşleşme bulundu!")
 
-                    # visual_results'ı visual_sources'a ekle
-                    for vr in visual_results:
-                        p_code_db = vr.get("PartCode", "-")
-                        p_name_db = vr.get("PartName", "Bilinmeyen")
-                        p_brand_db = vr.get("MachineBrand", "-")
-                        p_model_db = vr.get("MachineModel", "")
-                        p_desc_db = vr.get("Description", "")
-                        visual_img_url = vr.get("VisualImageUrl")
-                        safe_code = urllib.parse.quote(p_code_db.strip())
-                        buy_link = f"{SHOP_BASE_URL}{safe_code}"
-                        if not any(s["code"] == p_code_db for s in visual_sources):
-                            visual_sources.append({
-                                "code": p_code_db,
-                                "name": p_name_db,
-                                "brand": p_brand_db,
-                                "buy_url": buy_link,
-                                "machine_model": p_model_db,
-                                "description": p_desc_db,
-                                "query": embedding_text_for_search,
-                                "visual_match": vr.get("visual_match", True),
-                                "visual_image_url": visual_img_url,
-                                "visual_similarity": vr.get("visual_similarity"),
-                            })
-                    if visual_sources:
-                        logger.success(f"🖼️ Visual Search toplam {len(visual_sources)} eşleşme bulundu!")
+    # Görsel eşleşmeler önce gelir
+    all_sources = list(visual_sources)
 
-        # Görsel eşleşmeler önce gelir
-        all_sources = list(visual_sources)
+    # Eğer tek parça varsa ya da liste varsa hepsini dön (Hybrid Mantığı)
+    for part in parts:
+        p_code = part.get("part_code")
+        p_name = part.get("part_name")
+        p_dim = part.get("dimensions")
 
-        # Eğer tek parça varsa ya da liste varsa hepsini dön (Hybrid Mantığı)
-        for part in parts:
-            p_code = part.get("part_code")
-            p_name = part.get("part_name")
-            p_dim = part.get("dimensions")
+        part_results = []
+        is_fallback = False
+        fallback_reason = None
+        query_vector = None  # Adım 3'te hesaplanır, 4 ve 5'te yeniden kullanılır
 
-            part_results = []
-            is_fallback = False
-            fallback_reason = None
-            query_vector = None  # Adım 3'te hesaplanır, 4 ve 5'te yeniden kullanılır
+        # HİBRİT ADIM 1: EXACT MATCH (marka + machine_group ile)
+        if p_code:
+            logger.info(f"🔍 Kod tespit edildi ({p_code}). Exact Match aranıyor...")
+            part_results = await exact_match_search(p_code, extracted_brand, catalog_ids_list, limit=5, machine_group_filter=extracted_machine_group)
 
-            # HİBRİT ADIM 1: EXACT MATCH (marka + machine_group ile)
-            if p_code:
-                logger.info(f"🔍 Kod tespit edildi ({p_code}). Exact Match aranıyor...")
-                part_results = await exact_match_search(p_code, extracted_brand, catalog_ids_list, limit=5, machine_group_filter=extracted_machine_group)
+        # HİBRİT ADIM 2: EXACT MATCH RETRY (filtresiz — kod varsa ama marka ile bulunamadıysa)
+        if not part_results and p_code and extracted_brand:
+            logger.info(f"🔄 Fallback [Adım 2]: Exact Match marka filtresi kaldırılıyor ({extracted_brand})")
+            part_results = await exact_match_search(p_code, None, catalog_ids_list, limit=5, machine_group_filter=None)
+            if part_results:
+                is_fallback = True
+                fallback_reason = "brand_removed"
 
-            # HİBRİT ADIM 2: EXACT MATCH RETRY (filtresiz — kod varsa ama marka ile bulunamadıysa)
-            if not part_results and p_code and extracted_brand:
-                logger.info(f"🔄 Fallback [Adım 2]: Exact Match marka filtresi kaldırılıyor ({extracted_brand})")
-                part_results = await exact_match_search(p_code, None, catalog_ids_list, limit=5, machine_group_filter=None)
+        # HİBRİT ADIM 3: VECTOR SEARCH (marka + machine_group ile)
+        if not part_results and p_name:
+            logger.info(f"🧠 Kod yok veya bulunamadı. Vektör (Semantic) aranıyor: {p_name}")
+            # Vektör gücünü arttırmak için ölçüyü de ekle
+            search_query = f"{p_name} {p_dim}" if p_dim else p_name
+            query_vector = await get_text_embedding(search_query)
+
+            if query_vector:
+                part_results = await search_vector_db(
+                    query_vector,
+                    brand_filter=extracted_brand,
+                    limit=5,
+                    catalog_ids=catalog_ids_list,
+                    machine_group_filter=extracted_machine_group,
+                )
+                logger.info(f"🧠 Vector Search (filtreli): {len(part_results)} sonuç")
+
+        # HİBRİT ADIM 4: VECTOR SEARCH RETRY (sadece machine_group kaldır, marka tut)
+        if not part_results and p_name and extracted_machine_group:
+            logger.info(f"🔄 Fallback [Adım 4]: machine_group filtresi kaldırıldı ({extracted_machine_group}), brand={extracted_brand} korundu")
+            if query_vector:
+                part_results = await search_vector_db(
+                    query_vector,
+                    brand_filter=extracted_brand,
+                    limit=5,
+                    catalog_ids=catalog_ids_list,
+                    machine_group_filter=None,
+                )
+                logger.info(f"🧠 Vector Search (machine_group'suz): {len(part_results)} sonuç")
                 if part_results:
                     is_fallback = True
-                    fallback_reason = "brand_removed"
+                    fallback_reason = "machine_group_removed"
 
-            # HİBRİT ADIM 3: VECTOR SEARCH (marka + machine_group ile)
-            if not part_results and p_name:
-                logger.info(f"🧠 Kod yok veya bulunamadı. Vektör (Semantic) aranıyor: {p_name}")
-                # Vektör gücünü arttırmak için ölçüyü de ekle
-                search_query = f"{p_name} {p_dim}" if p_dim else p_name
-                query_vector = await get_text_embedding(search_query)
+        # HİBRİT ADIM 5: VECTOR SEARCH RETRY (marka da kaldır, tamamen filtresiz)
+        if not part_results and p_name and extracted_brand:
+            logger.info(f"🔄 Fallback [Adım 5]: brand filtresi de kaldırıldı ({extracted_brand}), filtresiz arama yapılıyor")
+            if query_vector:
+                part_results = await search_vector_db(
+                    query_vector,
+                    brand_filter=None,
+                    limit=5,
+                    catalog_ids=catalog_ids_list,
+                    machine_group_filter=None,
+                )
+                logger.info(f"🧠 Vector Search (filtresiz): {len(part_results)} sonuç")
+                if part_results:
+                    is_fallback = True
+                    fallback_reason = "all_filters_removed"
 
-                if query_vector:
-                    part_results = await search_vector_db(
-                        query_vector,
-                        brand_filter=extracted_brand,
-                        limit=5,
-                        catalog_ids=catalog_ids_list,
-                        machine_group_filter=extracted_machine_group,
-                    )
-                    logger.info(f"🧠 Vector Search (filtreli): {len(part_results)} sonuç")
+        # Sonuçları listeye toparla
+        for p in part_results:
+            p_code_db = p.get('PartCode', '-')
+            p_name_db = p.get('PartName', 'Bilinmeyen')
+            p_brand_db = p.get('MachineBrand', '-')
+            p_model_db = p.get('MachineModel', '')
+            p_desc_db = p.get('Description', '')
 
-            # HİBRİT ADIM 4: VECTOR SEARCH RETRY (sadece machine_group kaldır, marka tut)
-            if not part_results and p_name and extracted_machine_group:
-                logger.info(f"🔄 Fallback [Adım 4]: machine_group filtresi kaldırıldı ({extracted_machine_group}), brand={extracted_brand} korundu")
-                if query_vector:
-                    part_results = await search_vector_db(
-                        query_vector,
-                        brand_filter=extracted_brand,
-                        limit=5,
-                        catalog_ids=catalog_ids_list,
-                        machine_group_filter=None,
-                    )
-                    logger.info(f"🧠 Vector Search (machine_group'suz): {len(part_results)} sonuç")
-                    if part_results:
-                        is_fallback = True
-                        fallback_reason = "machine_group_removed"
+            safe_code = urllib.parse.quote(p_code_db.strip())
+            buy_link = f"{SHOP_BASE_URL}{safe_code}"
 
-            # HİBRİT ADIM 5: VECTOR SEARCH RETRY (marka da kaldır, tamamen filtresiz)
-            if not part_results and p_name and extracted_brand:
-                logger.info(f"🔄 Fallback [Adım 5]: brand filtresi de kaldırıldı ({extracted_brand}), filtresiz arama yapılıyor")
-                if query_vector:
-                    part_results = await search_vector_db(
-                        query_vector,
-                        brand_filter=None,
-                        limit=5,
-                        catalog_ids=catalog_ids_list,
-                        machine_group_filter=None,
-                    )
-                    logger.info(f"🧠 Vector Search (filtresiz): {len(part_results)} sonuç")
-                    if part_results:
-                        is_fallback = True
-                        fallback_reason = "all_filters_removed"
+            # Mükerrerliği önle
+            if not any(s['code'] == p_code_db for s in all_sources):
+                source_entry = {
+                    "code": p_code_db,
+                    "name": p_name_db,
+                    "brand": p_brand_db,
+                    "buy_url": buy_link,
+                    "machine_model": p_model_db,
+                    "description": p_desc_db,
+                    "query": p_name or p_code,
+                }
+                if is_fallback:
+                    source_entry["fallback"] = True
+                    source_entry["fallback_reason"] = fallback_reason
+                all_sources.append(source_entry)
 
-            # Sonuçları listeye toparla
-            for p in part_results:
-                p_code_db = p.get('PartCode', '-')
-                p_name_db = p.get('PartName', 'Bilinmeyen')
-                p_brand_db = p.get('MachineBrand', '-')
-                p_model_db = p.get('MachineModel', '')
-                p_desc_db = p.get('Description', '')
+    logger.success(f"📦 Toplam Bulunan Benzersiz Sonuç: {len(all_sources)}")
 
-                safe_code = urllib.parse.quote(p_code_db.strip())
-                buy_link = f"{SHOP_BASE_URL}{safe_code}"
+    if not all_sources:
+        msg = "Ustam, veritabanında bu parçaya uygun bir sonuç bulamadım. Marka veya kod doğru mu?"
+        return {"early": True, "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}}
 
-                # Mükerrerliği önle
-                if not any(s['code'] == p_code_db for s in all_sources):
-                    source_entry = {
-                        "code": p_code_db,
-                        "name": p_name_db,
-                        "brand": p_brand_db,
-                        "buy_url": buy_link,
-                        "machine_model": p_model_db,
-                        "description": p_desc_db,
-                        "query": p_name or p_code,
-                    }
-                    if is_fallback:
-                        source_entry["fallback"] = True
-                        source_entry["fallback_reason"] = fallback_reason
-                    all_sources.append(source_entry)
+    # 4. Gemini'ye verilecek Context Metni
+    context_lines = []
+    for s in all_sources[:10]: # Gemini'ye çok yüklenmemek için ilk 10
+        line = f"- Marka: {s['brand']} | Model: {s['machine_model']} | Parça: {s['name']} (Kod: {s['code']}) | Detay: {s['description']}"
+        context_lines.append(line)
 
-        logger.success(f"📦 Toplam Bulunan Benzersiz Sonuç: {len(all_sources)}")
+    context_text = "\n".join(context_lines)
 
-        if not all_sources:
-            msg = "Ustam, veritabanında bu parçaya uygun bir sonuç bulamadım. Marka veya kod doğru mu?"
-            return {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}
-
-        # 4. Gemini'ye verilecek Context Metni
-        context_lines = []
-        for s in all_sources[:10]: # Gemini'ye çok yüklenmemek için ilk 10
-            line = f"- Marka: {s['brand']} | Model: {s['machine_model']} | Parça: {s['name']} (Kod: {s['code']}) | Detay: {s['description']}"
-            context_lines.append(line)
-            
-        context_text = "\n".join(context_lines)
-
-        # History'yi parse et
+    # History'yi parse et
+    history_text = ""
+    try:
+        history_list = json.loads(history) if isinstance(history, str) else (history or [])
+        recent = history_list[-6:] if len(history_list) > 6 else history_list
+        lines = []
+        for msg in recent:
+            role_label = "Kullanıcı" if msg.get("role") == "user" else "Sen (Asistan)"
+            lines.append(f"{role_label}: {msg.get('text', '').strip()}")
+        history_text = "\n".join(lines)
+    except Exception:
         history_text = ""
-        try:
-            history_list = json.loads(history) if isinstance(history, str) else (history or [])
-            recent = history_list[-6:] if len(history_list) > 6 else history_list
-            lines = []
-            for msg in recent:
-                role_label = "Kullanıcı" if msg.get("role") == "user" else "Sen (Asistan)"
-                lines.append(f"{role_label}: {msg.get('text', '').strip()}")
-            history_text = "\n".join(lines)
-        except Exception:
-            history_text = ""
 
-        # 5. FİNAL CEVAP
-        final_prompt = f"""
+    # 5. FİNAL PROMPT
+    final_prompt = f"""
 Sen sanayi yedek parça uzmanısın (Partalog AI). Kısa, samimi, usta ağzıyla konuş.
 
 {"SOHBET GEÇMİŞİ (bağlam için kullan):" + chr(10) + history_text + chr(10) if history_text else ""}
@@ -616,8 +622,36 @@ GÖREV:
 4. Maksimum 3-4 cümle yaz.
 """
 
+    return {
+        "early": False,
+        "user_query": user_query,
+        "all_sources": all_sources,
+        "analysis": analysis,
+        "final_prompt": final_prompt,
+    }
+
+
+# =========================================================
+# 🧠 ANA CHAT ENDPOINT (HİBRİT ARAMA EKLENDİ)
+# =========================================================
+@router.post("/send")
+@router.post("/expert-chat")
+@limiter.limit(CHAT_RATE_LIMIT)
+async def chat_endpoint(
+    request: Request,
+    text: str = Form(None),
+    message: str = Form(None),
+    history: str = Form("[]"),
+    catalog_ids: str = Form("[]"),
+    file: UploadFile = File(None),
+):
+    try:
+        ctx = await _prepare_chat_context(text, message, history, catalog_ids, file)
+        if ctx["early"]:
+            return ctx["response"]
+
         async with aiohttp.ClientSession() as session:
-            payload = {"contents": [{"parts": [{"text": final_prompt}]}]}
+            payload = {"contents": [{"parts": [{"text": ctx["final_prompt"]}]}]}
             async with session.post(GEMINI_API_URL, json=payload) as resp:
                 if resp.status == 200:
                     ai_reply = (await resp.json())["candidates"][0]["content"]["parts"][0]["text"]
@@ -627,8 +661,8 @@ GÖREV:
         return {
             "answer": ai_reply,
             "reply": ai_reply,
-            "sources": all_sources,
-            "debug_intent": analysis
+            "sources": ctx["all_sources"],
+            "debug_intent": ctx["analysis"],
         }
 
     except Exception as e:
@@ -637,8 +671,59 @@ GÖREV:
             "answer": "Sistemsel bir hata oluştu ustam.",
             "reply": "Hata",
             "sources": [],
-            "debug_intent": None
+            "debug_intent": None,
         }
+
+
+# =========================================================
+# 🌊 STREAMING CHAT ENDPOINT (SSE)
+# =========================================================
+@router.post("/stream")
+async def chat_stream_endpoint(
+    text: str = Form(None),
+    message: str = Form(None),
+    history: str = Form("[]"),
+    catalog_ids: str = Form("[]"),
+    file: UploadFile = File(None),
+):
+    async def event_generator():
+        try:
+            ctx = await _prepare_chat_context(text, message, history, catalog_ids, file)
+            if ctx["early"]:
+                resp = ctx["response"]
+                yield f"data: {json.dumps({'type': 'sources', 'sources': resp.get('sources', []), 'debug_intent': resp.get('debug_intent')})}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'token': resp.get('answer', '')})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+
+            # Kaynakları stream başında tek seferlik gönder
+            yield f"data: {json.dumps({'type': 'sources', 'sources': ctx['all_sources'], 'debug_intent': ctx['analysis']})}\n\n"
+
+            # Gemini streamGenerateContent çağrısı
+            payload = {"contents": [{"parts": [{"text": ctx["final_prompt"]}]}]}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(GEMINI_STREAM_URL, json=payload) as resp:
+                    async for line in resp.content:
+                        decoded = line.decode("utf-8").strip()
+                        if decoded.startswith("data:"):
+                            raw = decoded[5:].strip()
+                            if raw == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(raw)
+                                token = chunk["candidates"][0]["content"]["parts"][0]["text"]
+                                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+                            except Exception as parse_err:
+                                logger.debug(f"SSE chunk parse atlandı: {parse_err} | raw={raw[:80]}")
+                                continue
+
+        except Exception as e:
+            logger.error(f"Chat Stream Hatası: {e}")
+            yield f"data: {json.dumps({'type': 'token', 'token': 'Sistemsel bir hata oluştu ustam.'})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/visual-feedback")

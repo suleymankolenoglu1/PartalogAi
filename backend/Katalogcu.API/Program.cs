@@ -57,6 +57,13 @@ builder.Services.AddHttpClient<IPartalogAiService, PartalogAiService>(client =>
 })
 .AddPolicyHandler(GetRetryPolicy()); // 👈 Hata Telafisi Eklendi
 
+// Named HttpClient for direct proxying (e.g. SSE streaming)
+builder.Services.AddHttpClient("PartalogAi", client =>
+{
+    client.BaseAddress = new Uri("http://127.0.0.1:8000/");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+
 // Controller ve JSON Ayarları
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
