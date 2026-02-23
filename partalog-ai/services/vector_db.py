@@ -89,7 +89,7 @@ async def _release_conn(conn, from_pool: bool):
 # =============================================
 # 🔍 EXACT MATCH
 # =============================================
-async def exact_match_search(part_code: str, brand_filter: str = None, catalog_ids: list = None, limit: int = 5, machine_group_filter: str = None):
+async def exact_match_search(part_code: str, brand_filter: str = None, catalog_ids: list = None, limit: int = 5, machine_group_filter: str = None, min_similarity: float = 0.0):
     """
     Vektör (Semantic) arama YAPMADAN, parça koduna (PartCode) göre birebir/yakın eşleşme arar.
     Chatbot'ta kod belirtilmişse ilk olarak "Hard-Boost" için kullanılır.
@@ -136,7 +136,11 @@ async def exact_match_search(part_code: str, brand_filter: str = None, catalog_i
         params.append(limit)
 
         results = await conn.fetch(sql, *params)
-        return [dict(row) for row in results]
+        rows = [dict(row) for row in results]
+
+        # Minimum similarity filtresi
+        rows = [r for r in rows if r.get("similarity", 0) >= min_similarity]
+        return rows
 
     except Exception as e:
         logger.error(f"❌ Exact Match Arama Hatası: {e}")
@@ -148,7 +152,7 @@ async def exact_match_search(part_code: str, brand_filter: str = None, catalog_i
 # =============================================
 # 🧠 VECTOR SEARCH (Semantic / Embedding)
 # =============================================
-async def search_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, machine_group_filter: str = None):
+async def search_vector_db(query_vector: list, brand_filter: str = None, limit: int = 5, catalog_ids: list = None, machine_group_filter: str = None, min_similarity: float = 0.3):
     """
     Vektörel benzerlik (Semantic) araması yapar.
     """
@@ -197,7 +201,11 @@ async def search_vector_db(query_vector: list, brand_filter: str = None, limit: 
         params.append(limit)
 
         results = await conn.fetch(sql, *params)
-        return [dict(row) for row in results]
+        rows = [dict(row) for row in results]
+
+        # Minimum similarity filtresi — alakasız sonuçları eler
+        rows = [r for r in rows if r.get("similarity", 0) >= min_similarity]
+        return rows
 
     except Exception as e:
         logger.error(f"❌ Vektör Arama Hatası: {e}")
