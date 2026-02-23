@@ -19,9 +19,14 @@ import uuid
 from PIL import Image
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, Form, File, UploadFile
+from fastapi import APIRouter, Form, File, UploadFile, Request
 from loguru import logger
 from config import settings
+from core.rate_limiter import limiter
+
+# Rate limit constants
+CHAT_RATE_LIMIT = "10/minute"
+VISUAL_FEEDBACK_RATE_LIMIT = "5/minute"
 
 # ✅ Gerekli Servisler (exact_match_search eklendi)
 from services.embedding import get_text_embedding 
@@ -262,7 +267,9 @@ def split_terms(text: str):
 # =========================================================
 @router.post("/send")
 @router.post("/expert-chat")
+@limiter.limit(CHAT_RATE_LIMIT)
 async def chat_endpoint(
+    request: Request,
     text: str = Form(None),   
     message: str = Form(None),
     history: str = Form("[]"),
@@ -587,7 +594,9 @@ GÖREV:
 
 
 @router.post("/visual-feedback")
+@limiter.limit(VISUAL_FEEDBACK_RATE_LIMIT)
 async def visual_feedback_endpoint(
+    request: Request,
     # ... (Burası senin orijinal dosyanla tamamen aynı) ...
     file: UploadFile = File(...),
     part_name: str = Form(None),

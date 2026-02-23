@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
 from pydantic import BaseModel
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import sys
 import os
 import uvicorn
@@ -17,6 +19,9 @@ import time
 
 # --- 2. Ayarlar ---
 from config import settings
+
+# --- 3. Rate Limiter ---
+from core.rate_limiter import limiter
 
 # --- 3. Servisler ---
 # services/embedding.py -> Senin sisteminde 3072 boyutlu vektör üretiyor.
@@ -90,7 +95,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# --- 8. CORS (Güvenlik İzinleri) ---
+# --- 8. Rate Limiter ---
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# --- 9. CORS (Güvenlik İzinleri) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 

@@ -261,7 +261,15 @@ namespace Katalogcu.API.Controllers
             var visualEmbeddingCount = await _context.CatalogItems
                 .CountAsync(ci => ci.Catalog.UserId == userId && ci.VisualEmbedding != null);
 
-            return Ok(new { TotalCatalogs = totalCatalogs, TotalParts = totalParts, TotalViews = 15240, PendingCount = pendingCount, RecentCatalogs = recentCatalogs, VisualEmbeddingCount = visualEmbeddingCount });
+            return Ok(new
+            {
+                TotalCatalogs = totalCatalogs,
+                TotalParts = totalParts,
+                TotalViews = 0, // TODO: gerçek view tracking henüz implemente edilmedi
+                PendingCount = pendingCount,
+                RecentCatalogs = recentCatalogs,
+                VisualEmbeddingCount = visualEmbeddingCount
+            });
         }
 
         [HttpGet]

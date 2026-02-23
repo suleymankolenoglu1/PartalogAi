@@ -9,6 +9,9 @@ import { CommonModule } from '@angular/common';
   styleUrl: './customers.css'
 })
 export class CustomersComponent {
+  // TODO: Backend API'den gerçek müşteri verisi çekilecek
+  isPlaceholderData = true;
+
   // Sahte Müşteri Listesi
   customers = [
     { 
