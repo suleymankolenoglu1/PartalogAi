@@ -250,6 +250,9 @@ export class PublicViewComponent implements OnInit {
         } else if (event.type === 'token') {
           streamingText += event.token;
           streamingMsg.text = streamingText;
+          if (this.aiState.response) {
+            this.aiState.response = { ...this.aiState.response, replySuggestion: streamingText };
+          }
         } else if (event.type === 'done') {
           streamingMsg.isStreaming = false;
           this.aiState.isLoading = false;
