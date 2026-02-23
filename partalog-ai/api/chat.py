@@ -477,29 +477,73 @@ async def chat_endpoint(
             p_code = part.get("part_code")
             p_name = part.get("part_name")
             p_dim = part.get("dimensions")
-            
+
             part_results = []
-            
-            # HİBRİT ADIM 1: EXACT MATCH (TAM EŞLEŞME)
+            is_fallback = False
+            fallback_reason = None
+            query_vector = None  # Adım 3'te hesaplanır, 4 ve 5'te yeniden kullanılır
+
+            # HİBRİT ADIM 1: EXACT MATCH (marka + machine_group ile)
             if p_code:
                 logger.info(f"🔍 Kod tespit edildi ({p_code}). Exact Match aranıyor...")
                 part_results = await exact_match_search(p_code, extracted_brand, catalog_ids_list, limit=5, machine_group_filter=extracted_machine_group)
-            
-            # HİBRİT ADIM 2: VECTOR SEARCH (Eğer kod yoksa veya kodla bulunamadıysa)
+
+            # HİBRİT ADIM 2: EXACT MATCH RETRY (filtresiz — kod varsa ama marka ile bulunamadıysa)
+            if not part_results and p_code and extracted_brand:
+                logger.info(f"🔄 Fallback [Adım 2]: Exact Match marka filtresi kaldırılıyor ({extracted_brand})")
+                part_results = await exact_match_search(p_code, None, catalog_ids_list, limit=5, machine_group_filter=None)
+                if part_results:
+                    is_fallback = True
+                    fallback_reason = "brand_removed"
+
+            # HİBRİT ADIM 3: VECTOR SEARCH (marka + machine_group ile)
             if not part_results and p_name:
                 logger.info(f"🧠 Kod yok veya bulunamadı. Vektör (Semantic) aranıyor: {p_name}")
                 # Vektör gücünü arttırmak için ölçüyü de ekle
                 search_query = f"{p_name} {p_dim}" if p_dim else p_name
                 query_vector = await get_text_embedding(search_query)
-                
+
                 if query_vector:
                     part_results = await search_vector_db(
-                        query_vector, 
-                        brand_filter=extracted_brand, 
+                        query_vector,
+                        brand_filter=extracted_brand,
                         limit=5,
                         catalog_ids=catalog_ids_list,
                         machine_group_filter=extracted_machine_group,
                     )
+                    logger.info(f"🧠 Vector Search (filtreli): {len(part_results)} sonuç")
+
+            # HİBRİT ADIM 4: VECTOR SEARCH RETRY (sadece machine_group kaldır, marka tut)
+            if not part_results and p_name and extracted_machine_group:
+                logger.info(f"🔄 Fallback [Adım 4]: machine_group filtresi kaldırıldı ({extracted_machine_group}), brand={extracted_brand} korundu")
+                if query_vector:
+                    part_results = await search_vector_db(
+                        query_vector,
+                        brand_filter=extracted_brand,
+                        limit=5,
+                        catalog_ids=catalog_ids_list,
+                        machine_group_filter=None,
+                    )
+                    logger.info(f"🧠 Vector Search (machine_group'suz): {len(part_results)} sonuç")
+                    if part_results:
+                        is_fallback = True
+                        fallback_reason = "machine_group_removed"
+
+            # HİBRİT ADIM 5: VECTOR SEARCH RETRY (marka da kaldır, tamamen filtresiz)
+            if not part_results and p_name and extracted_brand:
+                logger.info(f"🔄 Fallback [Adım 5]: brand filtresi de kaldırıldı ({extracted_brand}), filtresiz arama yapılıyor")
+                if query_vector:
+                    part_results = await search_vector_db(
+                        query_vector,
+                        brand_filter=None,
+                        limit=5,
+                        catalog_ids=catalog_ids_list,
+                        machine_group_filter=None,
+                    )
+                    logger.info(f"🧠 Vector Search (filtresiz): {len(part_results)} sonuç")
+                    if part_results:
+                        is_fallback = True
+                        fallback_reason = "all_filters_removed"
 
             # Sonuçları listeye toparla
             for p in part_results:
@@ -508,21 +552,25 @@ async def chat_endpoint(
                 p_brand_db = p.get('MachineBrand', '-')
                 p_model_db = p.get('MachineModel', '')
                 p_desc_db = p.get('Description', '')
-                
+
                 safe_code = urllib.parse.quote(p_code_db.strip())
                 buy_link = f"{SHOP_BASE_URL}{safe_code}"
 
                 # Mükerrerliği önle
                 if not any(s['code'] == p_code_db for s in all_sources):
-                    all_sources.append({
+                    source_entry = {
                         "code": p_code_db,
                         "name": p_name_db,
                         "brand": p_brand_db,
                         "buy_url": buy_link,
                         "machine_model": p_model_db,
                         "description": p_desc_db,
-                        "query": p_name or p_code
-                    })
+                        "query": p_name or p_code,
+                    }
+                    if is_fallback:
+                        source_entry["fallback"] = True
+                        source_entry["fallback_reason"] = fallback_reason
+                    all_sources.append(source_entry)
 
         logger.success(f"📦 Toplam Bulunan Benzersiz Sonuç: {len(all_sources)}")
 
