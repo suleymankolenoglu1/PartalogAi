@@ -243,13 +243,16 @@ export class PublicViewComponent implements OnInit {
             visualSimilarity: part.visualSimilarity ?? null,
           }));
           streamingMsg.products = mappedProducts;
+          this.aiState.isLoading = false;
           this.aiState.response = {
             replySuggestion: '',
             products: mappedProducts,
           };
+          this.messages = [...this.messages];
         } else if (event.type === 'token') {
           streamingText += event.token;
           streamingMsg.text = streamingText;
+          this.messages = [...this.messages];
           if (this.aiState.response) {
             this.aiState.response = { ...this.aiState.response, replySuggestion: streamingText };
           }
@@ -260,6 +263,7 @@ export class PublicViewComponent implements OnInit {
             replySuggestion: streamingText,
             products: streamingMsg.products || [],
           };
+          this.messages = [...this.messages];
           this.chatHistory.push({ role: 'assistant', text: streamingText });
           this.saveHistory();
           this.feedbackMessage = null;
@@ -271,6 +275,7 @@ export class PublicViewComponent implements OnInit {
         this.aiState.isLoading = false;
         streamingMsg.text = '⚠️ Bağlantı hatası, lütfen tekrar deneyin.';
         streamingMsg.isStreaming = false;
+        this.messages = [...this.messages];
       }
     });
   }
