@@ -287,6 +287,131 @@ input::placeholder {
     text-align: left;
 }
 
+/* Chat text feedback panel */
+.chat-feedback-panel {
+    margin-top: 12px;
+    max-width: 560px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 12px;
+}
+
+.chat-feedback-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.chat-feedback-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.chat-feedback-btn {
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    color: #111827;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.chat-feedback-btn:hover:not(:disabled) {
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+
+.chat-feedback-btn.selected {
+    border-color: #2563eb;
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.chat-feedback-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.chat-feedback-reason {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    font-size: 12px;
+    color: #111827;
+    padding: 8px 10px;
+    resize: vertical;
+    min-height: 52px;
+}
+
+.chat-feedback-reason:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.chat-feedback-ok {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #065f46;
+}
+
+.chat-feedback-err {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #b91c1c;
+}
+
+/* Source transparency chips */
+.source-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.source-chip {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #e5e7eb;
+    background: #f8fafc;
+    color: #334155;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+}
+
+.source-chip-score {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.source-chip-visual {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.source-chip-warn {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.source-query {
+    margin-top: 3px;
+    font-size: 10px;
+    color: #64748b;
+    line-height: 1.2;
+}
+
 /* Yükleniyor: 3 nokta animasyonu */
 .loading-dots {
     display: flex;

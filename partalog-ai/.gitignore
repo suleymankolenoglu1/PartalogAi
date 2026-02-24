@@ -38,3 +38,7 @@ env/
 **/output/
 **/temp/
 .DS_Store
+
+# Eval outputs (may include sensitive tokens in case snapshots)
+eval/report*.json
+eval/report*.md

@@ -1,8 +1,36 @@
 import aiohttp
 import asyncio
+import os
+import time
 from loguru import logger
 from config import settings
-import os
+
+# Simple in-memory cache to reduce duplicate embedding calls
+_cache: dict[str, tuple[float, list]] = {}
+_cache_lock = asyncio.Lock()
+_CACHE_TTL_SECONDS = 300
+_CACHE_MAX = 200
+
+
+async def _cache_get(text: str):
+    now = time.time()
+    async with _cache_lock:
+        item = _cache.get(text)
+        if not item:
+            return None
+        ts, vec = item
+        if now - ts > _CACHE_TTL_SECONDS:
+            _cache.pop(text, None)
+            return None
+        return vec
+
+
+async def _cache_set(text: str, vec: list):
+    async with _cache_lock:
+        if len(_cache) >= _CACHE_MAX:
+            oldest_key = min(_cache.items(), key=lambda x: x[1][0])[0]
+            _cache.pop(oldest_key, None)
+        _cache[text] = (time.time(), vec)
 
 async def get_text_embedding(text: str):
     """
@@ -11,6 +39,12 @@ async def get_text_embedding(text: str):
     Veritabanı 3072 boyutuna güncellendiği için veri olduğu gibi (RAW) iletilir.
     """
     
+    # 0. Cache
+    if text:
+        cached = await _cache_get(text)
+        if cached:
+            return cached
+
     # 1. API Key Alma
     raw_api_key = getattr(settings, "GOOGLE_API_KEY", None) or \
                   os.getenv("GOOGLE_API_KEY") or \
@@ -55,6 +89,7 @@ async def get_text_embedding(text: str):
                      logger.warning(f"⚠️ Dikkat: Vektör boyutu beklenenden küçük geldi: {vec_len}")
                 
                 # Veritabanı 3072 olduğu için, 3072 gelen veriyi olduğu gibi yolluyoruz.
+                await _cache_set(text, vector)
                 return vector
 
     except Exception as e:

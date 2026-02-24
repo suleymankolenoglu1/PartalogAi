@@ -1,78 +1,170 @@
 <div class="flex flex-col gap-6 bg-[#F9F8F6] p-6 min-h-screen text-blue-900 font-sans">
-    
-    <div class="max-w-2xl mx-auto w-full">
-        
-        <div class="flex items-center gap-4 mb-8">
-            <a routerLink="/dashboard/parts" class="p-2 rounded-full hover:bg-blue-100 text-blue-600 transition-colors">
-                <span class="material-symbols-outlined">arrow_back</span>
-            </a>
-            <div>
-                <h1 class="text-2xl font-bold text-blue-950">Toplu Parça Yükle</h1>
-                <p class="text-blue-700/70">Excel dosyanızdaki ürünleri hızlıca içeri aktarın.</p>
-            </div>
-        </div>
-
-        <div class="bg-white p-8 rounded-xl shadow-sm border border-blue-100">
-            
-            <div class="mb-6">
-                <label class="block text-sm font-bold text-blue-950 mb-2">Hangi Kataloğa Eklenecek?</label>
-                <div class="relative">
-                    <select [(ngModel)]="selectedCatalogId" class="w-full h-12 px-4 rounded-lg bg-blue-50 border border-blue-100 text-blue-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer appearance-none">
-                        <option value="" disabled selected>Bir katalog seçin</option>
-                        @for (cat of catalogs; track cat.id) {
-                            <option [value]="cat.id">{{ cat.name }}</option>
-                        }
-                    </select>
-                    <span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none">expand_more</span>
-                </div>
-            </div>
-
-            <div class="mb-8">
-                <label class="block text-sm font-bold text-blue-950 mb-2">Excel Dosyası (.xlsx)</label>
-                
-                <label class="cursor-pointer bg-white border-2 border-dashed border-blue-200 hover:border-green-500 hover:bg-green-50 transition-all rounded-lg p-10 w-full text-center group flex flex-col items-center justify-center gap-3">
-                    <input type="file" (change)="onFileSelected($event)" accept=".xlsx" class="hidden">
-                    
-                    @if (!selectedFile) {
-                        <span class="material-symbols-outlined text-5xl text-blue-300 group-hover:text-green-500 transition-colors">table_view</span>
-                        <div class="text-center">
-                            <span class="text-sm font-bold text-blue-900 group-hover:text-green-700 transition-colors">Dosya seçmek için tıklayın</span>
-                            <p class="text-xs text-blue-400 mt-1">Desteklenen format: .xlsx</p>
-                        </div>
-                    } @else {
-                        <span class="material-symbols-outlined text-5xl text-green-500 animate-bounce">description</span>
-                        <span class="text-lg font-bold text-green-700">{{ selectedFile.name }}</span>
-                        <span class="text-xs text-green-600 font-medium bg-green-100 px-2 py-1 rounded-full">Dosya yüklenecek</span>
-                    }
-                </label>
-            </div>
-
-            <div class="mb-8 p-4 bg-blue-50 border border-blue-100 text-blue-800 text-sm rounded-lg flex gap-3 items-start">
-                <span class="material-symbols-outlined text-xl shrink-0 text-blue-600">info</span>
-                <div>
-                    <p class="font-bold mb-1 text-blue-900">Excel Formatı Nasıl Olmalı?</p>
-                    <p>Sütun sırası: <strong class="text-blue-950">Ad | Kod | Kategori | Fiyat | Stok | Açıklama</strong></p>
-                    <p class="mt-1 text-blue-500 text-xs">İlk satır başlık olarak kabul edilir ve atlanır.</p>
-                </div>
-            </div>
-
-            <div class="flex gap-4 pt-4 border-t border-blue-100">
-                <button routerLink="/dashboard/parts" class="flex-1 h-12 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 font-bold transition-colors">
-                    İptal
-                </button>
-                
-                <button (click)="onUpload()" [disabled]="isUploading || !selectedCatalogId || !selectedFile" 
-                        class="flex-[2] h-12 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-600/20">
-                    @if (isUploading) {
-                        <span class="material-symbols-outlined animate-spin">sync</span>
-                        İçeri Aktarılıyor...
-                    } @else {
-                        <span class="material-symbols-outlined">upload</span>
-                        Yüklemeyi Başlat
-                    }
-                </button>
-            </div>
-
-        </div>
+  <div class="max-w-3xl mx-auto w-full">
+    <div class="flex items-center gap-4 mb-8">
+      <a routerLink="/dashboard/parts" class="p-2 rounded-full hover:bg-blue-100 text-blue-600 transition-colors">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </a>
+      <div>
+        <h1 class="text-2xl font-bold text-blue-950">Parça Aktarım Merkezi</h1>
+        <p class="text-blue-700/70">Yeni ürün import veya mevcut stok güncellemesi yapın.</p>
+      </div>
     </div>
+
+    <div class="bg-white p-8 rounded-xl shadow-sm border border-blue-100">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+        <button
+          (click)="setMode('stock')"
+          [class]="selectedMode === 'stock' ? 'h-11 rounded-lg bg-blue-700 text-white font-semibold' : 'h-11 rounded-lg border border-blue-200 text-blue-700 font-semibold hover:bg-blue-50'"
+        >
+          Stok Güncelle (CSV/XLSX)
+        </button>
+        <button
+          (click)="setMode('catalog')"
+          [class]="selectedMode === 'catalog' ? 'h-11 rounded-lg bg-blue-700 text-white font-semibold' : 'h-11 rounded-lg border border-blue-200 text-blue-700 font-semibold hover:bg-blue-50'"
+        >
+          Yeni Ürün Import (XLSX)
+        </button>
+      </div>
+
+      @if (selectedMode === 'stock') {
+        <div class="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
+          <p class="text-sm font-semibold text-blue-900 mb-2">Stok import modu</p>
+          <div class="flex flex-col md:flex-row gap-3">
+            <label class="flex items-center gap-2 text-sm text-blue-900">
+              <input type="radio" name="stockImportMode" [(ngModel)]="stockImportMode" value="update_only" />
+              Sadece mevcut ürünleri güncelle
+            </label>
+            <label class="flex items-center gap-2 text-sm text-blue-900">
+              <input type="radio" name="stockImportMode" [(ngModel)]="stockImportMode" value="upsert" />
+              Ürün yoksa oluştur (upsert)
+            </label>
+          </div>
+        </div>
+      }
+
+      @if (selectedMode === 'catalog' || stockImportMode === 'upsert') {
+        <div class="mb-6">
+          <label class="block text-sm font-bold text-blue-950 mb-2">Katalog Seçimi</label>
+          <div class="relative">
+            <select
+              [(ngModel)]="selectedCatalogId"
+              class="w-full h-12 px-4 rounded-lg bg-blue-50 border border-blue-100 text-blue-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer appearance-none"
+            >
+              <option value="" disabled selected>Bir katalog seçin</option>
+              @for (cat of catalogs; track cat.id) {
+                <option [value]="cat.id">{{ cat.name }}</option>
+              }
+            </select>
+            <span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none">expand_more</span>
+          </div>
+        </div>
+      }
+
+      <div class="mb-8">
+        <label class="block text-sm font-bold text-blue-950 mb-2">
+          Dosya Seçimi
+          @if (selectedMode === 'catalog') {
+            <span class="text-xs text-blue-500">(.xlsx)</span>
+          } @else {
+            <span class="text-xs text-blue-500">(.csv veya .xlsx)</span>
+          }
+        </label>
+
+        <label class="cursor-pointer bg-white border-2 border-dashed border-blue-200 hover:border-green-500 hover:bg-green-50 transition-all rounded-lg p-10 w-full text-center group flex flex-col items-center justify-center gap-3">
+          <input type="file" (change)="onFileSelected($event)" [attr.accept]="selectedMode === 'catalog' ? '.xlsx' : '.xlsx,.csv'" class="hidden" />
+
+          @if (!selectedFile) {
+            <span class="material-symbols-outlined text-5xl text-blue-300 group-hover:text-green-500 transition-colors">upload_file</span>
+            <div class="text-center">
+              <span class="text-sm font-bold text-blue-900 group-hover:text-green-700 transition-colors">Dosya seçmek için tıklayın</span>
+            </div>
+          } @else {
+            <span class="material-symbols-outlined text-5xl text-green-500">description</span>
+            <span class="text-lg font-bold text-green-700">{{ selectedFile.name }}</span>
+          }
+        </label>
+      </div>
+
+      <div class="mb-8 p-4 bg-blue-50 border border-blue-100 text-blue-800 text-sm rounded-lg flex gap-3 items-start">
+        <span class="material-symbols-outlined text-xl shrink-0 text-blue-600">info</span>
+        <div>
+          @if (selectedMode === 'catalog') {
+            <p class="font-bold mb-1 text-blue-900">Ürün Import Formatı</p>
+            <p>Sütun sırası: <strong class="text-blue-950">Ad | Kod | Kategori | Fiyat | Stok | Açıklama</strong></p>
+          } @else {
+            <p class="font-bold mb-1 text-blue-900">Stok Import Formatı</p>
+            <p>Başlıklar: <strong class="text-blue-950">code/kod ve stock/stok</strong> zorunlu.</p>
+            <p>Opsiyonel: <strong class="text-blue-950">price, name, category, description</strong>.</p>
+          }
+          <p class="mt-1 text-blue-500 text-xs">İlk satır başlık kabul edilir.</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-3 pt-4 border-t border-blue-100">
+        @if (selectedMode === 'stock') {
+          <button
+            (click)="downloadStockTemplate()"
+            type="button"
+            class="h-12 px-4 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold"
+          >
+            Şablon İndir
+          </button>
+        }
+
+        <button routerLink="/dashboard/parts" class="h-12 px-6 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 font-bold transition-colors">
+          İptal
+        </button>
+
+        <button
+          (click)="onUpload()"
+          [disabled]="isUploading || !selectedFile"
+          class="h-12 px-6 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
+        >
+          @if (isUploading) {
+            <span class="material-symbols-outlined animate-spin">sync</span>
+            İşleniyor...
+          } @else {
+            <span class="material-symbols-outlined">upload</span>
+            Aktarımı Başlat
+          }
+        </button>
+      </div>
+    </div>
+
+    @if (resultSummary) {
+      <div class="mt-6 bg-white p-6 rounded-xl shadow-sm border border-blue-100">
+        <h2 class="text-lg font-bold text-blue-950 mb-4">Aktarım Sonucu</h2>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+          <div class="p-3 bg-blue-50 rounded-lg"><div class="text-blue-500">Toplam Satır</div><div class="font-bold text-blue-900">{{ resultSummary.totalRows }}</div></div>
+          <div class="p-3 bg-green-50 rounded-lg"><div class="text-green-600">Güncellendi</div><div class="font-bold text-green-700">{{ resultSummary.updated }}</div></div>
+          <div class="p-3 bg-emerald-50 rounded-lg"><div class="text-emerald-600">Oluşturuldu</div><div class="font-bold text-emerald-700">{{ resultSummary.created }}</div></div>
+          <div class="p-3 bg-amber-50 rounded-lg"><div class="text-amber-700">Atlandı</div><div class="font-bold text-amber-800">{{ resultSummary.skipped }}</div></div>
+          <div class="p-3 bg-slate-100 rounded-lg"><div class="text-slate-500">Mod</div><div class="font-bold text-slate-700">{{ resultSummary.mode }}</div></div>
+        </div>
+
+        @if (skippedRows.length > 0) {
+          <div class="mt-4 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left border-b border-blue-100">
+                  <th class="py-2 pr-4">Satır</th>
+                  <th class="py-2 pr-4">Kod</th>
+                  <th class="py-2">Neden Atlandı?</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of skippedRows; track row.rowNumber + '-' + row.code) {
+                  <tr class="border-b border-blue-50">
+                    <td class="py-2 pr-4">{{ row.rowNumber }}</td>
+                    <td class="py-2 pr-4 font-mono">{{ row.code }}</td>
+                    <td class="py-2">{{ row.reason }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    }
+  </div>
 </div>

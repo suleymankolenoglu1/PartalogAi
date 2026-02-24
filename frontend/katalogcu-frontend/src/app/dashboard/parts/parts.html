@@ -148,6 +148,9 @@
                                     <button class="icon-btn edit" title="Düzenle">
                                         <span class="material-symbols-outlined">edit_square</span>
                                     </button>
+                                    <button class="icon-btn stock" title="Stok Düzelt" (click)="openAdjustModal(part)">
+                                        <span class="material-symbols-outlined">playlist_add</span>
+                                    </button>
                                     <button class="icon-btn delete" title="Sil" (click)="deletePart(part)">
                                         <span class="material-symbols-outlined">delete</span>
                                     </button>
@@ -188,4 +191,94 @@
             </div>
         </div>
     </div>
+
+    <div class="table-card movement-card">
+        <div class="movement-header">
+            <div>
+                <h2>Stok Hareket Geçmişi</h2>
+                <p>Son 50 hareket (manuel düzeltme + import)</p>
+            </div>
+            <button class="btn-secondary" (click)="loadStockMovements()">
+                <span class="material-symbols-outlined icon">refresh</span>
+                Yenile
+            </button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>TARİH</th>
+                        <th>KOD</th>
+                        <th>HAREKET</th>
+                        <th>ESKİ</th>
+                        <th>YENİ</th>
+                        <th>TİP</th>
+                        <th>AÇIKLAMA</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (isMovementLoading) {
+                        <tr>
+                            <td colspan="7" class="loading-cell">
+                                <div class="spinner-inline"></div> Hareketler yükleniyor...
+                            </td>
+                        </tr>
+                    }
+
+                    @if (!isMovementLoading && stockMovements.length === 0) {
+                        <tr>
+                            <td colspan="7" class="empty-cell">Henüz stok hareketi yok.</td>
+                        </tr>
+                    }
+
+                    @for (m of stockMovements; track m.id) {
+                        <tr class="data-row">
+                            <td>{{ m.createdDate | date:'dd.MM.yyyy HH:mm' }}</td>
+                            <td class="font-mono">{{ m.productCode }}</td>
+                            <td><span [class]="getMovementClass(m.deltaQuantity)">{{ getMovementDeltaLabel(m.deltaQuantity) }}</span></td>
+                            <td>{{ m.previousQuantity }}</td>
+                            <td>{{ m.newQuantity }}</td>
+                            <td>{{ m.movementType }}</td>
+                            <td>{{ m.reason }}</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (isAdjustModalOpen && selectedPartForAdjust) {
+        <div class="modal-backdrop" (click)="closeAdjustModal()"></div>
+        <div class="modal-panel" role="dialog" aria-modal="true">
+            <div class="modal-head">
+                <h3>Stok Düzelt</h3>
+                <button class="icon-btn" (click)="closeAdjustModal()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div class="current-stock">
+                    <span class="text-muted">Parça:</span>
+                    <strong>{{ selectedPartForAdjust.code }} - {{ selectedPartForAdjust.name }}</strong>
+                    <span class="text-muted">Mevcut stok:</span>
+                    <strong>{{ selectedPartForAdjust.stockQuantity }}</strong>
+                </div>
+
+                <label class="field-label">Değişim Miktarı (+/-)</label>
+                <input type="number" [(ngModel)]="adjustDelta" class="search-input" placeholder="Örn: +5 veya -2">
+
+                <label class="field-label">Açıklama (opsiyonel)</label>
+                <input type="text" [(ngModel)]="adjustReason" class="search-input" placeholder="Sebep notu">
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-secondary" (click)="closeAdjustModal()">İptal</button>
+                <button class="btn-primary" [disabled]="isAdjustingStock || adjustDelta === 0" (click)="submitAdjustStock()">
+                    @if (isAdjustingStock) { Kaydediliyor... } @else { Kaydet }
+                </button>
+            </div>
+        </div>
+    }
 </div>

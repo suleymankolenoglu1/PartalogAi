@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -12,6 +12,11 @@ export interface DashboardStats {
   pendingCount: number;
   visualEmbeddingCount?: number;  // YENİ: Visual Embedding'li parça sayısı
   recentCatalogs: DashboardCatalogItem[];
+}
+
+export interface PublicTokenStatus {
+  enabled: boolean;
+  version: number;
 }
 
 export interface DashboardCatalogItem {
@@ -159,13 +164,39 @@ export class CatalogService {
     return this.http.get<Catalog[]>(`${this.apiUrl}/catalogs`);
   }
 
-  // 🔥 Public View (Kullanıcıya özel)
-  getPublicCatalogsByUser(userId: string): Observable<Catalog[]> {
-    return this.http.get<Catalog[]>(`${this.apiUrl}/catalogs/public/${userId}`);
+  getPublicCatalogsByToken(token: string): Observable<Catalog[]> {
+    const params = new HttpParams().set('token', token);
+    return this.http.get<Catalog[]>(`${this.apiUrl}/catalogs/public-by-token`, { params });
   }
 
-  getCatalogById(id: string): Observable<Catalog> {
-    return this.http.get<Catalog>(`${this.apiUrl}/catalogs/${id}`);
+  getPublicToken(catalogIds?: string[]): Observable<{ token: string }> {
+    let params = new HttpParams();
+    if (catalogIds && catalogIds.length > 0) {
+      params = params.set('catalogIds', JSON.stringify(catalogIds));
+    }
+    return this.http.get<{ token: string }>(`${this.apiUrl}/catalogs/public-token`, { params });
+  }
+
+  getPublicTokenStatus(): Observable<PublicTokenStatus> {
+    return this.http.get<PublicTokenStatus>(`${this.apiUrl}/catalogs/public-token/status`);
+  }
+
+  rotatePublicToken(catalogIds?: string[]): Observable<{ token: string; enabled: boolean; version: number }> {
+    let params = new HttpParams();
+    if (catalogIds && catalogIds.length > 0) {
+      params = params.set('catalogIds', JSON.stringify(catalogIds));
+    }
+    return this.http.post<{ token: string; enabled: boolean; version: number }>(`${this.apiUrl}/catalogs/public-token/rotate`, null, { params });
+  }
+
+  revokePublicToken(): Observable<PublicTokenStatus> {
+    return this.http.post<PublicTokenStatus>(`${this.apiUrl}/catalogs/public-token/revoke`, {});
+  }
+
+  getCatalogById(id: string, options?: { publicToken?: string }): Observable<Catalog> {
+    let params = new HttpParams();
+    if (options?.publicToken) params = params.set('token', options.publicToken);
+    return this.http.get<Catalog>(`${this.apiUrl}/catalogs/${id}`, { params });
   }
 
   createCatalog(catalogData: any): Observable<Catalog> {
@@ -184,8 +215,10 @@ export class CatalogService {
   // 🧠 AI & ANALİZ & SAYFA İŞLEMLERİ
   // ==========================================
 
-  getPageItems(catalogId: string, pageNumber: string): Observable<CatalogPageItem[]> {
-    return this.http.get<CatalogPageItem[]>(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageNumber}/items`);
+  getPageItems(catalogId: string, pageNumber: string, options?: { publicToken?: string }): Observable<CatalogPageItem[]> {
+    let params = new HttpParams();
+    if (options?.publicToken) params = params.set('token', options.publicToken);
+    return this.http.get<CatalogPageItem[]>(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageNumber}/items`, { params });
   }
 
   startAiProcess(catalogId: string): Observable<any> {

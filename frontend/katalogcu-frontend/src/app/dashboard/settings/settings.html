@@ -30,6 +30,11 @@
                     [class.active]="activeTab === 'showcase'">
                 Vitrin Yönetimi
             </button>
+            <button (click)="setActiveTab('public')" 
+                    class="tab-btn" 
+                    [class.active]="activeTab === 'public'">
+                Public Link
+            </button>
         </nav>
 
         <div class="settings-card">
@@ -216,6 +221,72 @@
                         </div>
                     </div>
 
+                </div>
+            }
+
+            @if (activeTab === 'public') {
+                <div class="tab-content fade-in">
+                    <div class="public-card">
+                        <div class="public-header">
+                            <h3 class="section-title">Public Link Yönetimi</h3>
+                            <span class="public-badge" [class.off]="!publicTokenStatus?.enabled">
+                                @if (publicTokenStatus?.enabled) { Aktif } @else { Pasif }
+                            </span>
+                        </div>
+
+                        @if (publicToken) {
+                            <div class="public-link-row">
+                                <input class="form-input" [value]="'/public-view/' + publicToken" readonly>
+                                <button type="button" class="btn-secondary small" (click)="copyPublicLink()" [disabled]="publicActionLoading">
+                                    Kopyala
+                                </button>
+                            </div>
+                        } @else {
+                            <p class="hint-text">Aktif public link yok. Aşağıdan yeni link üretebilirsin.</p>
+                        }
+
+                        <div class="divider"></div>
+
+                        <div class="catalog-scope">
+                            <h4>Katalog Kapsamı (opsiyonel)</h4>
+                            <p class="hint-text">Seçmezsen tüm yayınlanmış kataloglar açılır.</p>
+
+                            @if (publishedCatalogs.length > 0) {
+                                <div class="catalog-list">
+                                    @for (catalog of publishedCatalogs; track catalog.id) {
+                                        <label class="catalog-item">
+                                            <input
+                                                type="checkbox"
+                                                [checked]="isCatalogSelected(catalog.id)"
+                                                (change)="toggleCatalogSelection(catalog.id, $any($event.target).checked)">
+                                            <span>{{ catalog.name }}</span>
+                                        </label>
+                                    }
+                                </div>
+                            } @else {
+                                <p class="hint-text">Yayınlanmış katalog bulunamadı.</p>
+                            }
+                        </div>
+
+                        <div class="public-actions">
+                            <button type="button" class="btn-secondary" (click)="generatePublicLink()" [disabled]="publicActionLoading">
+                                Link Üret
+                            </button>
+                            <button type="button" class="btn-secondary" (click)="rotatePublicLink()" [disabled]="publicActionLoading">
+                                Linki Yenile (Eskiyi İptal Et)
+                            </button>
+                            <button type="button" class="btn-secondary danger" (click)="revokePublicLink()" [disabled]="publicActionLoading">
+                                Linki İptal Et
+                            </button>
+                        </div>
+
+                        @if (publicActionMessage) {
+                            <p class="public-feedback ok">{{ publicActionMessage }}</p>
+                        }
+                        @if (publicActionError) {
+                            <p class="public-feedback err">{{ publicActionError }}</p>
+                        }
+                    </div>
                 </div>
             }
 

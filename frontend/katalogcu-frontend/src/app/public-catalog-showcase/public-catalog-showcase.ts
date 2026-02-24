@@ -1,8 +1,9 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, Location } from '@angular/common'; // Location servisi burada
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CatalogService, Catalog } from '../core/services/catalog.service';
+import { CartService } from '../core/services/cart.service';
 
 // Vitrin kartları için arayüz
 export interface CatalogGroup {
@@ -25,17 +26,32 @@ export class PublicCatalogShowcaseComponent implements OnInit {
   
   // Dependency Injection (inject fonksiyonu ile)
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private location = inject(Location); // Geri butonu için gerekli
   private catalogService = inject(CatalogService);
+  public cartService = inject(CartService);
 
   catalog: Catalog | null = null;
   groups: CatalogGroup[] = [];
   filteredGroups: CatalogGroup[] = [];
+
+  publicToken: string | null = null;
+  publicQueryParams: any = {};
   
   isLoading = true;
   searchQuery = '';
 
   ngOnInit() {
+    const tokenParam = this.route.snapshot.queryParamMap.get('token');
+    if (!tokenParam) {
+      this.isLoading = false;
+      console.error('Public token bulunamadı.');
+      return;
+    }
+    this.publicToken = tokenParam;
+    this.publicQueryParams = { token: this.publicToken };
+    this.cartService.setScope(`public:${this.publicToken}`);
+
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
       this.loadCatalog(id);
@@ -47,7 +63,7 @@ export class PublicCatalogShowcaseComponent implements OnInit {
 
   loadCatalog(id: string) {
     this.isLoading = true;
-    this.catalogService.getCatalogById(id).subscribe({
+    this.catalogService.getCatalogById(id, { publicToken: this.publicToken! }).subscribe({
       next: (data) => {
         this.catalog = data;
         this.prepareGroups();
@@ -100,5 +116,10 @@ export class PublicCatalogShowcaseComponent implements OnInit {
 
   goBack() {
     this.location.back();
+  }
+
+  goCheckout() {
+    if (!this.publicToken) return;
+    this.router.navigate(['/public-view', this.publicToken, 'checkout']);
   }
 }

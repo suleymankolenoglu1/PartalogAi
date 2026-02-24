@@ -1,0 +1,158 @@
+<div class="cq-page">
+  <header class="cq-header">
+    <div>
+      <h1>Chat Kalite Paneli</h1>
+      <p>Kullanıcı geri bildirimleri ve kalite metrikleri.</p>
+    </div>
+    <button class="cq-refresh-btn" (click)="loadFeedback()">
+      <span class="material-symbols-outlined">refresh</span>
+      Yenile
+    </button>
+  </header>
+
+  <section class="cq-metrics">
+    <div class="cq-card">
+      <div class="cq-label">Toplam Feedback</div>
+      <div class="cq-value">{{ totalCount }}</div>
+    </div>
+    <div class="cq-card">
+      <div class="cq-label">Gösterilen</div>
+      <div class="cq-value">{{ shownCount }}</div>
+    </div>
+    <div class="cq-card">
+      <div class="cq-label">Helpful Rate</div>
+      <div class="cq-value ok">{{ helpfulRate() }}</div>
+    </div>
+    <div class="cq-card">
+      <div class="cq-label">Unhelpful Rate</div>
+      <div class="cq-value bad">{{ unhelpfulRate() }}</div>
+    </div>
+    <div class="cq-card">
+      <div class="cq-label">No Source</div>
+      <div class="cq-value">{{ noSourceCount }}</div>
+    </div>
+    <div class="cq-card">
+      <div class="cq-label">Avg Source Count</div>
+      <div class="cq-value">{{ avgSourceCount | number:'1.1-2' }}</div>
+    </div>
+  </section>
+
+  <section class="cq-tools">
+    <div class="cq-search">
+      <span class="material-symbols-outlined">search</span>
+      <input
+        type="text"
+        [ngModel]="searchQuery"
+        (ngModelChange)="onSearchChange($event)"
+        placeholder="Sorgu, cevap, reason veya kod ara..." />
+    </div>
+
+    <select
+      class="cq-filter"
+      [ngModel]="helpfulFilter"
+      (ngModelChange)="onHelpfulFilterChange($event)">
+      <option value="all">Tümü</option>
+      <option value="helpful">Sadece Helpful</option>
+      <option value="unhelpful">Sadece Unhelpful</option>
+    </select>
+
+    <input
+      class="cq-date"
+      type="date"
+      [ngModel]="dateFrom"
+      (ngModelChange)="onDateFromChange($event)" />
+
+    <input
+      class="cq-date"
+      type="date"
+      [ngModel]="dateTo"
+      (ngModelChange)="onDateToChange($event)" />
+
+    <div class="cq-quick-range">
+      <button class="cq-chip" (click)="setLastDays(7)">7 gün</button>
+      <button class="cq-chip" (click)="setLastDays(14)">14 gün</button>
+      <button class="cq-chip" (click)="setLastDays(30)">30 gün</button>
+    </div>
+  </section>
+
+  <section class="cq-trend">
+    <h3>Günlük Trend (Helpful / Unhelpful)</h3>
+    <div class="cq-trend-chart">
+      @for (p of trendPoints; track p.dayKey) {
+        <div class="cq-trend-col" [title]="p.dayKey + ' | Toplam: ' + p.total + ' | Helpful: ' + p.helpful + ' | Unhelpful: ' + p.unhelpful">
+          <div class="cq-trend-bar-shell">
+            <div class="cq-trend-bar" [style.height.%]="trendHeightPercent(p.total)">
+              <div class="cq-trend-bad" [style.height.%]="p.total ? (p.unhelpful / p.total) * 100 : 0"></div>
+              <div class="cq-trend-good" [style.height.%]="p.total ? (p.helpful / p.total) * 100 : 0"></div>
+            </div>
+          </div>
+          <div class="cq-trend-count">{{ p.total }}</div>
+          <div class="cq-trend-label">{{ p.label }}</div>
+        </div>
+      }
+    </div>
+    <div class="cq-trend-legend">
+      <span class="legend-dot good"></span> Helpful
+      <span class="legend-dot bad"></span> Unhelpful
+    </div>
+  </section>
+
+  @if (topReasons.length > 0) {
+    <section class="cq-reasons">
+      <h3>Top Unhelpful Sebepler</h3>
+      <div class="cq-reason-list">
+        @for (r of topReasons; track r.reason) {
+          <div class="cq-reason-item">
+            <span class="reason-text">{{ r.reason }}</span>
+            <span class="reason-count">{{ r.count }}</span>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
+  @if (isLoading) {
+    <div class="cq-loading">
+      <div class="spinner"></div>
+      <span>Yükleniyor...</span>
+    </div>
+  } @else if (errorMsg) {
+    <div class="cq-error">{{ errorMsg }}</div>
+  } @else {
+    <section class="cq-table-wrap">
+      <table class="cq-table">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>Helpful</th>
+            <th>Kullanıcı Sorgusu</th>
+            <th>Reason</th>
+            <th>Kaynak Kodlar</th>
+            <th>Cevap (Kısa)</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (filteredItems.length === 0) {
+            <tr>
+              <td colspan="6" class="cq-empty">Filtreye uygun kayıt bulunamadı.</td>
+            </tr>
+          }
+          @for (item of filteredItems; track item.id) {
+            <tr>
+              <td>{{ item.createdAt | date:'d MMM yyyy, HH:mm':'':'tr' }}</td>
+              <td>
+                <span class="cq-badge" [class.ok]="item.helpful" [class.bad]="!item.helpful">
+                  {{ item.helpful ? 'Evet' : 'Hayır' }}
+                </span>
+              </td>
+              <td class="mono">{{ item.userQuery || '-' }}</td>
+              <td>{{ item.reason || '-' }}</td>
+              <td class="mono">{{ item.sourceCodes.length ? item.sourceCodes.join(', ') : '-' }}</td>
+              <td>{{ (item.replySuggestion || '-').slice(0, 120) }}{{ (item.replySuggestion || '').length > 120 ? '...' : '' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </section>
+  }
+</div>

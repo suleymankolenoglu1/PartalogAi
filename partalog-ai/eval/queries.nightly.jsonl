@@ -1,0 +1,31 @@
+# Nightly regression set (public token scoped)
+# Keep this set relatively broad: positive retrieval + typo + negative no-code checks.
+
+{"id":"N1","text":"vida m3 0.5x3","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"]}
+{"id":"N2","text":"m3-0.5x5 vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["120016"]}
+{"id":"N3","text":"m4-0.7x5 vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["005075"]}
+{"id":"N4","text":"8-24x8 vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["006233"]}
+{"id":"N5","text":"m8-1.25x20 vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110012"]}
+{"id":"N6","text":"yayli vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110013"]}
+{"id":"N7","text":"perçin","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["000726"]}
+{"id":"N8","text":"yan kapak alt","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500854"]}
+{"id":"N9","text":"yağ haznesi conta","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500005","3500004"]}
+{"id":"N10","text":"model plakası","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["4109410"]}
+
+{"id":"N11","text":"110045 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110045"]}
+{"id":"N12","text":"110048 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110048"]}
+{"id":"N13","text":"0037164 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["0037164"]}
+{"id":"N14","text":"390164 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["390164"]}
+{"id":"N15","text":"3500215 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500215"]}
+{"id":"N16","text":"3500211 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500211"]}
+{"id":"N17","text":"3500213 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500213"]}
+{"id":"N18","text":"3500430 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500430"]}
+{"id":"N19","text":"6209401 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["6209401"]}
+{"id":"N20","text":"3500016 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500016"]}
+
+{"id":"N21","text":"yamaot vdia","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"]}
+{"id":"N22","text":"yamato vg2500-8f vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"]}
+
+{"id":"N23","text":"telefon şarj kablosu arıyorum","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"N24","text":"otomobil fren balatası var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"N25","text":"999999 kodlu parça var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}

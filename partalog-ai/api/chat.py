@@ -13,6 +13,8 @@ import base64
 import io
 import json
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 import re
 import urllib.parse
 import uuid
@@ -23,11 +25,55 @@ from fastapi import APIRouter, Form, File, UploadFile, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from config import settings
+
+# Ensure local .env is loaded for GOOGLE_API_KEY / GEMINI_API_KEY
+_BASE_DIR = Path(__file__).resolve().parents[1]
+_ENV_PATH = _BASE_DIR / ".env"
+load_dotenv(_ENV_PATH)
+
+def _clean_key(value: str) -> str:
+    return value.strip().strip('"').strip("'").strip() if value else ""
+
+def _get_gemini_api_key_with_source() -> tuple[str, str]:
+    if settings.GEMINI_API_KEY:
+        return _clean_key(settings.GEMINI_API_KEY), "settings.GEMINI_API_KEY"
+    env_google = os.getenv("GOOGLE_API_KEY")
+    if env_google:
+        return _clean_key(env_google), "env:GOOGLE_API_KEY"
+    env_gemini = os.getenv("GEMINI_API_KEY")
+    if env_gemini:
+        return _clean_key(env_gemini), "env:GEMINI_API_KEY"
+    return "", "empty"
+
+_gemini_key_logged = False
+
+def _mask_key(value: str) -> str:
+    if not value:
+        return "<empty>"
+    if len(value) <= 8:
+        return f"{value[:2]}...{value[-2:]}"
+    return f"{value[:4]}...{value[-4:]}"
+
+def _get_gemini_urls() -> tuple[str, str, str]:
+    global _gemini_key_logged
+    key, source = _get_gemini_api_key_with_source()
+    if not _gemini_key_logged:
+        logger.info(f"🔐 GEMINI_API_KEY source={source} value={_mask_key(key)} len={len(key)}")
+        _gemini_key_logged = True
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+    stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key={key}"
+    return key, api_url, stream_url
 from core.rate_limiter import limiter
 
 # Rate limit constants
 CHAT_RATE_LIMIT = "10/minute"
 VISUAL_FEEDBACK_RATE_LIMIT = "5/minute"
+TEXT_VECTOR_MIN_SIMILARITY = 0.50
+WEAK_MATCH_MIN_SIMILARITY = 0.52
+GEMINI_CHAT_GENERATION_CONFIG = {
+    "temperature": 0.3,
+    "maxOutputTokens": 220,
+}
 
 # ✅ Gerekli Servisler (exact_match_search eklendi)
 from services.embedding import get_text_embedding 
@@ -35,9 +81,7 @@ from services.vector_db import search_vector_db, exact_match_search, search_visu
 
 router = APIRouter()
 
-# ⚡️ Gemini API
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
-GEMINI_STREAM_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key={settings.GEMINI_API_KEY}"
+# ⚡️ Gemini API (urls resolved per-request)
 SHOP_BASE_URL = "https://www.parcagalerisi.com/ara/"
 USER_FEEDBACK_DIR = Path("static/user-generated-parts")
 USER_FEEDBACK_INDEX = USER_FEEDBACK_DIR / "index.jsonl"
@@ -57,6 +101,219 @@ def _safe_ext(filename: str | None) -> str:
     if ext in {".jpg", ".jpeg", ".png", ".webp"}:
         return ".jpg" if ext == ".jpeg" else ext
     return ".jpg"
+
+def _best_similarity(sources: list) -> float | None:
+    sims: list[float] = []
+    for s in sources or []:
+        for key in ("similarity", "visual_similarity"):
+            val = s.get(key)
+            if isinstance(val, (int, float)):
+                sims.append(float(val))
+    return max(sims) if sims else None
+
+
+def _normalize_for_overlap(text: str) -> str:
+    text = (text or "").lower()
+    text = (
+        text.replace("ı", "i")
+        .replace("İ", "i")
+        .replace("ş", "s")
+        .replace("ğ", "g")
+        .replace("ü", "u")
+        .replace("ö", "o")
+        .replace("ç", "c")
+    )
+    return text
+
+
+def _extract_overlap_tokens(text: str) -> list[str]:
+    norm = _normalize_for_overlap(text)
+    raw_tokens = re.findall(r"[a-z0-9]+", norm)
+    stop = {
+        "ve", "ile", "icin", "mi", "mu", "mü", "mı", "var", "yok",
+        "arayan", "ariyorum", "ariyorum", "lazim", "tam", "olarak",
+        "bir", "bu", "su", "de", "da", "ki", "ya", "ama", "gibi",
+    }
+    out: list[str] = []
+    for tok in raw_tokens:
+        if tok in stop:
+            continue
+        if len(tok) >= 3 or any(ch.isdigit() for ch in tok):
+            out.append(tok)
+    # stable dedup
+    seen = set()
+    uniq = []
+    for t in out:
+        if t in seen:
+            continue
+        seen.add(t)
+        uniq.append(t)
+    return uniq
+
+
+def _has_lexical_overlap(user_query: str, sources: list[dict]) -> bool:
+    query_tokens = _extract_overlap_tokens(user_query or "")
+    if not query_tokens:
+        return False
+
+    haystack_parts: list[str] = []
+    for s in sources or []:
+        haystack_parts.append(str(s.get("code") or ""))
+        haystack_parts.append(str(s.get("name") or ""))
+        haystack_parts.append(str(s.get("machine_model") or ""))
+        haystack_parts.append(str(s.get("brand") or ""))
+        haystack_parts.append(str(s.get("description") or ""))
+
+    haystack = _normalize_for_overlap(" ".join(haystack_parts))
+    if not haystack.strip():
+        return False
+
+    for tok in query_tokens:
+        if tok in haystack:
+            return True
+    return False
+
+
+def _has_domain_part_keyword(text: str) -> bool:
+    # Tek kelimelik ama domain-içi sorgular (örn: "vida var mı") için
+    # overlap zorunluluğunu gevşet.
+    domain_terms = {
+        "vida", "civata", "somun", "pul", "rondela", "conta", "percin",
+        "yay", "plaka", "mil", "rulman", "kayis", "kece", "igne", "disli",
+        "kapak", "pim", "burc", "kasnak", "kanca", "yayli", "nozul",
+    }
+    tokens = set(_extract_overlap_tokens(text))
+    return any(t in domain_terms for t in tokens)
+
+
+_QUERY_TYPO_RULES: list[tuple[str, str]] = [
+    (r"\byamaot\b", "yamato"),
+    (r"\byamto\b", "yamato"),
+    (r"\bvdia\b", "vida"),
+    (r"\bvidaa\b", "vida"),
+    (r"\bpercin\b", "perçin"),
+]
+
+
+def normalize_user_query(text: str) -> str:
+    """
+    Kullanıcı sorgusunu arama için normalize eder:
+    - sık typo düzeltmeleri
+    - ölçü formatları (mm, x, kesir, ondalık)
+    """
+    if not text:
+        return ""
+
+    t = text.strip()
+
+    # 1) Harf typo düzeltmeleri
+    for pat, repl in _QUERY_TYPO_RULES:
+        t = re.sub(pat, repl, t, flags=re.IGNORECASE)
+
+    # 2) Ondalık virgül -> nokta (sadece sayı arasında)
+    t = re.sub(r"(?<=\d),(?=\d)", ".", t)
+
+    # 3) "m 3" -> "m3"
+    t = re.sub(r"\bm\s+(\d+(?:\.\d+)?)\b", r"m\1", t, flags=re.IGNORECASE)
+
+    # 4) "3 / 8" -> "3/8"
+    t = re.sub(r"(\d+)\s*/\s*(\d+)", r"\1/\2", t)
+
+    # 5) "5 x 20" -> "5x20"
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)", r"\1x\2", t)
+
+    # 6) "5 mm", "5milimetre" -> "5mm"
+    t = re.sub(
+        r"(\d+(?:\.\d+)?)\s*(mm|milimetre|milimetre|milim|milimetrelik)\b",
+        r"\1mm",
+        t,
+        flags=re.IGNORECASE,
+    )
+
+    # 7) Gereksiz çoklu boşlukları temizle
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _is_generic_part_name(name: str | None) -> bool:
+    if not name:
+        return False
+    n = (name or "").strip().lower()
+    generic = {
+        "vida", "civata", "somun", "pul", "conta", "perçin", "percin",
+        "yay", "plaka", "mil", "rulman", "kapak", "pim", "burç", "burc",
+        "dişli", "disli",
+    }
+    return n in generic
+
+
+def build_no_result_guidance(user_query: str, analysis: dict, reason: str) -> str:
+    brand = (analysis or {}).get("brand")
+    part_code = (analysis or {}).get("part_code")
+    part_name = (analysis or {}).get("part_name")
+    dimensions = (analysis or {}).get("dimensions")
+    machine_group = (analysis or {}).get("machine_group")
+
+    if reason == "out_of_domain":
+        intro = "Ustam, bu sorgu katalogdaki parça içeriğiyle net eşleşmedi."
+    elif reason == "weak_match":
+        intro = "Ustam, eşleşmeler zayıf kaldı; yanlış parça önermemek için durdurdum."
+    else:
+        intro = "Ustam, veritabanında bu sorguya doğrudan bir sonuç bulamadım."
+
+    questions: list[str] = []
+
+    if not brand:
+        questions.append("Makine markası nedir? (örn: Yamato/Juki)")
+
+    if not machine_group:
+        questions.append("Makine tipi nedir? (Düz dikiş / Overlok / Reçme)")
+
+    if not part_code:
+        if not dimensions and _is_generic_part_name(part_name):
+            questions.append("Parçanın ölçüsü nedir? (örn: M3-0.5x3, 3/8-24x8)")
+        else:
+            questions.append("Parça kodu varsa birebir yazar mısın?")
+
+    if part_code and not dimensions:
+        questions.append("Kod doğruysa, ölçü/model bilgisini de paylaşır mısın?")
+
+    if not questions:
+        questions.append("Parça kodu veya net ölçü paylaşırsan nokta atışı bulurum.")
+
+    q_text = "\n".join([f"- {q}" for q in questions[:3]])
+    return f"{intro}\nDoğru parçayı netleyelim:\n{q_text}"
+
+
+def build_deterministic_reply_from_sources(user_query: str, sources: list[dict]) -> str:
+    """
+    Gemini yanıtı üretilemediğinde deterministic fallback metni üretir.
+    """
+    if not sources:
+        return (
+            "Ustam, şu an kısa özet modundayım. "
+            "Sonuç listesi boş görünüyor; parça kodu veya ölçü paylaşırsan net arama yaparım."
+        )
+
+    picks = sources[:3]
+    item_chunks = []
+    for s in picks:
+        code = s.get("code") or "-"
+        name = s.get("name") or "Parça"
+        brand = s.get("brand") or ""
+        if brand:
+            item_chunks.append(f"{code} ({name}, {brand})")
+        else:
+            item_chunks.append(f"{code} ({name})")
+
+    listed = ", ".join(item_chunks)
+    extra = len(sources) - len(picks)
+    extra_text = f" Ayrıca {extra} sonuç daha var." if extra > 0 else ""
+
+    return (
+        f"Ustam, AI açıklaması şu an üretilemedi ama eşleşen parçaları buldum: {listed}.{extra_text} "
+        "Listeden uygun kodu seç veya marka/model/ölçü yaz, hemen daraltayım."
+    )
 
 
 def _parse_json_from_text(text: str) -> dict:
@@ -140,7 +397,11 @@ async def analyze_image_with_gemini(image_bytes: bytes, user_hint: str = "") -> 
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(GEMINI_API_URL, json=payload) as resp:
+            key, api_url, _ = _get_gemini_urls()
+            if not key:
+                logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
+                return {}
+            async with session.post(api_url, json=payload) as resp:
                 if resp.status != 200:
                     logger.warning(f"Image analyze failed status={resp.status}")
                     return {}
@@ -244,7 +505,11 @@ async def analyze_intent_with_gemini(text: str, history: list = None) -> dict:
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(GEMINI_API_URL, json=payload) as resp:
+            key, api_url, _ = _get_gemini_urls()
+            if not key:
+                logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
+                return {"intent": "SEARCH", "brand": None, "part_name": text, "machine_group": None}
+            async with session.post(api_url, json=payload) as resp:
                 if resp.status == 200:
                     res = await resp.json()
                     text_resp = res["candidates"][0]["content"]["parts"][0]["text"]
@@ -280,13 +545,16 @@ async def _prepare_chat_context(
     - {"early": False, "user_query": ..., "all_sources": ...,
        "analysis": ..., "final_prompt": ...}  — normal durum
     """
-    user_query = text if text else message
-    if not user_query and not file:
+    raw_user_query = text if text else message
+    if not raw_user_query and not file:
         return {"early": True, "response": {"answer": "Boş mesaj.", "reply": "Boş mesaj.", "sources": [], "debug_intent": None}}
-    if not user_query and file:
-        user_query = "Yüklenen görseldeki parçayı analiz et."
+    if not raw_user_query and file:
+        raw_user_query = "Yüklenen görseldeki parçayı analiz et."
 
-    logger.info(f"📨 [GİRİŞ] Mesaj: {user_query}")
+    user_query = normalize_user_query(raw_user_query)
+    logger.info(f"📨 [GİRİŞ] Mesaj: {raw_user_query}")
+    if user_query != raw_user_query:
+        logger.info(f"🧹 [NORMALIZE] '{raw_user_query}' -> '{user_query}'")
 
     try:
         catalog_ids_list = json.loads(catalog_ids) or []
@@ -305,7 +573,7 @@ async def _prepare_chat_context(
         image_bytes = await file.read()
         results = await asyncio.gather(
             analyze_intent_with_gemini(user_query, history=history_list_for_intent),
-            analyze_image_with_gemini(image_bytes, user_query),
+            analyze_image_with_gemini(image_bytes, raw_user_query),
             return_exceptions=True
         )
         analysis = results[0] if isinstance(results[0], dict) else {"intent": "SEARCH", "brand": None, "part_name": user_query, "machine_group": None}
@@ -386,6 +654,7 @@ async def _prepare_chat_context(
     if file is not None and image_analysis:
         embedding_text_for_search = image_analysis.get("embedding_text")
         visible_codes_from_img = image_analysis.get("visible_codes")
+        visual_query_vector = None
 
         if embedding_text_for_search:
             visual_query_vector = await get_text_embedding(embedding_text_for_search)
@@ -418,10 +687,9 @@ async def _prepare_chat_context(
                 # ADIM 3: Hâlâ yok ise normal Embedding araması yap
                 if not visual_results:
                     logger.info("🖼️ Visual Search tamamen başarısız. Normal Embedding aramasına fallback...")
-                    text_fallback_vector = await get_text_embedding(embedding_text_for_search)
-                    if text_fallback_vector:
+                    if visual_query_vector:
                         text_fallback_results = await search_vector_db(
-                            query_vector=text_fallback_vector,
+                            query_vector=visual_query_vector,
                             brand_filter=extracted_brand,
                             limit=5,
                             catalog_ids=catalog_ids_list,
@@ -460,6 +728,9 @@ async def _prepare_chat_context(
                     safe_code = urllib.parse.quote(p_code_db.strip())
                     buy_link = f"{SHOP_BASE_URL}{safe_code}"
                     if not any(s["code"] == p_code_db for s in visual_sources):
+                        visual_similarity = vr.get("visual_similarity")
+                        if visual_similarity is None and vr.get("visual_match") is True:
+                            visual_similarity = 1.0
                         visual_sources.append({
                             "code": p_code_db,
                             "name": p_name_db,
@@ -470,7 +741,7 @@ async def _prepare_chat_context(
                             "query": embedding_text_for_search,
                             "visual_match": vr.get("visual_match", True),
                             "visual_image_url": visual_img_url,
-                            "visual_similarity": vr.get("visual_similarity"),
+                            "visual_similarity": visual_similarity,
                         })
                 if visual_sources:
                     logger.success(f"🖼️ Visual Search toplam {len(visual_sources)} eşleşme bulundu!")
@@ -516,6 +787,7 @@ async def _prepare_chat_context(
                     limit=5,
                     catalog_ids=catalog_ids_list,
                     machine_group_filter=extracted_machine_group,
+                    min_similarity=TEXT_VECTOR_MIN_SIMILARITY,
                 )
                 logger.info(f"🧠 Vector Search (filtreli): {len(part_results)} sonuç")
 
@@ -529,6 +801,7 @@ async def _prepare_chat_context(
                     limit=5,
                     catalog_ids=catalog_ids_list,
                     machine_group_filter=None,
+                    min_similarity=TEXT_VECTOR_MIN_SIMILARITY,
                 )
                 logger.info(f"🧠 Vector Search (machine_group'suz): {len(part_results)} sonuç")
                 if part_results:
@@ -545,6 +818,7 @@ async def _prepare_chat_context(
                     limit=5,
                     catalog_ids=catalog_ids_list,
                     machine_group_filter=None,
+                    min_similarity=TEXT_VECTOR_MIN_SIMILARITY,
                 )
                 logger.info(f"🧠 Vector Search (filtresiz): {len(part_results)} sonuç")
                 if part_results:
@@ -572,6 +846,7 @@ async def _prepare_chat_context(
                     "machine_model": p_model_db,
                     "description": p_desc_db,
                     "query": p_name or p_code,
+                    "similarity": p.get("similarity", 1.0 if p_code else None),
                 }
                 if is_fallback:
                     source_entry["fallback"] = True
@@ -581,13 +856,42 @@ async def _prepare_chat_context(
     logger.success(f"📦 Toplam Bulunan Benzersiz Sonuç: {len(all_sources)}")
 
     if not all_sources:
-        msg = "Ustam, veritabanında bu parçaya uygun bir sonuç bulamadım. Marka veya kod doğru mu?"
+        msg = build_no_result_guidance(raw_user_query, analysis, reason="no_result")
+        return {"early": True, "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}}
+
+    best_sim = _best_similarity(all_sources)
+    has_overlap = _has_lexical_overlap(user_query, all_sources)
+    has_domain_keyword = _has_domain_part_keyword(user_query)
+    logger.info(
+        f"📊 En iyi benzerlik skoru: {best_sim if best_sim is not None else 'N/A'} | "
+        f"lexical_overlap={has_overlap} | domain_keyword={has_domain_keyword}"
+    )
+    if (
+        best_sim is not None
+        and best_sim < 0.70
+        and not has_overlap
+        and not has_domain_keyword
+        and not extracted_code
+    ):
+        msg = build_no_result_guidance(raw_user_query, analysis, reason="out_of_domain")
+        return {"early": True, "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}}
+
+    if best_sim is not None and best_sim < WEAK_MATCH_MIN_SIMILARITY:
+        msg = build_no_result_guidance(raw_user_query, analysis, reason="weak_match")
         return {"early": True, "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}}
 
     # 4. Gemini'ye verilecek Context Metni
     context_lines = []
-    for s in all_sources[:10]: # Gemini'ye çok yüklenmemek için ilk 10
-        line = f"- Marka: {s['brand']} | Model: {s['machine_model']} | Parça: {s['name']} (Kod: {s['code']}) | Detay: {s['description']}"
+    for s in all_sources[:6]: # Gemini gecikmesini azaltmak için ilk 6
+        sim_val = s.get("similarity") or s.get("visual_similarity")
+        sim_text = f" | Benzerlik: {sim_val:.2f}" if isinstance(sim_val, (int, float)) else ""
+        desc = (s.get("description") or "").strip()
+        if len(desc) > 140:
+            desc = desc[:137] + "..."
+        line = (
+            f"- Marka: {s['brand']} | Model: {s['machine_model']} | "
+            f"Parça: {s['name']} (Kod: {s['code']}) | Detay: {desc}{sim_text}"
+        )
         context_lines.append(line)
 
     context_text = "\n".join(context_lines)
@@ -610,7 +914,7 @@ async def _prepare_chat_context(
 Sen sanayi yedek parça uzmanısın (Partalog AI). Kısa, samimi, usta ağzıyla konuş.
 
 {"SOHBET GEÇMİŞİ (bağlam için kullan):" + chr(10) + history_text + chr(10) if history_text else ""}
-ŞİMDİKİ KULLANICI SORUSU: "{user_query}"
+ŞİMDİKİ KULLANICI SORUSU: "{raw_user_query}"
 
 DEPODAN BULDUĞUN PARÇALAR:
 {context_text}
@@ -618,8 +922,10 @@ DEPODAN BULDUĞUN PARÇALAR:
 GÖREV:
 1. Bulduğun parçaları özetle. Marka, model, ölçü uyumuna dikkat çek.
 2. Sohbet geçmişindeki bağlamı kullan — kullanıcı "bu parçanın fiyatı ne?" derse hangi parçadan bahsettiğini geçmişten anla.
-3. Link verme, sistem zaten gösterecek.
-4. Maksimum 3-4 cümle yaz.
+3. Sadece listelenen parçaları referans al; liste dışı marka/model/ürün uydurma.
+4. Eğer listede net ve güçlü bir eşleşme yoksa kullanıcıdan net bilgi iste.
+5. Link verme, sistem zaten gösterecek.
+6. Maksimum 3-4 cümle yaz.
 """
 
     return {
@@ -651,12 +957,26 @@ async def chat_endpoint(
             return ctx["response"]
 
         async with aiohttp.ClientSession() as session:
-            payload = {"contents": [{"parts": [{"text": ctx["final_prompt"]}]}]}
-            async with session.post(GEMINI_API_URL, json=payload) as resp:
+            payload = {
+                "contents": [{"parts": [{"text": ctx["final_prompt"]}]}],
+                "generationConfig": GEMINI_CHAT_GENERATION_CONFIG,
+            }
+            key, api_url, _ = _get_gemini_urls()
+            if not key:
+                logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
+                fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                return {
+                    "answer": fallback,
+                    "reply": fallback,
+                    "sources": ctx.get("all_sources", []),
+                    "debug_intent": ctx.get("analysis"),
+                }
+            async with session.post(api_url, json=payload) as resp:
                 if resp.status == 200:
                     ai_reply = (await resp.json())["candidates"][0]["content"]["parts"][0]["text"]
                 else:
-                    ai_reply = "Sonuçlar yukarıda listelendi ustam."
+                    logger.warning(f"Gemini generateContent non-200: {resp.status}")
+                    ai_reply = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
 
         return {
             "answer": ai_reply,
@@ -700,22 +1020,70 @@ async def chat_stream_endpoint(
             yield f"data: {json.dumps({'type': 'sources', 'sources': ctx['all_sources'], 'debug_intent': ctx['analysis']})}\n\n"
 
             # Gemini streamGenerateContent çağrısı
-            payload = {"contents": [{"parts": [{"text": ctx["final_prompt"]}]}]}
+            payload = {
+                "contents": [{"parts": [{"text": ctx["final_prompt"]}]}],
+                "generationConfig": GEMINI_CHAT_GENERATION_CONFIG,
+            }
             async with aiohttp.ClientSession() as session:
-                async with session.post(GEMINI_STREAM_URL, json=payload) as resp:
-                    async for line in resp.content:
-                        decoded = line.decode("utf-8").strip()
-                        if decoded.startswith("data:"):
-                            raw = decoded[5:].strip()
+                key, _, stream_url = _get_gemini_urls()
+                if not key:
+                    logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
+                    fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                    yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    return
+                async with session.post(stream_url, json=payload) as resp:
+                    logger.info(f"🤖 [GEMINI-STREAM] status={resp.status} content-type={resp.headers.get('Content-Type')}")
+                    if resp.status != 200:
+                        try:
+                            err_text = await resp.text()
+                        except Exception:
+                            err_text = "<read-failed>"
+                        logger.error(f"🤖 [GEMINI-STREAM] error body: {err_text[:500]}")
+                        fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                        yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
+                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        return
+                    buffer = ""
+                    done = False
+                    token_count = 0
+                    line_count = 0
+                    async for chunk in resp.content.iter_any():
+                        buffer += chunk.decode("utf-8")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
+                            if not line:
+                                continue
+                            if not line.startswith("data:"):
+                                continue
+                            raw = line[5:].strip()
                             if raw == "[DONE]":
+                                done = True
                                 break
+                            line_count += 1
+                            if line_count <= 3:
+                                logger.debug(f"🤖 [GEMINI-STREAM] raw line sample: {raw[:200]}")
                             try:
-                                chunk = json.loads(raw)
-                                token = chunk["candidates"][0]["content"]["parts"][0]["text"]
-                                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+                                chunk_json = json.loads(raw)
+                                parts = (
+                                    chunk_json.get("candidates", [{}])[0]
+                                    .get("content", {})
+                                    .get("parts", [])
+                                )
+                                token = parts[0].get("text") if parts else None
+                                if token:
+                                    token_count += 1
+                                    yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
                             except Exception as parse_err:
                                 logger.debug(f"SSE chunk parse atlandı: {parse_err} | raw={raw[:80]}")
                                 continue
+                        if done:
+                            break
+                    if token_count == 0:
+                        logger.warning("🤖 [GEMINI-STREAM] 0 token üretildi. Yanıt formatı beklenenden farklı olabilir.")
+                        fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                        yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
 
         except Exception as e:
             logger.error(f"Chat Stream Hatası: {e}")

@@ -1,0 +1,12 @@
+# Mixed hard set: positive retrieval + negative no-code cases
+# Use with: export PARTALOG_PUBLIC_TOKEN="..."
+{"id":"H1","text":"yamato vg2500-8f vida m3","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["vida"]}
+{"id":"H2","text":"160000 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"H3","text":"yan kapak alt","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500854"],"required_terms":["yan kapak"]}
+{"id":"H4","text":"yağ haznesi conta","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500005","3500004"],"required_terms":["conta"]}
+{"id":"H5","text":"model plakası","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["4109410"],"required_terms":["plaka"]}
+{"id":"H6","text":"perçin","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["000726"],"required_terms":["perçin"]}
+{"id":"H7","text":"otomobil fren balatası var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"H8","text":"telefon şarj kablosu arıyorum","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"H9","text":"yamaot vg2500 8f vdia","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["vida"]}
+{"id":"H10","text":"999999 kodlu parça var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}

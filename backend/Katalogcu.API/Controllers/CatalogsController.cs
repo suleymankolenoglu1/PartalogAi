@@ -19,6 +19,7 @@ namespace Katalogcu.API.Controllers
         private readonly ILogger<CatalogsController> _logger;
         private readonly IWebHostEnvironment _env;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IPublicLinkService _publicLinkService;
 
         public CatalogsController(
             AppDbContext context,
@@ -26,7 +27,8 @@ namespace Katalogcu.API.Controllers
             CatalogProcessorService processorService,
             ILogger<CatalogsController> logger,
             IWebHostEnvironment env,
-            IServiceScopeFactory scopeFactory)
+            IServiceScopeFactory scopeFactory,
+            IPublicLinkService publicLinkService)
         {
             _context = context;
             _pdfService = pdfService;
@@ -34,6 +36,7 @@ namespace Katalogcu.API.Controllers
             _logger = logger;
             _env = env;
             _scopeFactory = scopeFactory;
+            _publicLinkService = publicLinkService;
         }
 
         private Guid GetCurrentUserId()
@@ -46,12 +49,35 @@ namespace Katalogcu.API.Controllers
             return Guid.Empty;
         }
 
-        private Guid ResolveUserId(Guid? userId)
+        private (Guid userId, bool isPublic, PublicLinkPayload? publicPayload) ResolveUserId(string? publicToken)
         {
             var tokenUserId = GetCurrentUserId();
-            if (tokenUserId != Guid.Empty) return tokenUserId;
-            if (userId.HasValue && userId.Value != Guid.Empty) return userId.Value;
-            return Guid.Empty;
+            if (tokenUserId != Guid.Empty) return (tokenUserId, false, null);
+
+            if (!string.IsNullOrWhiteSpace(publicToken))
+            {
+                var payload = _publicLinkService.Validate(publicToken);
+                if (payload != null) return (payload.UserId, true, payload);
+            }
+            return (Guid.Empty, true, null);
+        }
+
+        private static List<Guid> ParseCatalogIds(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return new List<Guid>();
+            try
+            {
+                var strIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(raw) ?? new();
+                return strIds
+                    .Select(s => Guid.TryParse(s, out var g) ? g : Guid.Empty)
+                    .Where(g => g != Guid.Empty)
+                    .Distinct()
+                    .ToList();
+            }
+            catch
+            {
+                return new List<Guid>();
+            }
         }
 
         // ==========================================
@@ -78,16 +104,152 @@ namespace Katalogcu.API.Controllers
         [HttpGet("public/{userId:guid}")]
         public async Task<IActionResult> GetPublicCatalogsByUser(Guid userId)
         {
-            if (userId == Guid.Empty) return BadRequest("Geçersiz kullanıcı.");
+            return BadRequest("Bu endpoint devre dışı. public token kullanın.");
+        }
 
-            var catalogs = await _context.Catalogs
+        [AllowAnonymous]
+        [HttpGet("public-by-token")]
+        public async Task<IActionResult> GetPublicCatalogsByToken([FromQuery] string token)
+        {
+            var payload = _publicLinkService.Validate(token);
+            if (payload == null) return BadRequest("Geçersiz token.");
+
+            var query = _context.Catalogs
                 .AsNoTracking()
-                .Where(c => c.Status == "Published" && c.UserId == userId)
+                .Where(c => c.Status == "Published" && c.UserId == payload.UserId);
+
+            if (payload.CatalogIds.Any())
+            {
+                query = query.Where(c => payload.CatalogIds.Contains(c.Id));
+            }
+
+            var catalogs = await query
                 .Include(c => c.Pages.OrderBy(p => p.PageNumber).Take(1))
                 .OrderByDescending(c => c.CreatedDate)
                 .ToListAsync();
 
             return Ok(catalogs);
+        }
+
+        [HttpGet("public-token")]
+        public async Task<IActionResult> GetPublicToken([FromQuery] string? catalogIds)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            var user = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => new { u.PublicLinkVersion, u.PublicLinkEnabled })
+                .FirstOrDefaultAsync();
+
+            if (user == null) return Unauthorized();
+            if (!user.PublicLinkEnabled)
+            {
+                return BadRequest("Public link devre dışı. Yeniden açmak için linki yenileyin.");
+            }
+
+            var requestedIds = ParseCatalogIds(catalogIds);
+            List<Guid> allowedIds = new();
+
+            if (requestedIds.Any())
+            {
+                allowedIds = await _context.Catalogs
+                    .AsNoTracking()
+                    .Where(c => c.UserId == userId && c.Status == "Published" && requestedIds.Contains(c.Id))
+                    .Select(c => c.Id)
+                    .ToListAsync();
+
+                if (!allowedIds.Any())
+                {
+                    return BadRequest("Seçilen kataloglar yayınlanmamış veya size ait değil.");
+                }
+            }
+
+            var token = _publicLinkService.CreateToken(userId, user.PublicLinkVersion, allowedIds.Any() ? allowedIds : null);
+            return Ok(new { token });
+        }
+
+        [HttpGet("public-token/status")]
+        public async Task<IActionResult> GetPublicTokenStatus()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            var user = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => new { u.PublicLinkVersion, u.PublicLinkEnabled })
+                .FirstOrDefaultAsync();
+
+            if (user == null) return Unauthorized();
+
+            return Ok(new
+            {
+                enabled = user.PublicLinkEnabled,
+                version = user.PublicLinkVersion
+            });
+        }
+
+        [HttpPost("public-token/revoke")]
+        public async Task<IActionResult> RevokePublicToken()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null) return Unauthorized();
+
+            user.PublicLinkVersion += 1;
+            user.PublicLinkEnabled = false;
+            user.UpdatedDate = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                enabled = user.PublicLinkEnabled,
+                version = user.PublicLinkVersion
+            });
+        }
+
+        [HttpPost("public-token/rotate")]
+        public async Task<IActionResult> RotatePublicToken([FromQuery] string? catalogIds)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null) return Unauthorized();
+
+            var requestedIds = ParseCatalogIds(catalogIds);
+            List<Guid> allowedIds = new();
+
+            if (requestedIds.Any())
+            {
+                allowedIds = await _context.Catalogs
+                    .AsNoTracking()
+                    .Where(c => c.UserId == userId && c.Status == "Published" && requestedIds.Contains(c.Id))
+                    .Select(c => c.Id)
+                    .ToListAsync();
+
+                if (!allowedIds.Any())
+                {
+                    return BadRequest("Seçilen kataloglar yayınlanmamış veya size ait değil.");
+                }
+            }
+
+            user.PublicLinkVersion += 1;
+            user.PublicLinkEnabled = true;
+            user.UpdatedDate = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            var token = _publicLinkService.CreateToken(userId, user.PublicLinkVersion, allowedIds.Any() ? allowedIds : null);
+            return Ok(new
+            {
+                token,
+                enabled = user.PublicLinkEnabled,
+                version = user.PublicLinkVersion
+            });
         }
 
         // ==========================================
@@ -186,17 +348,17 @@ namespace Katalogcu.API.Controllers
         // ==========================================
         [AllowAnonymous]
         [HttpGet("{id}/pages/{pageNumber}/items")]
-        public async Task<IActionResult> GetPageItems(Guid id, string pageNumber, [FromQuery] Guid? userId)
+        public async Task<IActionResult> GetPageItems(Guid id, string pageNumber, [FromQuery] string? token)
         {
-            var resolvedUserId = ResolveUserId(userId);
-            if (resolvedUserId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
+            var resolved = ResolveUserId(token);
+            if (resolved.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
 
             if (!int.TryParse(pageNumber, out int currentPage)) return BadRequest("Sayfa numarası geçersiz.");
 
-            var catalogItems = await FetchItemsForPage(id, currentPage.ToString(), resolvedUserId);
+            var catalogItems = await FetchItemsForPage(id, currentPage.ToString(), resolved.userId, resolved.isPublic, resolved.publicPayload);
 
-            if (!catalogItems.Any()) catalogItems = await FetchItemsForPage(id, (currentPage + 1).ToString(), resolvedUserId);
-            if (!catalogItems.Any() && currentPage > 1) catalogItems = await FetchItemsForPage(id, (currentPage - 1).ToString(), resolvedUserId);
+            if (!catalogItems.Any()) catalogItems = await FetchItemsForPage(id, (currentPage + 1).ToString(), resolved.userId, resolved.isPublic, resolved.publicPayload);
+            if (!catalogItems.Any() && currentPage > 1) catalogItems = await FetchItemsForPage(id, (currentPage - 1).ToString(), resolved.userId, resolved.isPublic, resolved.publicPayload);
 
             if (!catalogItems.Any()) return Ok(new List<object>());
 
@@ -204,7 +366,7 @@ namespace Katalogcu.API.Controllers
             var stockedProducts = await _context.Products
                 .Include(p => p.Catalog)
                 .AsNoTracking()
-                .Where(p => itemCodes.Contains(p.Code) && p.Catalog.UserId == resolvedUserId)
+                .Where(p => itemCodes.Contains(p.Code) && p.Catalog.UserId == resolved.userId)
                 .GroupBy(p => p.Code).Select(g => g.First()).ToDictionaryAsync(p => p.Code);
 
             var result = catalogItems.Select(item =>
@@ -229,12 +391,23 @@ namespace Katalogcu.API.Controllers
             return Ok(result);
         }
 
-        private async Task<List<CatalogItem>> FetchItemsForPage(Guid catalogId, string pageNum, Guid userId)
+        private async Task<List<CatalogItem>> FetchItemsForPage(Guid catalogId, string pageNum, Guid userId, bool isPublic, PublicLinkPayload? publicPayload)
         {
-            return await _context.CatalogItems
+            var query = _context.CatalogItems
                 .Include(ci => ci.Catalog)
                 .AsNoTracking()
-                .Where(ci => ci.CatalogId == catalogId && ci.PageNumber == pageNum && ci.Catalog.UserId == userId)
+                .Where(ci => ci.CatalogId == catalogId && ci.PageNumber == pageNum && ci.Catalog.UserId == userId);
+
+            if (isPublic)
+            {
+                query = query.Where(ci => ci.Catalog.Status == "Published");
+                if (publicPayload?.CatalogIds?.Any() == true)
+                {
+                    query = query.Where(ci => publicPayload.CatalogIds.Contains(ci.CatalogId));
+                }
+            }
+
+            return await query
                 .OrderBy(ci => ci.RefNumber)
                 .ToListAsync();
         }
@@ -283,15 +456,26 @@ namespace Katalogcu.API.Controllers
 
         [AllowAnonymous]
         [HttpGet("{id:guid}")]
-        public async Task<IActionResult> GetById(Guid id, [FromQuery] Guid? userId)
+        public async Task<IActionResult> GetById(Guid id, [FromQuery] string? token)
         {
-            var resolvedUserId = ResolveUserId(userId);
-            if (resolvedUserId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
+            var resolved = ResolveUserId(token);
+            if (resolved.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
 
-            var catalog = await _context.Catalogs
+            var query = _context.Catalogs
                 .Include(c => c.Pages.OrderBy(p => p.PageNumber))
                 .ThenInclude(p => p.Hotspots)
-                .FirstOrDefaultAsync(c => c.Id == id && c.UserId == resolvedUserId);
+                .Where(c => c.Id == id && c.UserId == resolved.userId);
+
+            if (resolved.isPublic)
+            {
+                query = query.Where(c => c.Status == "Published");
+                if (resolved.publicPayload?.CatalogIds?.Any() == true)
+                {
+                    query = query.Where(c => resolved.publicPayload.CatalogIds.Contains(c.Id));
+                }
+            }
+
+            var catalog = await query.FirstOrDefaultAsync();
 
             if (catalog == null) return NotFound("Katalog bulunamadı.");
             return Ok(catalog);

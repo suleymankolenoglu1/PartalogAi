@@ -22,8 +22,11 @@
 
                 <div class="h-4 w-px bg-[#D2D2D7]"></div>
                 
+                <button (click)="goCheckout()" class="text-xs font-medium text-white bg-[#0066CC] hover:bg-[#004499] px-3 py-1.5 rounded-md transition-colors">
+                    Sipariş Ekranı
+                </button>
                 <button class="text-xs font-medium text-[#1D1D1F] hover:text-[#0066CC] transition-colors">İletişim</button>
-                <button class="text-xs font-medium text-[#1D1D1F] bg-[#E5E5EA] hover:bg-[#D2D2D7] px-3 py-1.5 rounded-md transition-colors">
+                <button (click)="goCheckout()" class="text-xs font-medium text-[#1D1D1F] bg-[#E5E5EA] hover:bg-[#D2D2D7] px-3 py-1.5 rounded-md transition-colors">
                     Giriş Yap
                 </button>
             </div>
@@ -148,6 +151,23 @@
                                                               [class.bg-red-500]="part.stockStatus === 'Stokta Yok'"></span>
                                                         {{ part.stockStatus }}
                                                     </div>
+                                                    <div class="source-meta mt-1">
+                                                        @if(part.brand) {
+                                                            <span class="source-chip">Marka: {{ part.brand }}</span>
+                                                        }
+                                                        @if(part.similarity !== null && part.similarity !== undefined) {
+                                                            <span class="source-chip source-chip-score">Skor: {{ part.similarity * 100 | number:'1.0-0' }}%</span>
+                                                        }
+                                                        @if(part.visualSimilarity !== null && part.visualSimilarity !== undefined) {
+                                                            <span class="source-chip source-chip-visual">Görsel: {{ part.visualSimilarity * 100 | number:'1.0-0' }}%</span>
+                                                        }
+                                                        @if(part.fallbackReason) {
+                                                            <span class="source-chip source-chip-warn">{{ formatFallbackReason(part.fallbackReason) }}</span>
+                                                        }
+                                                    </div>
+                                                    @if(part.query) {
+                                                        <div class="source-query">Kaynak sorgu: {{ part.query }}</div>
+                                                    }
                                                 </div>
                                                 @if(part.catalogId) {
                                                     <button (click)="openCatalog(part.catalogId)"
@@ -155,6 +175,11 @@
                                                         Git
                                                     </button>
                                                 }
+                                                <button
+                                                    (click)="addAiPartToCart(part)"
+                                                    class="text-[#1D1D1F] text-xs font-bold bg-[#F5F5F7] px-3 py-1.5 rounded-lg border border-[#E5E5EA] hover:bg-[#1D1D1F] hover:text-white transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+                                                    Sepete Ekle
+                                                </button>
                                             </div>
                                         }
                                     </div>
@@ -173,6 +198,41 @@
                         </div>
                     }
                 </div>
+
+                @if(latestAssistantMessage) {
+                    <div class="chat-feedback-panel">
+                        <div class="chat-feedback-title">Bu cevap işine yaradı mı?</div>
+                        <div class="chat-feedback-actions">
+                            <button
+                                class="chat-feedback-btn"
+                                [class.selected]="latestAssistantMessage.feedback === 'up'"
+                                [disabled]="isSendingChatFeedback || !!latestAssistantMessage.feedbackSubmitted"
+                                (click)="sendChatFeedback(true)">
+                                👍 Evet
+                            </button>
+                            <button
+                                class="chat-feedback-btn"
+                                [class.selected]="latestAssistantMessage.feedback === 'down'"
+                                [disabled]="isSendingChatFeedback || !!latestAssistantMessage.feedbackSubmitted"
+                                (click)="sendChatFeedback(false)">
+                                👎 Hayır
+                            </button>
+                        </div>
+                        @if(!latestAssistantMessage.feedbackSubmitted) {
+                            <textarea
+                                [(ngModel)]="chatFeedbackReason"
+                                rows="2"
+                                class="chat-feedback-reason"
+                                placeholder="Opsiyonel: neyi iyileştirelim?"></textarea>
+                        }
+                        @if(chatFeedbackMessage) {
+                            <div class="chat-feedback-ok">{{ chatFeedbackMessage }}</div>
+                        }
+                        @if(chatFeedbackError) {
+                            <div class="chat-feedback-err">{{ chatFeedbackError }}</div>
+                        }
+                    </div>
+                }
 
                 <div class="mt-3 flex justify-end">
                     <button (click)="clearHistory()" class="text-xs text-[#86868B] hover:text-[#FF3B30] transition-colors flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50">
@@ -240,6 +300,11 @@
             </div>
         }
         @else {
+            @if (publicLoadError) {
+                <div class="mb-6 rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 text-sm text-[#991B1B]">
+                    {{ publicLoadError }}
+                </div>
+            }
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 
                 @for (item of visibleCatalogs; track item.id) {
@@ -318,23 +383,9 @@
                 <span class="font-bold text-[#1D1D1F]">Toplam Tutar:</span>
                 <span class="font-bold text-xl text-[#0066CC]">{{ cartService.totalPrice$ | async | currency:'TRY':'symbol-narrow' }}</span>
             </div>
-
-            <div class="space-y-3 mb-6">
-                <input [(ngModel)]="customerForm.name" type="text" placeholder="Adınız Soyadınız *" class="w-full p-3 border border-[#D2D2D7] rounded-lg text-sm outline-none focus:border-[#0066CC] transition-colors">
-                <input [(ngModel)]="customerForm.phone" type="tel" placeholder="Telefon Numaranız *" class="w-full p-3 border border-[#D2D2D7] rounded-lg text-sm outline-none focus:border-[#0066CC] transition-colors">
-                <input [(ngModel)]="customerForm.email" type="email" placeholder="E-posta (Opsiyonel)" class="w-full p-3 border border-[#D2D2D7] rounded-lg text-sm outline-none focus:border-[#0066CC] transition-colors">
-            </div>
-            
-            <button (click)="submitOrder()" 
-                    [disabled]="isSubmitting || !customerForm.name || !customerForm.phone"
-                    class="w-full py-3.5 bg-[#1D1D1F] hover:bg-black text-white rounded-xl font-bold flex items-center justify-center gap-2 disabled:bg-gray-400 transition-all shadow-lg hover:shadow-gray-500/30 transform hover:-translate-y-0.5">
-                @if(isSubmitting) {
-                    <span class="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
-                    <span>İşleniyor...</span>
-                } @else {
-                    <span class="material-symbols-outlined text-[20px]">check_circle</span>
-                    <span>Siparişi Onayla</span>
-                }
+            <button (click)="goCheckout()"
+                    class="w-full py-3 border border-[#1D1D1F] text-[#1D1D1F] rounded-xl font-semibold transition-all hover:bg-[#F5F5F7]">
+                Sipariş Ekranına Git
             </button>
         </div>
     </div>

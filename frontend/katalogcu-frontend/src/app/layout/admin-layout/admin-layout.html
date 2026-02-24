@@ -33,9 +33,22 @@
                 <span class="label">Görsel Feedback</span>
             </a>
 
+            <a routerLink="/dashboard/chat-quality" routerLinkActive="active" class="nav-item">
+                <span class="material-symbols-outlined icon">analytics</span>
+                <span class="label">Chat Kalitesi</span>
+            </a>
+
             <a routerLink="/dashboard/customers" routerLinkActive="active" class="nav-item">
                 <span class="material-symbols-outlined icon">group</span>
                 <span class="label">Müşteriler</span>
+            </a>
+
+            <a routerLink="/dashboard/orders" routerLinkActive="active" class="nav-item">
+                <span class="material-symbols-outlined icon">receipt_long</span>
+                <span class="label">Siparişler</span>
+                @if (pendingOrderCount > 0) {
+                    <span class="nav-badge">{{ pendingOrderCount }}</span>
+                }
             </a>
 
             <div class="nav-divider"></div>
@@ -46,17 +59,40 @@
             </a>
 
             <div class="store-card-wrapper">
-                @if (userId) {
-                    <a [routerLink]="['/public-view', userId]" target="_blank" class="store-card">
-                        <div class="store-icon-box">
-                            <span class="material-symbols-outlined store-icon">storefront</span>
-                        </div>
-                        <div class="store-info">
-                            <span class="store-title">Mağaza Vitrini</span>
-                            <span class="store-subtitle">Müşteri Görünümü</span>
-                        </div>
-                        <span class="material-symbols-outlined arrow-icon">open_in_new</span>
-                    </a>
+                <div class="store-card">
+                    <div class="store-icon-box">
+                        <span class="material-symbols-outlined store-icon">storefront</span>
+                    </div>
+                    <div class="store-info">
+                        <span class="store-title">Mağaza Vitrini</span>
+                        <span class="store-subtitle">
+                            @if (publicTokenStatus?.enabled) {
+                                Aktif
+                            } @else {
+                                Pasif
+                            }
+                        </span>
+                    </div>
+                    @if (publicToken) {
+                        <a [routerLink]="['/public-view', publicToken]" target="_blank" class="store-open-link" title="Vitrini aç">
+                            <span class="material-symbols-outlined arrow-icon">open_in_new</span>
+                        </a>
+                    }
+                </div>
+
+                <div class="store-actions">
+                    @if (publicToken) {
+                        <button type="button" class="store-action-btn" (click)="copyPublicLink()" [disabled]="publicActionLoading">Link Kopyala</button>
+                    }
+                    <button type="button" class="store-action-btn" (click)="rotatePublicLink()" [disabled]="publicActionLoading">Linki Yenile</button>
+                    <button type="button" class="store-action-btn danger" (click)="revokePublicLink()" [disabled]="publicActionLoading">Linki İptal Et</button>
+                </div>
+
+                @if (publicActionMessage) {
+                    <p class="store-feedback ok">{{ publicActionMessage }}</p>
+                }
+                @if (publicActionError) {
+                    <p class="store-feedback err">{{ publicActionError }}</p>
                 }
             </div>
         </nav>
@@ -84,9 +120,12 @@
             </div>
 
             <div class="header-right">
-                <button class="notif-btn">
+                <button class="notif-btn" (click)="openOrdersFromNotification()">
                     <span class="material-symbols-outlined">notifications</span>
-                    <span class="notif-dot"></span>
+                    @if (unreadOrderCount > 0) {
+                        <span class="notif-dot"></span>
+                        <span class="notif-count">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
+                    }
                 </button>
                 
                 <div class="user-profile">

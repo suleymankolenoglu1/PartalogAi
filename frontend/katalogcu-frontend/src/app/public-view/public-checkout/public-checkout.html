@@ -1,0 +1,239 @@
+<div class="checkout-page">
+  <header class="checkout-header">
+    <div class="checkout-header-inner">
+      <button (click)="goBackToPublic()" class="back-btn">← Kataloğa Dön</button>
+      <h1>Sipariş ve Hesap</h1>
+      <div class="cart-total">Toplam: {{ cartService.totalPrice$ | async | currency:'TRY':'symbol-narrow' }}</div>
+    </div>
+  </header>
+
+  <main class="checkout-main">
+    <section class="cart-card">
+      <h2>Sepetiniz</h2>
+
+      @if ((cartService.cart$ | async)?.length === 0) {
+        <div class="empty">Sepetiniz boş. Katalogdan ürün ekleyin.</div>
+      } @else {
+        <div class="cart-list">
+          @for (item of cartService.cart$ | async; track item.product.catalogItemId) {
+            <div class="cart-row">
+              <div class="item-info">
+                <div class="code">{{ item.product.partCode }}</div>
+                <div class="name">{{ item.product.partName }}</div>
+                <div class="price">{{ item.product.price | currency:'TRY':'symbol-narrow' }}</div>
+              </div>
+              <div class="qty">
+                <button (click)="cartService.updateQuantity(item.product.catalogItemId, item.quantity - 1)">-</button>
+                <span>{{ item.quantity }}</span>
+                <button (click)="cartService.addToCart(item.product)">+</button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="right-col">
+      <div class="auth-card">
+        <div class="auth-head">
+          <h2>Müşteri Hesabı</h2>
+          @if (loggedCustomer) {
+            <button (click)="logout()" class="link-btn">Çıkış</button>
+          }
+        </div>
+
+        @if (!loggedCustomer) {
+          <div class="tabs">
+            <button [class.active]="authTab === 'login'" (click)="setAuthTab('login')">Giriş Yap</button>
+            <button [class.active]="authTab === 'register'" (click)="setAuthTab('register')">Kayıt Ol</button>
+          </div>
+
+          @if (authTab === 'login') {
+            <div class="form">
+              <input [(ngModel)]="loginForm.phone" type="tel" placeholder="Telefon (opsiyonel)">
+              <input [(ngModel)]="loginForm.email" type="email" placeholder="E-posta (opsiyonel)">
+              <input [(ngModel)]="loginForm.password" type="password" placeholder="Şifre">
+              <button (click)="login()"
+                      [disabled]="isLoggingIn || (!loginForm.phone && !loginForm.email) || !loginForm.password"
+                      class="primary">
+                {{ isLoggingIn ? 'Giriş Yapılıyor...' : 'Giriş Yap' }}
+              </button>
+              <button (click)="toggleResetPassword()" type="button" class="link-btn">
+                {{ showResetPassword ? 'Şifre sıfırlamayı kapat' : 'Şifremi unuttum' }}
+              </button>
+              @if (loginMessage) { <p class="ok">{{ loginMessage }}</p> }
+              @if (loginError) { <p class="err">{{ loginError }}</p> }
+
+              @if (showResetPassword) {
+                <div class="form" style="margin-top: 10px; background: #f8f8fa; padding: 12px; border-radius: 12px;">
+                  <input [(ngModel)]="resetForm.phone" type="tel" placeholder="Telefon (opsiyonel)">
+                  <input [(ngModel)]="resetForm.email" type="email" placeholder="E-posta (opsiyonel)">
+                  <button (click)="requestResetCode()"
+                          [disabled]="isRequestingResetCode || (!resetForm.phone && !resetForm.email)"
+                          class="secondary">
+                    {{ isRequestingResetCode ? 'Kod Oluşturuluyor...' : 'Sıfırlama Kodu Al' }}
+                  </button>
+                  <input [(ngModel)]="resetForm.code" type="text" placeholder="Doğrulama Kodu">
+                  <input [(ngModel)]="resetForm.newPassword" type="password" placeholder="Yeni Şifre (min 8 karakter)">
+                  <input [(ngModel)]="resetForm.confirmPassword" type="password" placeholder="Yeni Şifre Tekrar">
+                  <button (click)="confirmResetPassword()"
+                          [disabled]="isConfirmingReset || !resetForm.code || !resetForm.newPassword || !resetForm.confirmPassword"
+                          class="primary">
+                    {{ isConfirmingReset ? 'Güncelleniyor...' : 'Şifreyi Güncelle' }}
+                  </button>
+                  @if (resetMessage) { <p class="ok">{{ resetMessage }}</p> }
+                  @if (resetError) { <p class="err">{{ resetError }}</p> }
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="form">
+              <input [(ngModel)]="registerForm.name" type="text" placeholder="Ad Soyad">
+              <input [(ngModel)]="registerForm.phone" type="tel" placeholder="Telefon">
+              <input [(ngModel)]="registerForm.email" type="email" placeholder="E-posta (opsiyonel)">
+              <input [(ngModel)]="registerForm.password" type="password" placeholder="Şifre (min 8 karakter)">
+              <input [(ngModel)]="registerForm.confirmPassword" type="password" placeholder="Şifre Tekrar">
+              <button (click)="register()"
+                      [disabled]="isRegistering || !registerForm.name || !registerForm.phone || !registerForm.password || !registerForm.confirmPassword"
+                      class="primary">
+                {{ isRegistering ? 'Kayıt Oluşturuluyor...' : 'Hesap Oluştur' }}
+              </button>
+              @if (registerMessage) { <p class="ok">{{ registerMessage }}</p> }
+              @if (registerError) { <p class="err">{{ registerError }}</p> }
+            </div>
+          }
+        } @else {
+          <div class="account-box">
+            <div class="name">{{ loggedCustomer.name }}</div>
+            <div>{{ loggedCustomer.phone }}</div>
+            <div>{{ loggedCustomer.email || '-' }}</div>
+            <input [(ngModel)]="memberCheckout.deliveryAddress" type="text" placeholder="Teslimat adresi">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <input [(ngModel)]="memberCheckout.deliveryCity" type="text" placeholder="Şehir">
+              <input [(ngModel)]="memberCheckout.deliveryDistrict" type="text" placeholder="İlçe (opsiyonel)">
+            </div>
+            <select [(ngModel)]="memberCheckout.paymentMethod">
+              <option value="KapidaOdeme">Kapıda Ödeme</option>
+              <option value="HavaleEFT">Havale / EFT</option>
+            </select>
+            <textarea [(ngModel)]="memberCheckout.deliveryNote" rows="2" placeholder="Teslimat notu (opsiyonel)"></textarea>
+            <button (click)="submitOrderAsMember()"
+                    [disabled]="isSubmitting || ((cartService.cart$ | async)?.length || 0) === 0"
+                    class="primary">
+              {{ isSubmitting ? 'Sipariş Gönderiliyor...' : 'Hesabımla Sipariş Ver' }}
+            </button>
+          </div>
+        }
+      </div>
+
+      <div class="guest-card">
+        <h2>Misafir Sipariş (Giriş Yapmadan)</h2>
+        <p class="hint">Bu alan sadece hızlı/tek seferlik alışveriş içindir.</p>
+        <div class="form">
+          <input [(ngModel)]="guestForm.name" type="text" placeholder="Ad Soyad">
+          <input [(ngModel)]="guestForm.phone" type="tel" placeholder="Telefon">
+          <input [(ngModel)]="guestForm.email" type="email" placeholder="E-posta (opsiyonel)">
+          <input [(ngModel)]="guestForm.deliveryAddress" type="text" placeholder="Teslimat adresi">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <input [(ngModel)]="guestForm.deliveryCity" type="text" placeholder="Şehir">
+            <input [(ngModel)]="guestForm.deliveryDistrict" type="text" placeholder="İlçe (opsiyonel)">
+          </div>
+          <select [(ngModel)]="guestForm.paymentMethod">
+            <option value="KapidaOdeme">Kapıda Ödeme</option>
+            <option value="HavaleEFT">Havale / EFT</option>
+          </select>
+          <textarea [(ngModel)]="guestForm.deliveryNote" rows="2" placeholder="Teslimat notu (opsiyonel)"></textarea>
+          <textarea [(ngModel)]="guestForm.note" rows="2" placeholder="Sipariş notu (opsiyonel)"></textarea>
+          <button (click)="saveGuestInfo()" [disabled]="isSavingGuest || !guestForm.name || !guestForm.phone" class="secondary">
+            {{ isSavingGuest ? 'Kaydediliyor...' : 'Misafir Bilgisini Kaydet' }}
+          </button>
+          <button (click)="submitOrderAsGuest()"
+                  [disabled]="isSubmitting || ((cartService.cart$ | async)?.length || 0) === 0"
+                  class="primary ghost-order">
+            {{ isSubmitting ? 'Sipariş Gönderiliyor...' : 'Misafir Olarak Sipariş Ver' }}
+          </button>
+          @if (guestMessage) { <p class="ok">{{ guestMessage }}</p> }
+          @if (guestError) { <p class="err">{{ guestError }}</p> }
+        </div>
+      </div>
+
+      <div class="orders-card">
+        <div class="orders-head">
+          <h2>Geçmiş Siparişlerim</h2>
+          @if (loggedCustomer) { <button (click)="loadMyOrders()" class="link-btn">Yenile</button> }
+        </div>
+        @if (!loggedCustomer) {
+          <p class="hint">Sipariş geçmişini görmek için giriş yapın.</p>
+        } @else if (isLoadingOrders) {
+          <p class="hint">Yükleniyor...</p>
+        } @else if (myOrders.length === 0) {
+          <p class="hint">Henüz siparişiniz yok.</p>
+        } @else {
+          <div class="orders-list">
+            @for (order of myOrders; track order.id) {
+              <div class="order-row"
+                   [class.order-row-active]="selectedOrderId === order.id"
+                   (click)="toggleOrderDetail(order)">
+                <div class="order-head">
+                  <div class="no">{{ order.orderNumber }}</div>
+                  <button type="button" class="order-toggle-btn">
+                    {{ selectedOrderId === order.id ? 'Gizle' : 'Detay' }}
+                  </button>
+                </div>
+                <div class="meta">{{ order.createdDate | date:'dd.MM.yyyy HH:mm' }}</div>
+                <div class="meta">
+                  Durum: {{ formatOrderStatus(order.status) }}
+                  · Ödeme: {{ getPaymentMethodLabel(order.paymentMethod) }}
+                </div>
+                <div class="amount">{{ order.totalAmount | currency:'TRY':'symbol-narrow' }}</div>
+
+                @if (selectedOrderId === order.id) {
+                  <div class="order-detail-panel" (click)="$event.stopPropagation()">
+                    @if (isLoadingOrderDetail) {
+                      <div class="detail-state">Detay yükleniyor...</div>
+                    } @else if (orderDetailError) {
+                      <div class="detail-state detail-error">{{ orderDetailError }}</div>
+                    } @else if (selectedOrderDetail) {
+                      <div class="detail-grid">
+                        <div><strong>Adres:</strong> {{ selectedOrderDetail.deliveryAddress || '-' }}</div>
+                        <div><strong>Şehir:</strong> {{ selectedOrderDetail.deliveryCity || '-' }}</div>
+                        <div><strong>İlçe:</strong> {{ selectedOrderDetail.deliveryDistrict || '-' }}</div>
+                        <div><strong>Ödeme:</strong> {{ getPaymentMethodLabel(selectedOrderDetail.paymentMethod) }}</div>
+                      </div>
+                      <div class="detail-note">
+                        <strong>Teslimat Notu:</strong> {{ selectedOrderDetail.deliveryNote || '-' }}
+                      </div>
+
+                      <div class="detail-items">
+                        <div class="detail-items-head">
+                          <span>Kod</span>
+                          <span>Ürün</span>
+                          <span>Adet</span>
+                          <span>Tutar</span>
+                        </div>
+                        @for (item of selectedOrderDetail.items; track item.id) {
+                          <div class="detail-items-row">
+                            <span>{{ item.product?.code || '-' }}</span>
+                            <span>{{ item.product?.name || 'Ürün' }}</span>
+                            <span>{{ item.quantity }}</span>
+                            <span>{{ item.lineTotal | currency:'TRY':'symbol-narrow' }}</span>
+                          </div>
+                        }
+                        @if ((selectedOrderDetail.items.length || 0) === 0) {
+                          <div class="detail-state">Bu siparişte kalem bulunmuyor.</div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      @if (orderMessage) { <p class="ok mt">{{ orderMessage }}</p> }
+      @if (orderError) { <p class="err mt">{{ orderError }}</p> }
+    </section>
+  </main>
+</div>

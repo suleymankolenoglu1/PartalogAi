@@ -91,6 +91,25 @@
     transition: all 0.2s ease;
 }
 
+.nav-item .label {
+    flex: 1;
+}
+
+.nav-badge {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #FEF2F2;
+    color: #B91C1C;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid #FECACA;
+}
+
 /* Hover Durumu */
 .nav-item:hover {
     background-color: rgba(0, 102, 204, 0.06);
@@ -139,7 +158,6 @@
     background-color: #FFFFFF;
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    text-decoration: none;
     transition: all 0.2s;
     box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
@@ -177,9 +195,68 @@
 }
 
 .arrow-icon {
-    margin-left: auto;
     font-size: 16px;
     color: var(--text-secondary);
+}
+
+.store-open-link {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    text-decoration: none;
+}
+
+.store-open-link:hover {
+    background: rgba(0, 102, 204, 0.08);
+}
+
+.store-actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.store-action-btn {
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.store-action-btn:hover:not(:disabled) {
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
+.store-action-btn.danger:hover:not(:disabled) {
+    border-color: var(--danger-red);
+    color: var(--danger-red);
+}
+
+.store-action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.store-feedback {
+    margin: 8px 2px 0;
+    font-size: 11px;
+}
+
+.store-feedback.ok {
+    color: #0F766E;
+}
+
+.store-feedback.err {
+    color: #B91C1C;
 }
 
 /* Çıkış Butonu */
@@ -316,6 +393,22 @@
     background-color: var(--danger-red);
     border-radius: 50%;
     border: 2px solid #fff;
+}
+
+.notif-count {
+    position: absolute;
+    top: 2px;
+    right: 0;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--danger-red);
+    color: #fff;
+    font-size: 10px;
+    line-height: 16px;
+    text-align: center;
+    font-weight: 700;
+    padding: 0 4px;
 }
 
 .user-profile {

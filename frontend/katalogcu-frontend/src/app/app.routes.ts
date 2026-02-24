@@ -9,8 +9,7 @@ import { PricesComponent } from './prices/prices';
 import { LoginComponent } from './login/login';
 import { RegisterComponent } from './register/register';
 import { PublicViewComponent } from './public-view/public-view';
-
-// 👇 YENİ COMPONENTLERİMİZ (Showcase ve Viewer)
+import { PublicCheckoutComponent } from './public-view/public-checkout/public-checkout';
 import { PublicCatalogShowcaseComponent } from './public-catalog-showcase/public-catalog-showcase';
 import { PublicCatalogViewerComponent } from './public-view/public-catalog-viewer/public-catalog-viewer';
 
@@ -26,45 +25,37 @@ import { CatalogAddComponent } from './dashboard/catalogs/catalog-add/catalog-ad
 import { PartsAddComponent } from './dashboard/parts/parts-add/parts-add';
 import { PartsImportComponent } from './dashboard/parts/parts-import/parts-import';
 import { VisualFeedbackComponent } from './dashboard/visual-feedback/visual-feedback';
+import { ChatQualityComponent } from './dashboard/chat-quality/chat-quality';
+import { OrdersComponent } from './dashboard/orders/orders';
 
 export const routes: Routes = [
-  // --- PUBLIC SAYFALAR (Müşteri Tarafı) ---
-  
   { path: '', component: HomeComponent },
-  
-  // 1. Katalog Listesi (Arama Ekranı)
-  { path: 'public-view/:userId', component: PublicViewComponent },
-  
-  // 2. Katalog Vitrini (Kutu kutu gruplar)
+  { path: 'public-view/:publicToken', component: PublicViewComponent },
+  { path: 'public-view/:publicToken/checkout', component: PublicCheckoutComponent },
   { path: 'view/:id', component: PublicCatalogShowcaseComponent },
-
-  // 3. Profesyonel Görüntüleyici (Teknik Resim & Tablo)
   { path: 'view/:id/viewer/:pageIndex', component: PublicCatalogViewerComponent },
-
-  // Diğer Sayfalar
   { path: 'explore', component: ExploreComponent },
   { path: 'blog', component: BlogComponent },
   { path: 'services', component: ServislerComponent },
   { path: 'prices', component: PricesComponent },
   { path: 'login', component: LoginComponent },
   { path: 'register', component: RegisterComponent },
-  
-  // --- ADMIN PANELİ ---
   {
     path: 'dashboard',
     component: AdminLayoutComponent,
     children: [
       { path: '', component: DashboardComponent },
       { path: 'catalogs', component: CatalogsComponent },
-      { path: 'catalog/:id', component: CatalogDetailComponent }, // Admin detay sayfası
+      { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
-      
       { path: 'customers', component: CustomersComponent },
       { path: 'settings', component: SettingsComponent },
       { path: 'parts', component: PartsComponent },
       { path: 'parts/new', component: PartsAddComponent },
       { path: 'parts/import', component: PartsImportComponent },
-      { path: 'visual-feedback', component: VisualFeedbackComponent }
+      { path: 'visual-feedback', component: VisualFeedbackComponent },
+      { path: 'chat-quality', component: ChatQualityComponent },
+      { path: 'orders', component: OrdersComponent }
     ]
   }
 ];

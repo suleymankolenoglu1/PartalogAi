@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Text.Json;
 using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Katalogcu.API.Controllers
 {
@@ -17,17 +19,23 @@ namespace Katalogcu.API.Controllers
         private readonly AppDbContext _context;
         private readonly ILogger<ChatController> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IPublicLinkService _publicLinkService;
+        private readonly IWebHostEnvironment _env;
 
         public ChatController(
             IPartalogAiService aiService,
             AppDbContext context,
             ILogger<ChatController> logger,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IPublicLinkService publicLinkService,
+            IWebHostEnvironment env)
         {
             _aiService = aiService;
             _context = context;
             _logger = logger;
             _httpClientFactory = httpClientFactory;
+            _publicLinkService = publicLinkService;
+            _env = env;
         }
 
         private Guid GetCurrentUserId()
@@ -37,36 +45,91 @@ namespace Katalogcu.API.Controllers
             return Guid.Empty;
         }
 
+        private static List<Guid> ParseCatalogIds(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return new List<Guid>();
+            try
+            {
+                var strIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new();
+                return strIds
+                    .Select(s => Guid.TryParse(s, out var g) ? g : Guid.Empty)
+                    .Where(g => g != Guid.Empty)
+                    .Distinct()
+                    .ToList();
+            }
+            catch
+            {
+                try
+                {
+                    var guidIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(json) ?? new();
+                    return guidIds.Where(g => g != Guid.Empty).Distinct().ToList();
+                }
+                catch
+                {
+                    return new List<Guid>();
+                }
+            }
+        }
+
+        private async Task<List<Guid>> ResolveAccessibleCatalogIds(Guid tokenUserId, PublicLinkPayload? publicPayload, List<Guid> requestedCatalogIds)
+        {
+            if (tokenUserId != Guid.Empty)
+            {
+                var userQuery = _context.Catalogs.AsNoTracking().Where(c => c.UserId == tokenUserId);
+                if (requestedCatalogIds.Any())
+                {
+                    userQuery = userQuery.Where(c => requestedCatalogIds.Contains(c.Id));
+                }
+                return await userQuery.Select(c => c.Id).ToListAsync();
+            }
+
+            if (publicPayload != null)
+            {
+                var publicQuery = _context.Catalogs.AsNoTracking()
+                    .Where(c => c.Status == "Published" && c.UserId == publicPayload.UserId);
+
+                if (publicPayload.CatalogIds.Any())
+                {
+                    publicQuery = publicQuery.Where(c => publicPayload.CatalogIds.Contains(c.Id));
+                }
+
+                if (requestedCatalogIds.Any())
+                {
+                    publicQuery = publicQuery.Where(c => requestedCatalogIds.Contains(c.Id));
+                }
+
+                return await publicQuery.Select(c => c.Id).ToListAsync();
+            }
+
+            return new List<Guid>();
+        }
+
         [HttpPost("ask")]
+        [EnableRateLimiting("public-chat")]
         public async Task<IActionResult> Ask([FromForm] AiChatRequestWithHistoryDto request)
         {
             try
             {
-                // ✅ Kullanıcı ayrımı: önce JWT, yoksa request.UserId
-                var userId = GetCurrentUserId();
-                if (userId == Guid.Empty && !string.IsNullOrWhiteSpace(request.UserId))
+                var tokenUserId = GetCurrentUserId();
+                PublicLinkPayload? publicPayload = null;
+                if (tokenUserId == Guid.Empty)
                 {
-                    Guid.TryParse(request.UserId, out userId);
-                }
-
-                if (userId == Guid.Empty)
-                {
-                    return BadRequest("Kullanıcı bilgisi bulunamadı.");
-                }
-
-                _logger.LogInformation("Chat request userId: {UserId}", userId);
-
-                // ✅ Katalog yoksa direkt boş dön
-                var hasCatalogs = await _context.Catalogs.AsNoTracking().AnyAsync(c => c.UserId == userId);
-                if (!hasCatalogs)
-                {
-                    return Ok(new ChatResponseDto
+                    if (!string.IsNullOrWhiteSpace(request.PublicToken))
                     {
-                        ReplySuggestion = "Bu mağazada henüz katalog yok.",
-                        Products = new List<EnrichedPartResult>(),
-                        DebugInfo = "No catalogs for user"
-                    });
+                        publicPayload = _publicLinkService.Validate(request.PublicToken);
+                    }
                 }
+
+                var catalogIdsJson = Request.HasFormContentType ? Request.Form["catalog_ids"].ToString() : null;
+                var requestedCatalogIds = ParseCatalogIds(catalogIdsJson);
+                var catalogIds = await ResolveAccessibleCatalogIds(tokenUserId, publicPayload, requestedCatalogIds);
+
+                if (!catalogIds.Any())
+                {
+                    return BadRequest("Katalog bilgisi bulunamadı.");
+                }
+
+                _logger.LogInformation("Chat request catalogs: {CatalogCount}", catalogIds.Count);
 
                 // 1. History Parse
                 var chatHistory = new List<ChatMessageDto>();
@@ -79,12 +142,7 @@ namespace Katalogcu.API.Controllers
                     catch { _logger.LogWarning("History parse edilemedi, sohbet sıfırdan başlıyor."); }
                 }
 
-                // ✅ Kullanıcıya ait katalogları çıkar
-                var catalogIds = await _context.Catalogs
-                    .AsNoTracking()
-                    .Where(c => c.UserId == userId)
-                    .Select(c => c.Id.ToString())
-                    .ToListAsync();
+                var catalogIdStrings = catalogIds.Select(c => c.ToString()).ToList();
 
                 // 2. Servis İsteği Hazırlığı
                 var aiRequest = new AiChatRequestDto
@@ -92,7 +150,7 @@ namespace Katalogcu.API.Controllers
                     Text = request.Text,
                     Image = request.Image,
                     History = chatHistory,
-                    CatalogIds = catalogIds
+                    CatalogIds = catalogIdStrings
                 };
 
                 // 3. AI Analizi (Python)
@@ -160,7 +218,7 @@ namespace Katalogcu.API.Controllers
 
                         foreach (var group in grouped)
                         {
-                            var products = await EnrichPythonSourcesAsync(group.ToList(), userId);
+                            var products = await EnrichPythonSourcesAsync(group.ToList(), catalogIds);
 
                             compareGroups.Add(new CompareGroupDto
                             {
@@ -187,8 +245,8 @@ namespace Katalogcu.API.Controllers
 
                     foreach (var term in multiTerms)
                     {
-                        var results = await SearchByCodeAsync(term, userId);
-                        var products = await EnrichResultsAsync(results, userId);
+                        var results = await SearchByCodeAsync(term, catalogIds);
+                        var products = await EnrichResultsAsync(results, catalogIds);
 
                         compareGroupsFallback.Add(new CompareGroupDto
                         {
@@ -215,8 +273,8 @@ namespace Katalogcu.API.Controllers
 
                 if (string.Equals(intent, "PRICE", StringComparison.OrdinalIgnoreCase))
                 {
-                    var priceResults = await SearchByCodeAsync(intentQuery, userId);
-                    var priceProducts = await EnrichResultsAsync(priceResults, userId);
+                    var priceResults = await SearchByCodeAsync(intentQuery, catalogIds);
+                    var priceProducts = await EnrichResultsAsync(priceResults, catalogIds);
 
                     if (!priceProducts.Any())
                     {
@@ -238,8 +296,8 @@ namespace Katalogcu.API.Controllers
 
                 if (string.Equals(intent, "STOCK", StringComparison.OrdinalIgnoreCase))
                 {
-                    var stockResults = await SearchByCodeAsync(intentQuery, userId);
-                    var stockProducts = await EnrichResultsAsync(stockResults, userId);
+                    var stockResults = await SearchByCodeAsync(intentQuery, catalogIds);
+                    var stockProducts = await EnrichResultsAsync(stockResults, catalogIds);
 
                     if (!stockProducts.Any())
                     {
@@ -261,8 +319,8 @@ namespace Katalogcu.API.Controllers
 
                 if (string.Equals(intent, "COMPATIBILITY", StringComparison.OrdinalIgnoreCase))
                 {
-                    var compResults = await SearchByCodeAsync(intentQuery, userId);
-                    var compProducts = await EnrichResultsAsync(compResults, userId);
+                    var compResults = await SearchByCodeAsync(intentQuery, catalogIds);
+                    var compProducts = await EnrichResultsAsync(compResults, catalogIds);
 
                     return Ok(new ChatResponseDto
                     {
@@ -283,8 +341,8 @@ namespace Katalogcu.API.Controllers
 
                     foreach (var term in terms)
                     {
-                        var compareResults = await SearchByCodeAsync(term, userId);
-                        var compareProducts = await EnrichResultsAsync(compareResults, userId);
+                        var compareResults = await SearchByCodeAsync(term, catalogIds);
+                        var compareProducts = await EnrichResultsAsync(compareResults, catalogIds);
 
                         compareGroups.Add(new CompareGroupDto
                         {
@@ -310,27 +368,27 @@ namespace Katalogcu.API.Controllers
                 // SENARYO A: Python kaynak bulduysa
                 if (aiResponse.Sources != null && aiResponse.Sources.Any())
                 {
-                    finalProducts = await EnrichPythonSourcesAsync(aiResponse.Sources, userId);
+                    finalProducts = await EnrichPythonSourcesAsync(aiResponse.Sources, catalogIds);
                 }
                 // SENARYO B: Python bulamadıysa ama Kod yakaladıysa
                 else if (!string.IsNullOrWhiteSpace(partCode) && IsPartNumber(partCode))
                 {
-                    var fallbackResults = await SearchByCodeAsync(partCode, userId);
-                    finalProducts = await EnrichResultsAsync(fallbackResults, userId);
+                    var fallbackResults = await SearchByCodeAsync(partCode, catalogIds);
+                    finalProducts = await EnrichResultsAsync(fallbackResults, catalogIds);
                 }
                 else if (!string.IsNullOrWhiteSpace(searchTerm) && IsPartNumber(searchTerm))
                 {
-                    var fallbackResults = await SearchByCodeAsync(searchTerm, userId);
-                    finalProducts = await EnrichResultsAsync(fallbackResults, userId);
+                    var fallbackResults = await SearchByCodeAsync(searchTerm, catalogIds);
+                    finalProducts = await EnrichResultsAsync(fallbackResults, catalogIds);
                 }
 
                 // 5. ACİL MÜDAHALE (Kod araması)
                 if (IsPartNumber(request.Text) && finalProducts.Count == 0)
                 {
-                    var directResults = await SearchByCodeAsync(request.Text, userId);
+                    var directResults = await SearchByCodeAsync(request.Text, catalogIds);
                     if (directResults.Any())
                     {
-                        finalProducts = await EnrichResultsAsync(directResults, userId);
+                        finalProducts = await EnrichResultsAsync(directResults, catalogIds);
                         aiResponse.Answer = $"Aradığınız {request.Text} kodlu ürün için veritabanında {finalProducts.Count} sonuç buldum.";
                     }
                 }
@@ -353,25 +411,30 @@ namespace Katalogcu.API.Controllers
         private const int StreamBufferSize = 4096;
 
         [HttpPost("ask-stream")]
+        [EnableRateLimiting("public-chat")]
         public async Task AskStream([FromForm] AiChatRequestWithHistoryDto request)
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty && !string.IsNullOrWhiteSpace(request.UserId))
+            var tokenUserId = GetCurrentUserId();
+            PublicLinkPayload? publicPayload = null;
+            if (tokenUserId == Guid.Empty)
             {
-                Guid.TryParse(request.UserId, out userId);
+                if (!string.IsNullOrWhiteSpace(request.PublicToken))
+                {
+                    publicPayload = _publicLinkService.Validate(request.PublicToken);
+                }
             }
 
-            if (userId == Guid.Empty)
+            var catalogIdsJson = Request.HasFormContentType ? Request.Form["catalog_ids"].ToString() : null;
+            var requestedCatalogIds = ParseCatalogIds(catalogIdsJson);
+            var catalogIds = await ResolveAccessibleCatalogIds(tokenUserId, publicPayload, requestedCatalogIds);
+
+            if (!catalogIds.Any())
             {
                 Response.StatusCode = 400;
                 return;
             }
 
-            var catalogIds = await _context.Catalogs
-                .AsNoTracking()
-                .Where(c => c.UserId == userId)
-                .Select(c => c.Id.ToString())
-                .ToListAsync();
+            var catalogIdStrings = catalogIds.Select(c => c.ToString()).ToList();
 
             Response.Headers["Content-Type"] = "text/event-stream";
             Response.Headers["Cache-Control"] = "no-cache";
@@ -382,7 +445,7 @@ namespace Katalogcu.API.Controllers
             var formContent = new MultipartFormDataContent();
             formContent.Add(new StringContent(request.Text ?? ""), "text");
             formContent.Add(new StringContent(request.History ?? "[]"), "history");
-            formContent.Add(new StringContent(System.Text.Json.JsonSerializer.Serialize(catalogIds)), "catalog_ids");
+            formContent.Add(new StringContent(System.Text.Json.JsonSerializer.Serialize(catalogIdStrings)), "catalog_ids");
             if (request.Image != null)
             {
                 var imageContent = new StreamContent(request.Image.OpenReadStream());
@@ -412,14 +475,24 @@ namespace Katalogcu.API.Controllers
         }
 
         [HttpPost("visual-feedback")]
+        [EnableRateLimiting("public-feedback")]
         public async Task<IActionResult> SaveVisualFeedback([FromForm] VisualFeedbackRequestDto request)
         {
             try
             {
                 var userId = GetCurrentUserId();
-                if (userId == Guid.Empty && !string.IsNullOrWhiteSpace(request.UserId))
+                if (userId == Guid.Empty)
                 {
-                    Guid.TryParse(request.UserId, out userId);
+                    if (!string.IsNullOrWhiteSpace(request.PublicToken))
+                    {
+                        var payload = _publicLinkService.Validate(request.PublicToken);
+                        if (payload != null) userId = payload.UserId;
+                    }
+                }
+
+                if (userId == Guid.Empty)
+                {
+                    return BadRequest(new { success = false, message = "Geçerli kullanıcı veya public token gerekli." });
                 }
 
                 if (request.Image == null)
@@ -448,6 +521,74 @@ namespace Katalogcu.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Visual feedback kaydetme hatası.");
+                return StatusCode(500, new { success = false, message = "Sistem hatası oluştu." });
+            }
+        }
+
+        [HttpPost("feedback")]
+        [EnableRateLimiting("public-feedback")]
+        public async Task<IActionResult> SaveChatFeedback([FromBody] ChatFeedbackRequestDto request)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest(new { success = false, message = "Geçersiz geri bildirim verisi." });
+
+                if (string.IsNullOrWhiteSpace(request.ReplySuggestion))
+                    return BadRequest(new { success = false, message = "replySuggestion zorunludur." });
+
+                var userId = GetCurrentUserId();
+                var isPublic = false;
+
+                if (userId == Guid.Empty && !string.IsNullOrWhiteSpace(request.PublicToken))
+                {
+                    var payload = _publicLinkService.Validate(request.PublicToken);
+                    if (payload != null)
+                    {
+                        userId = payload.UserId;
+                        isPublic = true;
+                    }
+                }
+
+                if (userId == Guid.Empty)
+                    return BadRequest(new { success = false, message = "Geçerli kullanıcı veya public token gerekli." });
+
+                var sourceCodes = (request.SourceCodes ?? new List<string>())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim().ToUpperInvariant())
+                    .Distinct()
+                    .Take(30)
+                    .ToList();
+
+                var record = new ChatFeedbackRecord
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    CreatedAt = DateTime.UtcNow,
+                    UserId = userId,
+                    IsPublic = isPublic,
+                    Helpful = request.Helpful,
+                    Reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(),
+                    UserQuery = string.IsNullOrWhiteSpace(request.UserQuery) ? null : request.UserQuery.Trim(),
+                    ReplySuggestion = request.ReplySuggestion.Trim(),
+                    SourceCodes = sourceCodes,
+                    MessageId = string.IsNullOrWhiteSpace(request.MessageId) ? null : request.MessageId.Trim(),
+                    ConversationId = string.IsNullOrWhiteSpace(request.ConversationId) ? null : request.ConversationId.Trim(),
+                    UserAgent = Request.Headers.UserAgent.ToString(),
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                };
+
+                var feedbackDir = Path.Combine(_env.ContentRootPath, "App_Data", "chat-feedback");
+                Directory.CreateDirectory(feedbackDir);
+                var feedbackPath = Path.Combine(feedbackDir, "index.jsonl");
+
+                var line = System.Text.Json.JsonSerializer.Serialize(record) + Environment.NewLine;
+                await System.IO.File.AppendAllTextAsync(feedbackPath, line, Encoding.UTF8);
+
+                return Ok(new { success = true, id = record.Id });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Chat feedback kaydetme hatası.");
                 return StatusCode(500, new { success = false, message = "Sistem hatası oluştu." });
             }
         }
@@ -502,23 +643,21 @@ namespace Katalogcu.API.Controllers
                 .ToList();
         }
 
-        private async Task<List<EnrichedPartResult>> EnrichPythonSourcesAsync(List<ChatSourceDto> sources, Guid userId)
+        private async Task<List<EnrichedPartResult>> EnrichPythonSourcesAsync(List<ChatSourceDto> sources, List<Guid> catalogIds)
         {
             var codes = sources.Where(s => !string.IsNullOrEmpty(s.Code)).Select(s => s.Code).Distinct().ToList();
             if (!codes.Any()) return new();
 
             var products = await _context.Products
-                .Include(p => p.Catalog)
                 .AsNoTracking()
-                .Where(p => codes.Contains(p.Code) && p.Catalog.UserId == userId)
+                .Where(p => codes.Contains(p.Code) && catalogIds.Contains(p.CatalogId))
                 .ToListAsync();
 
             var productDict = products.GroupBy(p => p.Code).ToDictionary(g => g.Key, g => g.First());
 
             var catalogItems = await _context.CatalogItems
-                .Include(ci => ci.Catalog)
                 .AsNoTracking()
-                .Where(ci => codes.Contains(ci.PartCode) && ci.Catalog.UserId == userId)
+                .Where(ci => codes.Contains(ci.PartCode) && catalogIds.Contains(ci.CatalogId))
                 .ToListAsync();
 
             var itemDict = catalogItems
@@ -565,40 +704,37 @@ namespace Katalogcu.API.Controllers
             return enrichedList;
         }
 
-        private async Task<List<CatalogItem>> SearchByCodeAsync(string? term, Guid userId)
+        private async Task<List<CatalogItem>> SearchByCodeAsync(string? term, List<Guid> catalogIds)
         {
-            if (string.IsNullOrWhiteSpace(term)) return new List<CatalogItem>();
+            if (string.IsNullOrWhiteSpace(term) || !catalogIds.Any()) return new List<CatalogItem>();
             var code = term.Trim().ToUpperInvariant();
 
             return await _context.CatalogItems
-                .Include(ci => ci.Catalog)
                 .AsNoTracking()
                 .Where(ci =>
-                    ci.Catalog.UserId == userId &&
+                    catalogIds.Contains(ci.CatalogId) &&
                     (ci.RefNumber == code || ci.PartCode == code || ci.PartCode.StartsWith(code)))
                 .OrderBy(ci => ci.PartCode.Length)
                 .Take(5)
                 .ToListAsync();
         }
 
-        private async Task<List<EnrichedPartResult>> EnrichResultsAsync(List<CatalogItem> items, Guid userId)
+        private async Task<List<EnrichedPartResult>> EnrichResultsAsync(List<CatalogItem> items, List<Guid> catalogIds)
         {
-            if (items.Count == 0) return new();
+            if (items.Count == 0 || !catalogIds.Any()) return new();
 
             var codes = items.Select(i => i.PartCode).Distinct().ToList();
 
             var products = await _context.Products
-                .Include(p => p.Catalog)
                 .AsNoTracking()
-                .Where(p => codes.Contains(p.Code) && p.Catalog.UserId == userId)
+                .Where(p => codes.Contains(p.Code) && catalogIds.Contains(p.CatalogId))
                 .ToListAsync();
 
             var productDict = products.GroupBy(p => p.Code).ToDictionary(g => g.Key, g => g.First());
 
             var cleanCatalogItems = await _context.CatalogItems
-                .Include(ci => ci.Catalog)
                 .AsNoTracking()
-                .Where(ci => codes.Contains(ci.PartCode) && ci.Catalog.UserId == userId)
+                .Where(ci => codes.Contains(ci.PartCode) && catalogIds.Contains(ci.CatalogId))
                 .ToListAsync();
 
             var bestItemsDict = cleanCatalogItems
@@ -650,9 +786,7 @@ namespace Katalogcu.API.Controllers
         public string? Text { get; set; }
         public IFormFile? Image { get; set; }
         public string? History { get; set; }
-
-        // ✅ Public-view için userId alıyoruz (JWT yoksa buradan gelir)
-        public string? UserId { get; set; }
+        public string? PublicToken { get; set; }
     }
 
     public record ChatResponseDto
@@ -683,6 +817,35 @@ namespace Katalogcu.API.Controllers
         public string StockStatus { get; init; } = "Bilinmiyor";
         public decimal? Price { get; init; }
         public string? ImageUrl { get; init; }
+    }
+
+    public class ChatFeedbackRequestDto
+    {
+        public bool Helpful { get; set; }
+        public string? Reason { get; set; }
+        public string? UserQuery { get; set; }
+        public string? ReplySuggestion { get; set; }
+        public List<string>? SourceCodes { get; set; }
+        public string? PublicToken { get; set; }
+        public string? MessageId { get; set; }
+        public string? ConversationId { get; set; }
+    }
+
+    public class ChatFeedbackRecord
+    {
+        public string Id { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public Guid UserId { get; set; }
+        public bool IsPublic { get; set; }
+        public bool Helpful { get; set; }
+        public string? Reason { get; set; }
+        public string? UserQuery { get; set; }
+        public string ReplySuggestion { get; set; } = string.Empty;
+        public List<string> SourceCodes { get; set; } = new();
+        public string? MessageId { get; set; }
+        public string? ConversationId { get; set; }
+        public string? UserAgent { get; set; }
+        public string? IpAddress { get; set; }
     }
     #endregion
 }

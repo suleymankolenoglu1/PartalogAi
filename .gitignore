@@ -54,3 +54,6 @@ __pycache__/
 .Python
 venv/
 ENV/
+
+# Runtime feedback data
+backend/Katalogcu.API/App_Data/

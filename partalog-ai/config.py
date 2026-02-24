@@ -5,6 +5,18 @@ Partalog AI Service - Configuration (Final v2.1)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, AliasChoices
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+import logging
+
+# 1. .env dosyasının KESİN yolunu bul
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / ".env"
+
+# 2. .env içeriğini işletim sistemi ortam değişkenlerine (os.environ) zorla yükle!
+# Böylece embedding.py veya Google SDK'ları direkt os.getenv() ile okuyabilir
+# override=True: mevcut ortam değişkenlerini .env ile ez (local dev'de tutarlılık için)
+load_dotenv(ENV_PATH, override=True)
 
 def _clean_env(value: str) -> str:
     return value.strip().strip('"').strip("'").strip()
@@ -20,7 +32,7 @@ class Settings(BaseSettings):
     PORT: int = Field(default=8000)
     
     # YOLLAR
-    BASE_DIR: Path = Path(__file__).parent
+    BASE_DIR: Path = BASE_DIR
     MODELS_DIR: Path = Field(default=Path("models"))
     
     # --- GEMINI AI ---
@@ -81,7 +93,7 @@ class Settings(BaseSettings):
 
     # Config Ayarları
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_PATH), # Sadece ".env" yerine tam yolu veriyoruz
         env_file_encoding="utf-8",
         extra="ignore" # Bilinmeyen değişkenleri hata vermeden geç
     )
@@ -123,3 +135,16 @@ class Settings(BaseSettings):
 settings = Settings()
 settings.ensure_directories()
 settings.clean_env_values()
+
+logger = logging.getLogger("partalog.config")
+def _mask_key(value: str) -> str:
+    if not value:
+        return "<empty>"
+    if len(value) <= 8:
+        return f"{value[:2]}...{value[-2:]}"
+    return f"{value[:4]}...{value[-4:]}"
+
+if settings.GEMINI_API_KEY:
+    logger.info(f"🔐 GEMINI_API_KEY loaded: {_mask_key(settings.GEMINI_API_KEY)} (len={len(settings.GEMINI_API_KEY)})")
+else:
+    logger.warning("⚠️ GEMINI_API_KEY not loaded (empty). Check partalog-ai/.env")

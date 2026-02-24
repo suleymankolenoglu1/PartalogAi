@@ -26,6 +26,7 @@ export class PublicCatalogDetailComponent implements OnInit {
 
   catalog: Catalog | null = null;
   allProducts: Product[] = [];
+  publicToken: string | null = null;
 
   activePage: CatalogPage | null = null;
   activePageIndex: number = 0;
@@ -41,6 +42,7 @@ export class PublicCatalogDetailComponent implements OnInit {
 
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('id');
+    this.publicToken = this.route.snapshot.queryParamMap.get('token');
     if (id) {
       this.loadCatalog(id);
       this.loadProducts(id);
@@ -49,7 +51,7 @@ export class PublicCatalogDetailComponent implements OnInit {
 
   loadCatalog(id: string) {
     this.isLoading = true;
-    this.catalogService.getCatalogById(id).subscribe({
+    this.catalogService.getCatalogById(id, { publicToken: this.publicToken ?? undefined }).subscribe({
       next: (data) => {
         this.catalog = data;
         if (this.catalog.pages && this.catalog.pages.length > 0) this.selectPage(0);
@@ -60,7 +62,7 @@ export class PublicCatalogDetailComponent implements OnInit {
   }
 
   loadProducts(catalogId: string) {
-    this.productService.getProductsByCatalog(catalogId).subscribe({
+    this.productService.getProductsByCatalog(catalogId, { publicToken: this.publicToken ?? undefined }).subscribe({
       next: (data) => {
         this.allProducts = data;
       },

@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, Location } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CatalogService, Catalog, CatalogPage, CatalogPageItem } from '../../core/services/catalog.service';
 import { CartService } from '../../core/services/cart.service';
@@ -22,6 +22,7 @@ interface ViewerGroup {
 export class PublicCatalogViewerComponent implements OnInit {
   
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private location = inject(Location);
   private catalogService = inject(CatalogService);
   public cartService = inject(CartService); 
@@ -29,6 +30,8 @@ export class PublicCatalogViewerComponent implements OnInit {
   // 🔥 DÜZELTME: Bu değişken artık class property olarak burada!
   // HTML'deki [routerLink] bunu kullanacak.
   catalogId: string | null = null;
+  publicToken: string | null = null;
+  publicQueryParams: any = {};
 
   catalog: Catalog | null = null;
   groups: ViewerGroup[] = [];
@@ -49,14 +52,6 @@ export class PublicCatalogViewerComponent implements OnInit {
   isSidebarOpen = true;
   isCartOpen = false; 
   isLoading = true;
-  isSubmitting = false;
-
-  // Müşteri Bilgi Formu
-  customerForm = {
-    name: '',
-    phone: '',
-    email: ''
-  };
 
   // Zoom & Pan
   transform = { x: 0, y: 0, scale: 1 };
@@ -68,6 +63,16 @@ export class PublicCatalogViewerComponent implements OnInit {
     // 🔥 DÜZELTME: ID'yi URL'den alıp hemen değişkene atıyoruz.
     this.catalogId = this.route.snapshot.paramMap.get('id');
     const pageIndexStr = this.route.snapshot.paramMap.get('pageIndex');
+
+    const tokenParam = this.route.snapshot.queryParamMap.get('token');
+    if (!tokenParam) {
+      this.isLoading = false;
+      console.error('Public token bulunamadı.');
+      return;
+    }
+    this.publicToken = tokenParam;
+    this.publicQueryParams = { token: this.publicToken };
+    this.cartService.setScope(`public:${this.publicToken}`);
     
     // Eğer ID varsa yüklemeyi başlat
     if (this.catalogId) {
@@ -79,7 +84,7 @@ export class PublicCatalogViewerComponent implements OnInit {
   // --- 1. KATALOG VE GRUPLARI YÜKLE ---
   loadCatalog(id: string) {
     this.isLoading = true;
-    this.catalogService.getCatalogById(id).subscribe({
+    this.catalogService.getCatalogById(id, { publicToken: this.publicToken! }).subscribe({
       next: (data) => {
         this.catalog = data;
         this.prepareGroups();
@@ -124,9 +129,12 @@ export class PublicCatalogViewerComponent implements OnInit {
     this.isLoading = true;
 
     // Backend'den Sayfa İçeriğini Çek
-    this.catalogService.getPageItems(this.catalog.id, group.pageNumber.toString()).subscribe({
+    this.catalogService.getPageItems(this.catalog.id, group.pageNumber.toString(), { publicToken: this.publicToken! }).subscribe({
       next: (items) => {
-        this.pageItems = items || [];
+        this.pageItems = (items || []).map((item) => ({
+          ...item,
+          catalogItemId: this.buildCartItemId(item)
+        }));
         this.filteredItems = [...this.pageItems];
         this.isLoading = false;
         
@@ -159,37 +167,25 @@ export class PublicCatalogViewerComponent implements OnInit {
 
   // --- SEPET & SİPARİŞ ---
   addToCart(item: CatalogPageItem) {
-    if (!item.isStocked) return; 
-    
-    const productToAdd: any = {
-      id: item.productId,
-      code: item.partCode,
-      name: item.localName || item.partName,
-      price: item.price
+    const productToAdd: CatalogPageItem = {
+      catalogItemId: this.buildCartItemId(item),
+      refNo: item.refNo,
+      partCode: item.partCode,
+      partName: item.partName,
+      description: item.description,
+      isStocked: true,
+      productId: item.productId,
+      price: item.price,
+      localName: item.localName
     };
+
     this.cartService.addToCart(productToAdd);
     this.isCartOpen = true; 
   }
 
-  submitOrder() {
-    if (!this.customerForm.name || !this.customerForm.phone) {
-      alert('Lütfen Ad Soyad ve Telefon numarası giriniz.');
-      return;
-    }
-    this.isSubmitting = true;
-    this.cartService.submitOrder(this.customerForm).subscribe({
-      next: (res: any) => {
-        alert(`Sipariş alındı! No: ${res.orderNumber}`);
-        this.cartService.clearCart();
-        this.isCartOpen = false;
-        this.isSubmitting = false;
-        this.customerForm = { name: '', phone: '', email: '' };
-      },
-      error: (err) => {
-        alert('Sipariş gönderilemedi.');
-        this.isSubmitting = false;
-      }
-    });
+  goCheckout() {
+    if (!this.publicToken) return;
+    this.router.navigate(['/public-view', this.publicToken, 'checkout']);
   }
 
   // --- ARAMA & FİLTRELEME ---
@@ -276,4 +272,25 @@ export class PublicCatalogViewerComponent implements OnInit {
 
   endDrag() { this.isDragging = false; }
   resetZoom() { this.transform = { x: 0, y: 0, scale: 1 }; }
+
+  private isEmptyGuid(value: any): boolean {
+    const raw = String(value ?? '').trim();
+    return raw === '' || raw === '00000000-0000-0000-0000-000000000000';
+  }
+
+  private buildCartItemId(item: CatalogPageItem): string {
+    const catalogItemId = String(item?.catalogItemId ?? '').trim();
+    if (!this.isEmptyGuid(catalogItemId)) return catalogItemId;
+
+    const productId = String(item?.productId ?? '').trim();
+    if (!this.isEmptyGuid(productId)) return `product:${productId}`;
+
+    const partCode = String(item?.partCode ?? '').trim().toUpperCase();
+    if (partCode) return `code:${partCode}`;
+
+    const refNo = String(item?.refNo ?? '').trim().toUpperCase();
+    if (refNo) return `ref:${refNo}`;
+
+    return `tmp:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
 }

@@ -1,0 +1,208 @@
+<div class="apple-page-wrapper">
+  <header class="page-header">
+    <div class="header-content">
+      <h1>Siparişler</h1>
+      <p>Gelen siparişleri filtreleyin, detayları inceleyin ve durum güncelleyin.</p>
+    </div>
+    <button class="btn-primary" (click)="loadOrders()" [disabled]="isLoading">
+      <span class="material-symbols-outlined icon">refresh</span>
+      Yenile
+    </button>
+  </header>
+
+  <div class="toolbar">
+    <div class="search-wrapper">
+      <span class="material-symbols-outlined search-icon">search</span>
+      <input
+        type="text"
+        class="search-input"
+        [ngModel]="searchQuery"
+        (ngModelChange)="onSearch($event)"
+        placeholder="Sipariş no, müşteri, telefon, e-posta veya şehir ara..." />
+    </div>
+
+    <div class="filter-group">
+      <select class="filter-select" [ngModel]="statusFilter" (ngModelChange)="onStatusFilterChange($event)">
+        <option value="all">Tüm Durumlar</option>
+        <option value="0">Bekliyor</option>
+        <option value="1">Hazırlanıyor</option>
+        <option value="2">Kargoda</option>
+        <option value="3">Tamamlandı</option>
+        <option value="9">İptal</option>
+      </select>
+
+      <select class="filter-select" [ngModel]="paymentFilter" (ngModelChange)="onPaymentFilterChange($event)">
+        <option value="all">Tüm Ödemeler</option>
+        <option value="KapidaOdeme">Kapıda Ödeme</option>
+        <option value="HavaleEFT">Havale / EFT</option>
+      </select>
+    </div>
+
+    <div class="date-group">
+      <input
+        type="date"
+        class="date-input"
+        [ngModel]="dateFrom"
+        (ngModelChange)="onDateFromChange($event)"
+        title="Başlangıç tarihi" />
+      <span class="date-sep">-</span>
+      <input
+        type="date"
+        class="date-input"
+        [ngModel]="dateTo"
+        (ngModelChange)="onDateToChange($event)"
+        title="Bitiş tarihi" />
+      <button
+        class="date-clear-btn"
+        type="button"
+        (click)="clearDateFilter()"
+        [disabled]="!dateFrom && !dateTo">
+        Temizle
+      </button>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <article class="summary-card">
+      <div class="summary-label">Toplam Sipariş</div>
+      <div class="summary-value">{{ summary.total }}</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Bekleyen</div>
+      <div class="summary-value">{{ summary.pending }}</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Hazırlanan</div>
+      <div class="summary-value">{{ summary.processing }}</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Kargoda</div>
+      <div class="summary-value">{{ summary.shipped }}</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Toplam Tutar</div>
+      <div class="summary-value">{{ summary.totalAmount | currency:'TRY':'symbol-narrow' }}</div>
+    </article>
+  </div>
+
+  @if (loadError) {
+    <div class="table-card">
+      <div class="p-8 text-center text-red-600">{{ loadError }}</div>
+    </div>
+  } @else {
+    <div class="table-card">
+      <div class="orders-layout">
+        <aside class="orders-list">
+          @if (isLoading) {
+            <div class="empty-state">Siparişler yükleniyor...</div>
+          } @else if (filteredOrders.length === 0) {
+            <div class="empty-state">Filtrelere uygun sipariş bulunamadı.</div>
+          } @else {
+            @for (order of filteredOrders; track order.id) {
+              <article class="order-card"
+                       [class.active]="selectedOrder?.id === order.id"
+                       (click)="selectOrder(order)">
+                <div class="card-top">
+                  <strong>{{ order.orderNumber }}</strong>
+                  <span class="status-chip" [ngClass]="getStatusClass(order.status)">
+                    {{ getStatusLabel(order.status) }}
+                  </span>
+                </div>
+                <div class="card-row">{{ order.customerName }} · {{ order.customerPhone }}</div>
+                <div class="card-row">{{ order.createdDate | date:'dd.MM.yyyy HH:mm' }}</div>
+                <div class="card-bottom">
+                  <span class="payment-chip">{{ getPaymentMethodLabel(order.paymentMethod) }}</span>
+                  <span class="card-total">{{ order.totalAmount | currency:'TRY':'symbol-narrow' }}</span>
+                </div>
+              </article>
+            }
+          }
+        </aside>
+
+        <section class="order-detail">
+          @if (!selectedOrder) {
+            <div class="empty-state">Detay görmek için soldan sipariş seçin.</div>
+          } @else {
+            <div class="detail-head">
+              <div>
+                <h2>{{ selectedOrder.orderNumber }}</h2>
+                <div class="meta">{{ selectedOrder.createdDate | date:'dd.MM.yyyy HH:mm' }}</div>
+              </div>
+              <span class="status-chip" [ngClass]="getStatusClass(selectedOrder.status)">
+                {{ getStatusLabel(selectedOrder.status) }}
+              </span>
+            </div>
+
+            <div class="detail-grid">
+              <div class="detail-card">
+                <h3>Müşteri Bilgisi</h3>
+                <p><strong>Ad Soyad:</strong> {{ selectedOrder.customerName }}</p>
+                <p><strong>Telefon:</strong> {{ selectedOrder.customerPhone }}</p>
+                <p><strong>E-posta:</strong> {{ selectedOrder.customerEmail || '-' }}</p>
+                <p><strong>Firma:</strong> {{ selectedOrder.companyName || '-' }}</p>
+              </div>
+
+              <div class="detail-card">
+                <h3>Teslimat ve Ödeme</h3>
+                <p><strong>Adres:</strong> {{ selectedOrder.deliveryAddress || '-' }}</p>
+                <p><strong>Şehir:</strong> {{ selectedOrder.deliveryCity || '-' }}</p>
+                <p><strong>İlçe:</strong> {{ selectedOrder.deliveryDistrict || '-' }}</p>
+                <p><strong>Ödeme:</strong> {{ getPaymentMethodLabel(selectedOrder.paymentMethod) }}</p>
+                <p><strong>Teslimat Notu:</strong> {{ selectedOrder.deliveryNote || '-' }}</p>
+              </div>
+            </div>
+
+            <div class="detail-card">
+              <h3>Durum Güncelle</h3>
+              <div class="status-form">
+                <select [(ngModel)]="statusDraft">
+                  <option [ngValue]="0">Bekliyor</option>
+                  <option [ngValue]="1">Hazırlanıyor</option>
+                  <option [ngValue]="2">Kargoda</option>
+                  <option [ngValue]="3">Tamamlandı</option>
+                  <option [ngValue]="9">İptal</option>
+                </select>
+                <button (click)="updateStatus()" [disabled]="isUpdatingStatus || statusDraft === selectedOrder.status">
+                  {{ isUpdatingStatus ? 'Güncelleniyor...' : 'Durumu Kaydet' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="detail-card">
+              <h3>Kalemler ({{ selectedOrder.items.length }})</h3>
+              @if (selectedOrder.items.length === 0) {
+                <p class="empty-inline">Bu siparişte kalem yok.</p>
+              } @else {
+                <div class="items-table">
+                  <div class="items-head">
+                    <span>Kod</span>
+                    <span>Ürün</span>
+                    <span>Adet</span>
+                    <span>Birim</span>
+                    <span>Tutar</span>
+                  </div>
+                  @for (item of selectedOrder.items; track item.id) {
+                    <div class="items-row">
+                      <span>{{ item.product?.code || '-' }}</span>
+                      <span>{{ item.product?.name || 'Ürün' }}</span>
+                      <span>{{ item.quantity }}</span>
+                      <span>{{ item.unitPrice | currency:'TRY':'symbol-narrow' }}</span>
+                      <span>{{ getItemLineTotal(item.quantity, item.unitPrice) | currency:'TRY':'symbol-narrow' }}</span>
+                    </div>
+                  }
+                </div>
+                <div class="grand-total">
+                  Toplam: {{ selectedOrder.totalAmount | currency:'TRY':'symbol-narrow' }}
+                </div>
+              }
+            </div>
+          }
+        </section>
+      </div>
+
+      <div class="pagination-bar">
+        <span class="pagination-info">Toplam {{ filteredOrders.length }} sipariş</span>
+      </div>
+    </div>
+  }
+</div>

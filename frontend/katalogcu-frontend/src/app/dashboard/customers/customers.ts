@@ -1,85 +1,93 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { Customer, CustomerService } from '../../core/services/customer.service';
 
 @Component({
   selector: 'app-customers',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './customers.html',
   styleUrl: './customers.css'
 })
-export class CustomersComponent {
-  // TODO: Backend API'den gerçek müşteri verisi çekilecek
-  isPlaceholderData = true;
+export class CustomersComponent implements OnInit {
+  private customerService = inject(CustomerService);
 
-  // Sahte Müşteri Listesi
-  customers = [
-    { 
-      id: 1, 
-      name: 'Ahmet Yılmaz', 
-      company: 'Yılmaz Oto Servis', 
-      email: 'ahmet@yilmazoto.com', 
-      phone: '0532 123 45 67', 
-      balance: -12500, // Borçlu
-      status: 'active',
-      lastOrder: '2 gün önce'
-    },
-    { 
-      id: 2, 
-      name: 'Mehmet Demir', 
-      company: 'Demirler Yedek Parça', 
-      email: 'info@demirler.com', 
-      phone: '0555 987 65 43', 
-      balance: 0, 
-      status: 'active',
-      lastOrder: 'Bugün'
-    },
-    { 
-      id: 3, 
-      name: 'Ayşe Kaya', 
-      company: 'Kaya Ford Özel Servis', 
-      email: 'ayse@kayaoto.com', 
-      phone: '0544 222 33 44', 
-      balance: -4500, 
-      status: 'inactive',
-      lastOrder: '1 ay önce'
-    },
-    { 
-      id: 4, 
-      name: 'Ali Vural', 
-      company: 'Vural Rot Balans', 
-      email: 'ali@vuralrot.com', 
-      phone: '0533 444 55 66', 
-      balance: 1500, // Alacaklı
-      status: 'active',
-      lastOrder: '3 hafta önce'
-    },
-    { 
-      id: 5, 
-      name: 'Canan Yıldız', 
-      company: 'Yıldız Otomotiv', 
-      email: 'canan@yildizoto.com', 
-      phone: '0530 111 22 33', 
-      balance: 0, 
-      status: 'blocked',
-      lastOrder: '6 ay önce'
-    },
-  ];
+  isLoading = true;
+  errorMsg: string | null = null;
+  customers: Customer[] = [];
+  filteredCustomers: Customer[] = [];
+  searchQuery = '';
+  statusFilter: 'all' | 'active' | 'inactive' = 'all';
 
-  // Müşteri Durumuna Göre Badge Rengi
-  getStatusBadge(status: string) {
-    switch(status) {
-      case 'active': return 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-400';
-      case 'inactive': return 'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400';
-      case 'blocked': return 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-400';
-      default: return '';
+  ngOnInit() {
+    this.loadCustomers();
+  }
+
+  loadCustomers() {
+    this.isLoading = true;
+    this.errorMsg = null;
+
+    this.customerService.getCustomers().subscribe({
+      next: (rows) => {
+        this.customers = rows || [];
+        this.applyFilters();
+        this.isLoading = false;
+      },
+      error: (err) => {
+        console.error('Müşteri listesi alınamadı:', err);
+        this.errorMsg = 'Müşteri verisi yüklenemedi.';
+        this.customers = [];
+        this.filteredCustomers = [];
+        this.isLoading = false;
+      }
+    });
+  }
+
+  onSearch(query: string) {
+    this.searchQuery = query;
+    this.applyFilters();
+  }
+
+  onStatusFilterChange(value: string) {
+    if (value === 'active' || value === 'inactive' || value === 'all') {
+      this.statusFilter = value;
+      this.applyFilters();
     }
   }
 
-  // Bakiye Durumuna Göre Renk (Borçluysa Kırmızı)
-  getBalanceClass(balance: number) {
-    if (balance < 0) return 'text-red-500 font-bold'; // Borçlu
-    if (balance > 0) return 'text-green-500 font-bold'; // Alacaklı
-    return 'text-text-dark dark:text-text-light'; // Nötr
+  applyFilters() {
+    const q = this.searchQuery.trim().toLowerCase();
+
+    this.filteredCustomers = this.customers.filter(c => {
+      const statusOk = this.statusFilter === 'all' || c.status === this.statusFilter;
+      if (!statusOk) return false;
+      if (!q) return true;
+
+      return (
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.company || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q)
+      );
+    });
+  }
+
+  getStatusBadge(status: string) {
+    switch (status) {
+      case 'active':
+        return 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-400';
+      case 'inactive':
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400';
+    }
+  }
+
+  formatDate(date: string | null | undefined): string {
+    if (!date) return '-';
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleDateString('tr-TR');
   }
 }

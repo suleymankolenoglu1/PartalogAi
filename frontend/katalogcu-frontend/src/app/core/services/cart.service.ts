@@ -15,7 +15,12 @@ export interface CartItem {
 export class CartService {
   private http = inject(HttpClient);
   private apiUrl = environment.apiUrl;
-  private cartKey = 'partalog_cart';
+  private cartKeyBase = 'partalog_cart';
+  private cartScope = 'global';
+
+  private get cartKey(): string {
+    return `${this.cartKeyBase}_${this.cartScope}`;
+  }
 
   // --- STATE MANAGEMENT (Reactive) ---
   
@@ -35,18 +40,56 @@ export class CartService {
     this.loadCart();
   }
 
+  setScope(scope: string | null | undefined) {
+    const normalized = (scope || 'global').trim().toLowerCase();
+    if (!normalized || this.cartScope === normalized) return;
+    this.cartScope = normalized;
+    this.loadCart();
+  }
+
+  private buildCartItemId(product: CatalogPageItem): string {
+    const rawCatalogItemId = String(product?.catalogItemId ?? '').trim();
+    if (rawCatalogItemId && rawCatalogItemId !== '00000000-0000-0000-0000-000000000000') {
+      return rawCatalogItemId;
+    }
+
+    const productId = String(product?.productId ?? '').trim();
+    if (productId && productId !== '00000000-0000-0000-0000-000000000000') {
+      return `product:${productId}`;
+    }
+
+    const partCode = String(product?.partCode ?? '').trim().toUpperCase();
+    if (partCode) return `code:${partCode}`;
+
+    const refNo = String(product?.refNo ?? '').trim().toUpperCase();
+    if (refNo) return `ref:${refNo}`;
+
+    return `tmp:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private normalizeProduct(product: CatalogPageItem): CatalogPageItem {
+    return {
+      ...product,
+      catalogItemId: this.buildCartItemId(product),
+      partCode: String(product?.partCode ?? ''),
+      partName: String(product?.partName ?? ''),
+      refNo: String(product?.refNo ?? '')
+    };
+  }
+
   // --- SEPET İŞLEMLERİ ---
 
   addToCart(product: CatalogPageItem) {
+    const normalized = this.normalizeProduct(product);
     const currentCart = this._cart.value;
     
     // Ürün zaten var mı? (ID kontrolü)
-    const existingItem = currentCart.find(i => i.product.catalogItemId === product.catalogItemId);
+    const existingItem = currentCart.find(i => i.product.catalogItemId === normalized.catalogItemId);
 
     if (existingItem) {
       existingItem.quantity += 1;
     } else {
-      currentCart.push({ product, quantity: 1 });
+      currentCart.push({ product: normalized, quantity: 1 });
     }
 
     this.updateState(currentCart);
@@ -77,13 +120,31 @@ export class CartService {
 
   // --- SİPARİŞ GÖNDERME ---
 
-  submitOrder(customerInfo: { name: string; phone: string; email: string; note?: string }) {
+  submitOrder(
+    customerInfo: { name: string; phone: string; email: string; note?: string },
+    options?: {
+      publicToken?: string;
+      publicSessionToken?: string;
+      deliveryAddress?: string;
+      deliveryCity?: string;
+      deliveryDistrict?: string;
+      deliveryNote?: string;
+      paymentMethod?: string;
+    }
+  ) {
     // Backend 'CreateOrderDto' yapısına uygun veri hazırlıyoruz
     const orderData = {
       customerName: customerInfo.name,
       customerPhone: customerInfo.phone,
       customerEmail: customerInfo.email,
       note: customerInfo.note,
+      deliveryAddress: options?.deliveryAddress,
+      deliveryCity: options?.deliveryCity,
+      deliveryDistrict: options?.deliveryDistrict,
+      deliveryNote: options?.deliveryNote,
+      paymentMethod: options?.paymentMethod,
+      publicToken: options?.publicToken,
+      publicSessionToken: options?.publicSessionToken,
       items: this._cart.value.map(i => ({
         // Eğer stokta varsa ProductId, yoksa CatalogItemId veya null (Backend mantığına göre)
         productId: i.product.productId, 
@@ -123,13 +184,21 @@ export class CartService {
     const saved = localStorage.getItem(this.cartKey);
     if (saved) {
       try {
-        const cart = JSON.parse(saved);
+        const parsed = JSON.parse(saved) as CartItem[];
+        const cart = (parsed || []).map(item => ({
+          ...item,
+          product: this.normalizeProduct(item.product)
+        }));
         this._cart.next(cart);
         this.calculateTotals(cart);
       } catch (e) {
         console.error('Sepet verisi bozuk, sıfırlanıyor.', e);
         this.clearCart();
       }
+      return;
     }
+
+    this._cart.next([]);
+    this.calculateTotals([]);
   }
 }

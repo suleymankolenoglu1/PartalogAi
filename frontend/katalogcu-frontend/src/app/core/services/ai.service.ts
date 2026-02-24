@@ -16,7 +16,7 @@ export interface VisualFeedbackRequest {
   partCode?: string;
   machineBrand?: string;
   machineType?: string;
-  userId?: string;
+  publicToken?: string;
   note?: string;
 }
 
@@ -26,6 +26,23 @@ export interface VisualFeedbackResponse {
   record?: any;
 }
 
+export interface ChatFeedbackRequest {
+  helpful: boolean;
+  reason?: string;
+  userQuery?: string;
+  replySuggestion: string;
+  sourceCodes?: string[];
+  publicToken?: string;
+  messageId?: string;
+  conversationId?: string;
+}
+
+export interface ChatFeedbackResponse {
+  success: boolean;
+  message?: string;
+  id?: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -33,15 +50,15 @@ export class AiService {
   private http = inject(HttpClient);
   private apiUrl = `${environment.apiUrl}/chat/ask`;
   private feedbackUrl = `${environment.apiUrl}/chat/visual-feedback`;
+  private chatFeedbackUrl = `${environment.apiUrl}/chat/feedback`;
 
   /**
    * AI'ya mesaj, resim ve sohbet geçmişini gönderir.
    * @param text Kullanıcı mesajı
    * @param image Seçilen resim (opsiyonel)
    * @param history Önceki konuşmalar (bağlam için)
-   * @param userId Public view kullanıcı kimliği
    */
-  sendMessage(text: string, image: File | null, history: any[] = [], userId?: string, catalogIds?: string[]): Observable<AiChatResponse> {
+  sendMessage(text: string, image: File | null, history: any[] = [], catalogIds?: string[], publicToken?: string): Observable<AiChatResponse> {
     const formData = new FormData();
     
     // 1. Metin (Varsa)
@@ -54,8 +71,7 @@ export class AiService {
     // Backend tarafında [FromForm] string history olarak karşılanıp deserialize edilecek.
     formData.append('history', JSON.stringify(history));
 
-    // ✅ userId ekle
-    if (userId) formData.append('userId', userId);
+    if (publicToken) formData.append('publicToken', publicToken);
 
     // ✅ catalog_ids ekle (arama kapsamını bu kataloglarla sınırla)
     formData.append('catalog_ids', JSON.stringify(catalogIds ?? []));
@@ -71,50 +87,72 @@ export class AiService {
     if (payload.partCode) formData.append('partCode', payload.partCode);
     if (payload.machineBrand) formData.append('machineBrand', payload.machineBrand);
     if (payload.machineType) formData.append('machineType', payload.machineType);
-    if (payload.userId) formData.append('userId', payload.userId);
+    if (payload.publicToken) formData.append('publicToken', payload.publicToken);
     if (payload.note) formData.append('note', payload.note);
 
     return this.http.post<VisualFeedbackResponse>(this.feedbackUrl, formData);
+  }
+
+  saveChatFeedback(payload: ChatFeedbackRequest): Observable<ChatFeedbackResponse> {
+    return this.http.post<ChatFeedbackResponse>(this.chatFeedbackUrl, payload);
   }
 
   sendMessageStream(
     text: string,
     image: File | null,
     history: any[],
-    userId?: string,
-    catalogIds?: string[]
+    catalogIds?: string[],
+    publicToken?: string
   ): Observable<{type: string; token?: string; sources?: any[]; debug_intent?: any}> {
     return new Observable(observer => {
       const formData = new FormData();
       if (text) formData.append('text', text);
       if (image) formData.append('image', image);
       formData.append('history', JSON.stringify(history));
-      if (userId) formData.append('userId', userId);
+      if (publicToken) formData.append('publicToken', publicToken);
       formData.append('catalog_ids', JSON.stringify(catalogIds ?? []));
 
       const token = localStorage.getItem('auth_token') ?? '';
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       fetch(`${environment.apiUrl}/chat/ask-stream`, {
         method: 'POST',
         body: formData,
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers
       }).then(response => {
         if (!response.body) { observer.error(new Error('SSE bağlantısı kurulamadı.')); return; }
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = '';
 
         const read = () => {
           reader.read().then(({ done, value }) => {
-            if (done) { observer.complete(); return; }
-            const text = decoder.decode(value);
-            const lines = text.split('\n');
-            for (const line of lines) {
-              if (line.startsWith('data:')) {
-                try {
-                  const data = JSON.parse(line.slice(5).trim());
-                  observer.next(data);
-                } catch (e) {
-                  console.debug('SSE satırı parse edilemedi:', line);
+            if (done) {
+              if (buffer.trim().length > 0) {
+                const line = buffer.trim();
+                if (line.startsWith('data:')) {
+                  try {
+                    const data = JSON.parse(line.slice(5).trim());
+                    observer.next(data);
+                  } catch (e) {
+                    console.debug('SSE satırı parse edilemedi:', line);
+                  }
                 }
+              }
+              observer.complete();
+              return;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line.startsWith('data:')) continue;
+              try {
+                const data = JSON.parse(line.slice(5).trim());
+                observer.next(data);
+              } catch (e) {
+                console.debug('SSE satırı parse edilemedi:', line);
               }
             }
             read();

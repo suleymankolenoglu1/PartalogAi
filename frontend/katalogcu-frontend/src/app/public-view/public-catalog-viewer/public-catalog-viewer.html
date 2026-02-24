@@ -2,7 +2,7 @@
 
     <aside class="sidebar-left minimalist" [class.collapsed]="!isSidebarOpen">
         <div class="sidebar-header icon-only">
-            <a [routerLink]="['/view', catalogId]" class="back-link" title="Vitrine Dön">
+            <a [routerLink]="['/view', catalogId]" [queryParams]="publicQueryParams" class="back-link" title="Vitrine Dön">
                 <span class="material-symbols-outlined icon">arrow_back</span>
             </a>
         </div>
@@ -46,6 +46,9 @@
                     <span class="cart-badge">{{ cartService.totalCount$ | async }}</span>
                 }
             </div>
+            <button (click)="goCheckout()" class="tool-btn" title="Sipariş Ekranı">
+                <span class="material-symbols-outlined icon">receipt_long</span>
+            </button>
         </div>
 
         <div class="viewport" 
@@ -73,7 +76,7 @@
              }
         </div>
         
-        @if (selectedItem && selectedItem.isStocked) {
+        @if (selectedItem) {
              <div class="mobile-product-card">
                  <div class="mp-ref-box"><span class="mp-label">REF</span><span class="mp-ref">{{ selectedItem.refNo }}</span></div>
                  <div class="mp-info">
@@ -131,14 +134,12 @@
                         </div>
                     </div>
 
-                    @if (item.isStocked) {
-                        <button (click)="$event.stopPropagation(); addToCart(item)" 
-                                class="add-cart-btn"
-                                [class.add-cart-btn--active]="selectedPartLabel === item.refNo || selectedPartLabel === item.partCode"
-                                [title]="'Sepete Ekle: ' + item.partCode">
-                            <span class="material-symbols-outlined">add_shopping_cart</span>
-                        </button>
-                    }
+                    <button (click)="$event.stopPropagation(); addToCart(item)" 
+                            class="add-cart-btn"
+                            [class.add-cart-btn--active]="selectedPartLabel === item.refNo || selectedPartLabel === item.partCode"
+                            [title]="'Sepete Ekle: ' + item.partCode">
+                        <span class="material-symbols-outlined">add_shopping_cart</span>
+                    </button>
                 </div>
             }
         </div>
@@ -176,16 +177,8 @@
                 <span class="total-price">{{ cartService.totalPrice$ | async | currency:'TRY':'symbol-narrow' }}</span>
             </div>
 
-            <div class="order-form-mini">
-                <input [(ngModel)]="customerForm.name" type="text" placeholder="Adınız Soyadınız *" class="form-input-sm">
-                <input [(ngModel)]="customerForm.phone" type="tel" placeholder="Telefonunuz *" class="form-input-sm">
-            </div>
-            
-            <button (click)="submitOrder()" 
-                    [disabled]="isSubmitting || !customerForm.name || !customerForm.phone"
-                    class="checkout-btn main-action">
-                @if(isSubmitting) { <span class="spinner-sm"></span> }
-                Siparişi Onayla
+            <button (click)="goCheckout()" class="checkout-btn" style="margin-top:8px; background:#fff; color:#111; border:1px solid #d2d2d7;">
+                Detaylı Sipariş Ekranı
             </button>
             
             </div>

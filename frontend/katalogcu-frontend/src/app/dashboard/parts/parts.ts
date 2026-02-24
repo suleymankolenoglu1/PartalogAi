@@ -2,7 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms'; 
-import { ProductService, Product } from '../../core/services/product.service';
+import { ProductService, Product, StockMovement } from '../../core/services/product.service';
 import { CatalogService, Catalog } from '../../core/services/catalog.service';
 
 @Component({
@@ -26,6 +26,14 @@ export class PartsComponent implements OnInit {
   searchQuery: string = '';
   selectedCatalogId: string = '';
   selectedStockStatus: string = '';
+  stockMovements: StockMovement[] = [];
+  isMovementLoading = false;
+
+  isAdjustModalOpen = false;
+  selectedPartForAdjust: Product | null = null;
+  adjustDelta = 0;
+  adjustReason = '';
+  isAdjustingStock = false;
 
   // 👇 SAYFALAMA AYARLARI
   currentPage: number = 1;
@@ -49,6 +57,7 @@ export class PartsComponent implements OnInit {
       next: (data) => {
         this.allParts = data;
         this.applyFilters(); // Veri gelince filtreyi (ve sayfalamayı) başlat
+        this.loadStockMovements();
         this.isLoading = false;
       },
       error: (err) => {
@@ -151,6 +160,66 @@ export class PartsComponent implements OnInit {
     }
   }
 
+  loadStockMovements(productId?: string) {
+    this.isMovementLoading = true;
+    this.productService.getStockMovements({ productId, limit: 50 }).subscribe({
+      next: (rows) => {
+        this.stockMovements = rows;
+        this.isMovementLoading = false;
+      },
+      error: (err) => {
+        console.error('Stok hareketleri alınamadı', err);
+        this.isMovementLoading = false;
+      }
+    });
+  }
+
+  openAdjustModal(part: Product) {
+    this.selectedPartForAdjust = part;
+    this.adjustDelta = 0;
+    this.adjustReason = '';
+    this.isAdjustModalOpen = true;
+  }
+
+  closeAdjustModal() {
+    this.isAdjustModalOpen = false;
+    this.selectedPartForAdjust = null;
+    this.adjustDelta = 0;
+    this.adjustReason = '';
+    this.isAdjustingStock = false;
+  }
+
+  submitAdjustStock() {
+    if (!this.selectedPartForAdjust?.id) return;
+
+    if (!Number.isInteger(this.adjustDelta) || this.adjustDelta === 0) {
+      alert('Lütfen 0 dışında tam sayı bir miktar girin.');
+      return;
+    }
+
+    this.isAdjustingStock = true;
+    this.productService.adjustStock(this.selectedPartForAdjust.id, {
+      deltaQuantity: this.adjustDelta,
+      reason: this.adjustReason?.trim() || undefined
+    }).subscribe({
+      next: (res) => {
+        const newQuantity: number = res?.newQuantity;
+        const targetId = this.selectedPartForAdjust?.id;
+        if (!targetId) return;
+
+        this.allParts = this.allParts.map(p => p.id === targetId ? { ...p, stockQuantity: newQuantity } : p);
+        this.applyFilters();
+        this.loadStockMovements(targetId);
+        this.closeAdjustModal();
+      },
+      error: (err) => {
+        console.error(err);
+        alert(err?.error ?? 'Stok güncellenemedi.');
+        this.isAdjustingStock = false;
+      }
+    });
+  }
+
   // UI Yardımcıları
   getStockPercentage(qty: number): number { return Math.min(qty, 100); }
   getStockColorClass(qty: number): string {
@@ -158,4 +227,14 @@ export class PartsComponent implements OnInit {
     if (qty < 10) return 'bg-orange';
     return 'bg-green';
   }
-}
+
+  getMovementDeltaLabel(delta: number): string {
+    return delta > 0 ? `+${delta}` : `${delta}`;
+  }
+
+  getMovementClass(delta: number): string {
+    if (delta > 0) return 'delta-positive';
+    if (delta < 0) return 'delta-negative';
+    return 'delta-neutral';
+  }
+} 

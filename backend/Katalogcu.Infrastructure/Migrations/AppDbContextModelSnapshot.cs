@@ -52,6 +52,12 @@ namespace Katalogcu.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("PublicLinkEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("PublicLinkVersion")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasColumnType("text");
@@ -222,6 +228,96 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.ToTable("CatalogPages");
                 });
 
+            modelBuilder.Entity("Katalogcu.Domain.Entities.Customer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CompanyName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("FailedLoginCount")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLoginDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastOrderDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastVisitDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LoginCode")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LoginCodeExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LoginLockoutUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedPhone")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrderCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordSalt")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PublicSessionExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicSessionToken")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("TotalSpent")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Email");
+
+                    b.HasIndex("UserId", "NormalizedPhone");
+
+                    b.HasIndex("UserId", "PublicSessionToken");
+
+                    b.ToTable("Customers");
+                });
+
             modelBuilder.Entity("Katalogcu.Domain.Entities.Folder", b =>
                 {
                     b.Property<Guid>("Id")
@@ -303,6 +399,9 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("CustomerEmail")
                         .IsRequired()
                         .HasColumnType("text");
@@ -315,7 +414,25 @@ namespace Katalogcu.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("DeliveryAddress")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DeliveryCity")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DeliveryDistrict")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DeliveryNote")
+                        .HasColumnType("text");
+
                     b.Property<string>("OrderNumber")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PaymentMethod")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -330,6 +447,8 @@ namespace Katalogcu.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
 
                     b.ToTable("Orders");
                 });

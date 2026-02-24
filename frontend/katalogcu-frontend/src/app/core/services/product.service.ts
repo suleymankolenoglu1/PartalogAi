@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../environments/environment.development';
 import { Observable } from 'rxjs';
 
@@ -22,6 +22,27 @@ export interface Product {
   refNo?: number;
 }
 
+export interface StockImportOptions {
+  catalogId?: string;
+  mode?: 'update_only' | 'upsert';
+}
+
+export interface StockMovement {
+  id: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  previousQuantity: number;
+  deltaQuantity: number;
+  newQuantity: number;
+  movementType: string;
+  reason: string;
+  source?: string;
+  actorName?: string;
+  referenceId?: string;
+  createdDate: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -35,8 +56,10 @@ export class ProductService {
   }
 
   // 2. Belirli Bir Kataloğa Ait Parçaları Getir (Vitrin / PublicView İçin)
-  getProductsByCatalog(catalogId: string): Observable<Product[]> {
-    return this.http.get<Product[]>(`${this.apiUrl}/products/catalog/${catalogId}`);
+  getProductsByCatalog(catalogId: string, options?: { publicToken?: string }): Observable<Product[]> {
+    let params = new HttpParams();
+    if (options?.publicToken) params = params.set('token', options.publicToken);
+    return this.http.get<Product[]>(`${this.apiUrl}/products/catalog/${catalogId}`, { params });
   }
 
   // 3. Yeni Parça Ekle
@@ -61,5 +84,28 @@ export class ProductService {
     }
 
     return this.http.post(`${this.apiUrl}/products/import`, formData);
+  }
+
+  importStock(file: File, options?: StockImportOptions): Observable<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mode', options?.mode ?? 'update_only');
+
+    if (options?.catalogId) {
+      formData.append('catalogId', options.catalogId);
+    }
+
+    return this.http.post(`${this.apiUrl}/products/import-stock`, formData);
+  }
+
+  adjustStock(productId: string, payload: { deltaQuantity: number; reason?: string }): Observable<any> {
+    return this.http.post(`${this.apiUrl}/products/${productId}/adjust-stock`, payload);
+  }
+
+  getStockMovements(options?: { productId?: string; limit?: number }): Observable<StockMovement[]> {
+    let params = new HttpParams();
+    if (options?.productId) params = params.set('productId', options.productId);
+    if (options?.limit) params = params.set('limit', options.limit.toString());
+    return this.http.get<StockMovement[]>(`${this.apiUrl}/products/stock-movements`, { params });
   }
 }

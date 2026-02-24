@@ -1,0 +1,13 @@
+# Public eval case format:
+# - public_token: public-view token (recommended)
+# - catalog_ids: optional hard filter (usually [] for public token scope)
+# - expected_codes: retrieval metrics (Hit@K, MRR) uses these
+# - required_terms / forbidden_terms: lightweight response checks
+
+{"id":"Q1","text":"vida m3 0.5x3","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["vida"]}
+{"id":"Q2","text":"160000 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"Q3","text":"yan kapak alt","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500854"],"required_terms":["yan kapak"]}
+{"id":"Q4","text":"yağ haznesi conta","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500005","3500004"],"required_terms":["conta"]}
+{"id":"Q5","text":"model plakası","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["4109410"],"required_terms":["plaka"]}
+{"id":"Q6","text":"perçin","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["000726"],"required_terms":["perçin"]}
+{"id":"Q7","text":"yamato vg2500-8f vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["yamato","vida"]}

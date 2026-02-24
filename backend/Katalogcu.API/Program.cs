@@ -10,6 +10,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Polly; // 🔥 Polly için
 using Polly.Extensions.Http; // 🔥 Polly HTTP Extensions için
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,6 +39,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<PdfService>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.AddScoped<CatalogProcessorService>();
+builder.Services.AddScoped<IPublicLinkService, PublicLinkService>();
 
 // 🔥 KUYRUK SİSTEMİ (BACKGROUND JOB) 🔥
 // 1. Kuyruğu Singleton yapıyoruz (Tüm uygulama aynı sırayı kullansın)
@@ -144,7 +147,70 @@ builder.Services.AddCors(options =>
         });
 });
 
+// Public endpoint abuse protection (IP bazlı)
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.OnRejected = static (context, token) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+        return new ValueTask(
+            context.HttpContext.Response.WriteAsync(
+                "{\"success\":false,\"message\":\"Çok fazla istek gönderildi. Lütfen kısa süre sonra tekrar deneyin.\"}",
+                token));
+    };
+
+    options.AddPolicy("public-chat", httpContext =>
+    {
+        var isAuthenticated = httpContext.User?.Identity?.IsAuthenticated == true;
+        if (isAuthenticated)
+        {
+            return RateLimitPartition.GetNoLimiter("auth-user");
+        }
+
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"public-chat:{ip}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+
+    options.AddPolicy("public-feedback", httpContext =>
+    {
+        var isAuthenticated = httpContext.User?.Identity?.IsAuthenticated == true;
+        if (isAuthenticated)
+        {
+            return RateLimitPartition.GetNoLimiter("auth-user-feedback");
+        }
+
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"public-feedback:{ip}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+});
+
 var app = builder.Build();
+
+// Uygulama açılırken bekleyen migration'ları uygula
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+    EnsureStockMovementTable(db);
+}
 
 // ========================================================
 // 2. MIDDLEWARE
@@ -158,6 +224,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseStaticFiles(); 
 app.UseCors("AllowAngularApp");
+app.UseRateLimiter();
 app.UseAuthentication(); 
 app.UseAuthorization();  
 
@@ -179,4 +246,60 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
         // 3. Bekle ve Tekrar Dene (Exponential Backoff)
         // İlk deneme: 2sn, İkinci: 4sn, Üçüncü: 8sn bekle.
         .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+}
+
+static void EnsureStockMovementTable(AppDbContext db)
+{
+    // Bu tabloyu migration beklemeden güvenli şekilde oluşturuyoruz.
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "StockMovements" (
+            "Id" uuid NOT NULL,
+            "CreatedDate" timestamp with time zone NOT NULL,
+            "UpdatedDate" timestamp with time zone NULL,
+            "UserId" uuid NOT NULL,
+            "ProductId" uuid NOT NULL,
+            "ProductCode" character varying(128) NOT NULL,
+            "ProductName" character varying(512) NOT NULL,
+            "PreviousQuantity" integer NOT NULL,
+            "DeltaQuantity" integer NOT NULL,
+            "NewQuantity" integer NOT NULL,
+            "MovementType" character varying(32) NOT NULL,
+            "Reason" character varying(1024) NOT NULL,
+            "Source" character varying(128) NULL,
+            "ActorName" character varying(256) NULL,
+            "ReferenceId" character varying(128) NULL,
+            CONSTRAINT "PK_StockMovements" PRIMARY KEY ("Id"),
+            CONSTRAINT "FK_StockMovements_Products_ProductId"
+                FOREIGN KEY ("ProductId") REFERENCES "Products" ("Id") ON DELETE CASCADE
+        );
+        """);
+
+    db.Database.ExecuteSqlRaw("""
+        CREATE INDEX IF NOT EXISTS "IX_StockMovements_UserId_CreatedDate"
+        ON "StockMovements" ("UserId", "CreatedDate" DESC);
+        """);
+
+    db.Database.ExecuteSqlRaw("""
+        CREATE INDEX IF NOT EXISTS "IX_StockMovements_ProductId_CreatedDate"
+        ON "StockMovements" ("ProductId", "CreatedDate" DESC);
+        """);
+
+    db.Database.ExecuteSqlRaw("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints
+                WHERE constraint_name = 'FK_StockMovements_Products_ProductId'
+                  AND table_name = 'StockMovements'
+            ) THEN
+                ALTER TABLE "StockMovements" DROP CONSTRAINT "FK_StockMovements_Products_ProductId";
+            END IF;
+
+            ALTER TABLE "StockMovements"
+                ADD CONSTRAINT "FK_StockMovements_Products_ProductId"
+                FOREIGN KEY ("ProductId") REFERENCES "Products"("Id") ON DELETE CASCADE;
+        END
+        $$;
+        """);
 }

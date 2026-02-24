@@ -13,6 +13,12 @@ namespace Katalogcu.Domain.Entities
         public string CustomerPhone { get; set; } = string.Empty;
         public string CustomerEmail { get; set; } = string.Empty;
         public string? CompanyName { get; set; } // Opsiyonel: Firma adı
+        public Guid? CustomerId { get; set; }
+        public string DeliveryAddress { get; set; } = string.Empty;
+        public string DeliveryCity { get; set; } = string.Empty;
+        public string? DeliveryDistrict { get; set; }
+        public string? DeliveryNote { get; set; }
+        public string PaymentMethod { get; set; } = "KapidaOdeme";
 
         // Finansal
         public decimal TotalAmount { get; set; }
@@ -21,7 +27,7 @@ namespace Katalogcu.Domain.Entities
         public OrderStatus Status { get; set; } = OrderStatus.Pending;
 
         // İlişki: Bir siparişin birden çok kalemi olur
-        public ICollection<OrderItem> Items { get; set; } 
+        public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
     }
 
     public enum OrderStatus

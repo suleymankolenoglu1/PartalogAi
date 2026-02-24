@@ -436,6 +436,7 @@ public class VisualFeedbackRequestDto
     public string? MachineBrand { get; set; }
     public string? MachineType { get; set; }
     public string? UserId { get; set; }
+    public string? PublicToken { get; set; }
     public string? Note { get; set; }
 }
 
