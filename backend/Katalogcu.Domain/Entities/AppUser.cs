@@ -10,6 +10,7 @@ namespace Katalogcu.Domain.Entities
         public string PasswordHash {get;set;} = string.Empty;
         public string Role {get;set;} = "Customer";
         public string? CompanyName {get; set;} 
+        public string? PhoneNumber { get; set; }
         public int PublicLinkVersion { get; set; } = 1;
         public bool PublicLinkEnabled { get; set; } = true;
     }

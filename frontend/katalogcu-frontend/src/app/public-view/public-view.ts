@@ -2,7 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
-import { CatalogService, Catalog, CatalogPageItem } from '../core/services/catalog.service';
+import { CatalogService, Catalog, CatalogPageItem, PublicStorefront } from '../core/services/catalog.service';
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
 
@@ -82,9 +82,17 @@ export class PublicViewComponent implements OnInit {
   visibleCatalogs: Catalog[] = [];
   publicToken: string | null = null;
   publicLoadError: string | null = null;
+  storefront: PublicStorefront = {
+    businessName: 'Katalog Magazasi'
+  };
 
   private getHistoryStorageKey(): string {
     return `chat_history_partalog_${this.publicToken ?? 'anonymous'}`;
+  }
+
+  get storefrontInitial(): string {
+    const source = this.storefront.businessName || 'K';
+    return source.trim().charAt(0).toUpperCase() || 'K';
   }
 
   ngOnInit() {
@@ -120,6 +128,25 @@ export class PublicViewComponent implements OnInit {
     }
 
     this.loadPublicData();
+    this.loadStorefront();
+  }
+
+  loadStorefront() {
+    if (!this.publicToken) return;
+
+    this.catalogService.getPublicStorefront(this.publicToken).subscribe({
+      next: (res) => {
+        this.storefront = {
+          businessName: res.businessName?.trim() || 'Katalog Magazasi',
+          ownerName: res.ownerName?.trim() || undefined,
+          email: res.email,
+          phoneNumber: res.phoneNumber
+        };
+      },
+      error: (err) => {
+        console.warn('Public storefront yüklenemedi:', err);
+      }
+    });
   }
 
   loadPublicData() {

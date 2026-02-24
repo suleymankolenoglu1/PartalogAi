@@ -5,9 +5,9 @@
             
             <div class="flex items-center gap-2 cursor-pointer" (click)="searchText=''; clearImage(); aiState.response = null; aiState.isActive = false">
                 <div class="size-8 rounded-lg bg-[#0066CC] text-white flex items-center justify-center font-bold text-xl shadow-sm">
-                    G
+                    {{ storefrontInitial }}
                 </div>
-                <span class="font-bold text-[#1D1D1F] text-lg tracking-tight">Galeri Makina</span>
+                <span class="font-bold text-[#1D1D1F] text-lg tracking-tight">{{ storefront.businessName }}</span>
             </div>
 
             <div class="flex items-center gap-4">
@@ -331,7 +331,7 @@
 
     <footer class="bg-[#1D1D1F] text-[#86868B] py-12 border-t border-[#424245]">
         <div class="max-w-[1600px] mx-auto px-6 flex justify-between">
-            <p>Galeri Makina - Partalog Altyapısı</p>
+            <p>{{ storefront.businessName }} - Partalog Altyapısı</p>
         </div>
     </footer>
 

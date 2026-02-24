@@ -1,5 +1,6 @@
 using Katalogcu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using System.Text.Json.Serialization;
 using System.Text;
 using Microsoft.OpenApi.Models;
@@ -75,10 +76,12 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 
 // 🔥 VERİTABANI BAĞLANTISI (PostgreSQL + Vektör Desteği) 🔥
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), x => 
-    {
-        x.UseVector(); 
-    }));
+    options
+        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))
+        .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), x =>
+        {
+            x.UseVector();
+        }));
 
 // JWT Authentication Ayarları
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -209,6 +212,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+    EnsureUserProfileColumns(db);
     EnsureStockMovementTable(db);
 }
 
@@ -246,6 +250,15 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
         // 3. Bekle ve Tekrar Dene (Exponential Backoff)
         // İlk deneme: 2sn, İkinci: 4sn, Üçüncü: 8sn bekle.
         .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+}
+
+static void EnsureUserProfileColumns(AppDbContext db)
+{
+    // Eski veritabanlarında AppUser profiline sonradan eklenen alanlar için.
+    db.Database.ExecuteSqlRaw("""
+        ALTER TABLE "Users"
+        ADD COLUMN IF NOT EXISTS "PhoneNumber" text NULL;
+        """);
 }
 
 static void EnsureStockMovementTable(AppDbContext db)

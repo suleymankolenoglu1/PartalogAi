@@ -1,7 +1,7 @@
 import { Component, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { AuthService } from '../../core/services/auth.service';
+import { AuthService, AuthUserInfo } from '../../core/services/auth.service';
 import { CatalogService, PublicTokenStatus } from '../../core/services/catalog.service';
 import { OrderService } from '../../core/services/order.service';
 import { Subscription } from 'rxjs';
@@ -32,10 +32,47 @@ export class AdminLayoutComponent implements OnDestroy {
   publicActionError: string | null = null;
   pendingOrderCount = 0;
   unreadOrderCount = 0;
+  currentUser: AuthUserInfo | null = null;
 
   constructor() {
+    this.loadCurrentUser();
     this.loadPublicLinkState();
     this.initializeOrderNotifications();
+  }
+
+  get userDisplayName(): string {
+    const first = this.currentUser?.firstName?.trim() || '';
+    const last = this.currentUser?.lastName?.trim() || '';
+    const fullName = `${first} ${last}`.trim();
+    if (fullName) return fullName;
+    return this.currentUser?.email || 'Kullanıcı';
+  }
+
+  get userRoleLabel(): string {
+    const role = this.currentUser?.role?.toLowerCase();
+    if (role === 'admin' || role === 'owner') return 'Firma Sahibi';
+    if (role === 'customer') return 'Kullanıcı';
+    return this.currentUser?.role || 'Kullanıcı';
+  }
+
+  get userAvatarUrl(): string {
+    const encoded = encodeURIComponent(this.userDisplayName);
+    return `https://ui-avatars.com/api/?name=${encoded}&background=0F172A&color=ffffff`;
+  }
+
+  private loadCurrentUser() {
+    const cached = this.authService.getStoredUserInfo();
+    if (cached) this.currentUser = cached;
+
+    this.authService.getMe().subscribe({
+      next: (me) => {
+        this.currentUser = me;
+        this.authService.setStoredUserInfo(me);
+      },
+      error: () => {
+        // cache varsa onunla devam
+      }
+    });
   }
 
   logout() {

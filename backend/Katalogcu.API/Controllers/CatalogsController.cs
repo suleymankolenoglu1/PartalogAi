@@ -131,6 +131,42 @@ namespace Katalogcu.API.Controllers
             return Ok(catalogs);
         }
 
+        [AllowAnonymous]
+        [HttpGet("public-storefront")]
+        public async Task<IActionResult> GetPublicStorefront([FromQuery] string token)
+        {
+            var payload = _publicLinkService.Validate(token);
+            if (payload == null) return BadRequest("Geçersiz token.");
+
+            var user = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == payload.UserId)
+                .Select(u => new
+                {
+                    u.FirstName,
+                    u.LastName,
+                    u.Email,
+                    u.CompanyName,
+                    u.PhoneNumber
+                })
+                .FirstOrDefaultAsync();
+
+            if (user == null) return NotFound("İşletme bulunamadı.");
+
+            var ownerName = $"{user.FirstName} {user.LastName}".Trim();
+            var businessName = !string.IsNullOrWhiteSpace(user.CompanyName)
+                ? user.CompanyName.Trim()
+                : (!string.IsNullOrWhiteSpace(ownerName) ? ownerName : "Katalog Magazasi");
+
+            return Ok(new
+            {
+                businessName,
+                ownerName,
+                email = user.Email,
+                phoneNumber = user.PhoneNumber
+            });
+        }
+
         [HttpGet("public-token")]
         public async Task<IActionResult> GetPublicToken([FromQuery] string? catalogIds)
         {

@@ -4,6 +4,24 @@ import { environment } from '../../../environments/environment.development';
 import { tap } from 'rxjs/operators';
 import { Router } from '@angular/router';
 
+export interface AuthUserInfo {
+  id: string;
+  userId?: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  companyName?: string | null;
+  phoneNumber?: string | null;
+  role: string;
+}
+
+export interface UpdateProfileRequest {
+  firstName: string;
+  lastName: string;
+  companyName?: string | null;
+  phoneNumber?: string | null;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -14,13 +32,13 @@ export class AuthService {
 
   // Giriş Yap
   login(credentials: { email: string; password: string }) {
-    return this.http.post<any>(`${this.apiUrl}/auth/login`, credentials).pipe(
+    return this.http.post<{ token: string; user: AuthUserInfo }>(`${this.apiUrl}/auth/login`, credentials).pipe(
       tap(response => {
         if (response.token) {
           // Token'ı tarayıcıya kaydet
           localStorage.setItem('auth_token', response.token);
           // Kullanıcı bilgisini kaydet (Opsiyonel)
-          localStorage.setItem('user_info', JSON.stringify(response.user));
+          this.setStoredUserInfo(response.user);
         }
       })
     );
@@ -47,17 +65,26 @@ export class AuthService {
     return localStorage.getItem('auth_token');
   }
 
+  getStoredUserInfo(): AuthUserInfo | null {
+    const raw = localStorage.getItem('user_info');
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as AuthUserInfo;
+    } catch {
+      return null;
+    }
+  }
+
+  setStoredUserInfo(user: AuthUserInfo) {
+    localStorage.setItem('user_info', JSON.stringify(user));
+  }
+
   // ✅ UserId'yi getir (user_info yoksa token'dan al)
   getUserId(): string | null {
-    const raw = localStorage.getItem('user_info');
-    if (raw) {
-      try {
-        const user = JSON.parse(raw);
-        if (user?.id) return user.id;
-        if (user?.userId) return user.userId;
-      } catch {
-        // ignore
-      }
+    const user = this.getStoredUserInfo();
+    if (user) {
+      if (user.id) return user.id;
+      if (user.userId) return user.userId;
     }
 
     const token = this.getToken();
@@ -69,5 +96,15 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  getMe() {
+    return this.http.get<AuthUserInfo>(`${this.apiUrl}/auth/me`);
+  }
+
+  updateMe(payload: UpdateProfileRequest) {
+    return this.http.put<AuthUserInfo>(`${this.apiUrl}/auth/me`, payload).pipe(
+      tap((user) => this.setStoredUserInfo(user))
+    );
   }
 }

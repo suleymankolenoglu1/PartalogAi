@@ -19,6 +19,13 @@ export interface PublicTokenStatus {
   version: number;
 }
 
+export interface PublicStorefront {
+  businessName: string;
+  ownerName?: string;
+  email?: string;
+  phoneNumber?: string;
+}
+
 export interface DashboardCatalogItem {
   id: string;
   name: string;
@@ -167,6 +174,11 @@ export class CatalogService {
   getPublicCatalogsByToken(token: string): Observable<Catalog[]> {
     const params = new HttpParams().set('token', token);
     return this.http.get<Catalog[]>(`${this.apiUrl}/catalogs/public-by-token`, { params });
+  }
+
+  getPublicStorefront(token: string): Observable<PublicStorefront> {
+    const params = new HttpParams().set('token', token);
+    return this.http.get<PublicStorefront>(`${this.apiUrl}/catalogs/public-storefront`, { params });
   }
 
   getPublicToken(catalogIds?: string[]): Observable<{ token: string }> {

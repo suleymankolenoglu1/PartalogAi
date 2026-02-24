@@ -130,10 +130,10 @@
                 
                 <div class="user-profile">
                     <div class="user-info">
-                        <p class="user-name">Ahmet Yılmaz</p>
-                        <p class="user-role">Firma Sahibi</p>
+                        <p class="user-name">{{ userDisplayName }}</p>
+                        <p class="user-role">{{ userRoleLabel }}</p>
                     </div>
-                    <img src="https://ui-avatars.com/api/?name=Ahmet+Yilmaz&background=random" class="user-avatar">
+                    <img [src]="userAvatarUrl" class="user-avatar">
                 </div>
             </div>
         </header>

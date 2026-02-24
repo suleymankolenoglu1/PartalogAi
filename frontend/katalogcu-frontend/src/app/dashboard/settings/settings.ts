@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms'; // 🔥 HTML'de ngModel kullandığımız için şart
 import { Catalog, CatalogService, PublicTokenStatus, ShowcaseMedia } from '../../core/services/catalog.service'; // Interface'i import ettik
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-settings',
@@ -12,6 +13,7 @@ import { Catalog, CatalogService, PublicTokenStatus, ShowcaseMedia } from '../..
 })
 export class SettingsComponent implements OnInit {
   private catalogService = inject(CatalogService);
+  private authService = inject(AuthService);
 
   // Aktif sekme (Type güvenliği için string literal kullandık)
   activeTab: 'general' | 'security' | 'notifications' | 'showcase' | 'public' = 'general';
@@ -25,18 +27,23 @@ export class SettingsComponent implements OnInit {
   publishedCatalogs: Catalog[] = [];
   selectedCatalogIds = new Set<string>();
 
+  // --- PROFİL (GERÇEK VERİ) ---
+  profile = {
+    firstName: '',
+    lastName: '',
+    email: '',
+    companyName: '',
+    phoneNumber: ''
+  };
+  isProfileLoading = false;
+  isProfileSaving = false;
+  profileSuccess: string | null = null;
+  profileError: string | null = null;
+
   // --- VITRIN (SHOWCASE) VERİLERİ ---
 
-  // Mevcut Vitrin Listesi (Başlangıçta boş görünmesin diye örnek veri koyduk)
-  showcaseItems: ShowcaseMedia[] = [
-    {
-      id: '1',
-      type: 'image',
-      url: 'https://images.unsplash.com/photo-1486262715619-01b80250e0dc?auto=format&fit=crop&q=80&w=1600',
-      title: '2026 Yeni Motor Serisi',
-      subtitle: 'Performans ve dayanıklılık bir arada.'
-    }
-  ];
+  // Mevcut Vitrin Listesi (şimdilik local state; backend entegrasyonu ayrı adım)
+  showcaseItems: ShowcaseMedia[] = [];
 
   // Yeni eklenecek medya için geçici obje (Forma bağlı)
   newMedia: Partial<ShowcaseMedia> = {
@@ -50,8 +57,37 @@ export class SettingsComponent implements OnInit {
 
   // Sekme Değiştirme
   ngOnInit(): void {
+    this.loadProfile();
     this.loadPublishedCatalogs();
     this.loadPublicLinkState();
+  }
+
+  get profileAvatarUrl(): string {
+    const fullName = `${this.profile.firstName} ${this.profile.lastName}`.trim();
+    const fallback = 'Katalogcu User';
+    const encoded = encodeURIComponent(fullName || fallback);
+    return `https://ui-avatars.com/api/?name=${encoded}&background=0F172A&color=ffffff&size=128`;
+  }
+
+  loadProfile() {
+    this.isProfileLoading = true;
+    this.profileError = null;
+    this.profileSuccess = null;
+
+    this.authService.getMe().subscribe({
+      next: (me) => {
+        this.profile.firstName = me.firstName || '';
+        this.profile.lastName = me.lastName || '';
+        this.profile.email = me.email || '';
+        this.profile.companyName = me.companyName || '';
+        this.profile.phoneNumber = me.phoneNumber || '';
+        this.isProfileLoading = false;
+      },
+      error: () => {
+        this.isProfileLoading = false;
+        this.profileError = 'Profil bilgileri yüklenemedi.';
+      }
+    });
   }
 
   setActiveTab(tabName: 'general' | 'security' | 'notifications' | 'showcase' | 'public') {
@@ -237,8 +273,54 @@ export class SettingsComponent implements OnInit {
 
   // Genel Kayıt
   saveSettings() {
-    // Gerçek uygulamada burada servise data gönderilir
-    console.log('Kaydedilen Vitrin Verisi:', this.showcaseItems);
-    alert('Tüm ayarlar ve vitrin düzenlemeleri başarıyla kaydedildi!');
+    if (this.activeTab === 'general') {
+      this.saveProfile();
+      return;
+    }
+
+    if (this.activeTab === 'showcase') {
+      alert('Vitrin yönetimi bu aşamada local state ile çalışıyor. Kalıcı kayıt backend adımı sonraki geliştirmede eklenecek.');
+      return;
+    }
+
+    alert('Bu sekmede değişiklikler canlıdır veya ayrı endpoint ile yönetilir.');
+  }
+
+  private saveProfile() {
+    const firstName = this.profile.firstName.trim();
+    const lastName = this.profile.lastName.trim();
+    if (!firstName || !lastName) {
+      this.profileError = 'Ad ve soyad zorunludur.';
+      this.profileSuccess = null;
+      return;
+    }
+
+    this.isProfileSaving = true;
+    this.profileError = null;
+    this.profileSuccess = null;
+
+    this.authService.updateMe({
+      firstName,
+      lastName,
+      companyName: this.profile.companyName?.trim() || null,
+      phoneNumber: this.profile.phoneNumber?.trim() || null
+    }).subscribe({
+      next: (user) => {
+        this.profile.firstName = user.firstName || '';
+        this.profile.lastName = user.lastName || '';
+        this.profile.email = user.email || '';
+        this.profile.companyName = user.companyName || '';
+        this.profile.phoneNumber = user.phoneNumber || '';
+        this.profileSuccess = 'Profil bilgileri kaydedildi.';
+        this.isProfileSaving = false;
+      },
+      error: (err) => {
+        this.profileError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Profil kaydedilemedi.');
+        this.profileSuccess = null;
+        this.isProfileSaving = false;
+      }
+    });
   }
 }
