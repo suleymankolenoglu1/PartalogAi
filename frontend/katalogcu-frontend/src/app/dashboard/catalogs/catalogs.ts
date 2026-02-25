@@ -1,8 +1,15 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { CatalogService, Catalog, Folder } from '../../core/services/catalog.service';
+import {
+  CatalogService,
+  Catalog,
+  Folder,
+  CatalogAiJobItem,
+  CatalogAiJobSummary
+} from '../../core/services/catalog.service';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-catalogs',
@@ -11,11 +18,28 @@ import { CatalogService, Catalog, Folder } from '../../core/services/catalog.ser
   templateUrl: './catalogs.html',
   styleUrl: './catalogs.css'
 })
-export class CatalogsComponent implements OnInit {
+export class CatalogsComponent implements OnInit, OnDestroy {
   private catalogService = inject(CatalogService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private aiJobsPollTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly aiJobsTake = 20;
+  private queryParamSub: Subscription | null = null;
+  private pendingFocusJobId: string | null = null;
 
   isLoading = true;
   isProcessing = false; // AI işlemi sırasında kilit
+  aiJobsLoading = true;
+  aiJobsError: string | null = null;
+  aiJobsSummary: CatalogAiJobSummary = {
+    total: 0,
+    pending: 0,
+    processing: 0,
+    completed: 0,
+    failed: 0
+  };
+  aiJobs: CatalogAiJobItem[] = [];
+  focusedJobId: string | null = null;
 
   // --- Veri Havuzu ---
   allCatalogs: Catalog[] = [];
@@ -34,7 +58,30 @@ export class CatalogsComponent implements OnInit {
   draggedCatalogId: string | null = null;
 
   ngOnInit() {
+    this.queryParamSub = this.route.queryParamMap.subscribe(params => {
+      const jobId = params.get('jobId');
+      if (!jobId) {
+        return;
+      }
+
+      this.pendingFocusJobId = jobId;
+      this.focusedJobId = jobId;
+      this.loadAiJobs();
+    });
+
     this.loadData();
+    this.loadAiJobs();
+    this.startAiJobsPolling();
+  }
+
+  ngOnDestroy() {
+    this.queryParamSub?.unsubscribe();
+    this.queryParamSub = null;
+
+    if (this.aiJobsPollTimer) {
+      clearInterval(this.aiJobsPollTimer);
+      this.aiJobsPollTimer = null;
+    }
   }
 
   loadData() {
@@ -64,6 +111,69 @@ export class CatalogsComponent implements OnInit {
         this.isLoading = false;
       }
     });
+  }
+
+  loadAiJobs(silent = false) {
+    if (!silent) {
+      this.aiJobsLoading = true;
+    }
+
+    this.catalogService.getCatalogAiJobs(this.aiJobsTake).subscribe({
+      next: (res) => {
+        this.aiJobsSummary = res.summary ?? this.aiJobsSummary;
+        this.aiJobs = res.jobs ?? [];
+        this.aiJobsError = null;
+        this.aiJobsLoading = false;
+        this.tryFocusPendingJob();
+      },
+      error: (err) => {
+        if (!silent) {
+          this.aiJobsError = err?.error?.message || 'AI işlem listesi alınamadı.';
+          this.aiJobsLoading = false;
+        }
+      }
+    });
+  }
+
+  startAiJobsPolling() {
+    if (this.aiJobsPollTimer) {
+      clearInterval(this.aiJobsPollTimer);
+    }
+
+    this.aiJobsPollTimer = setInterval(() => {
+      this.loadAiJobs(true);
+    }, 10000);
+  }
+
+  private tryFocusPendingJob() {
+    if (!this.pendingFocusJobId) {
+      return;
+    }
+
+    const exists = this.aiJobs.some(x => x.jobId === this.pendingFocusJobId);
+    if (!exists) {
+      return;
+    }
+
+    const targetId = this.pendingFocusJobId;
+    this.focusedJobId = targetId;
+
+    setTimeout(() => {
+      const row = document.getElementById(`ai-job-row-${targetId}`);
+      if (!row) {
+        return;
+      }
+
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      this.pendingFocusJobId = null;
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { jobId: null, catalogId: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    }, 120);
   }
 
   // --- KLASÖR İŞLEMLERİ ---
@@ -242,6 +352,7 @@ export class CatalogsComponent implements OnInit {
         next: () => {
             alert('AI Analizi Başlatıldı! Arka planda devam ediyor.');
             this.isProcessing = false;
+            this.loadAiJobs();
             // Status backend'den Processing olarak döndü, polling veya refresh gerekebilir ama şimdilik böyle kalsın
         },
         error: (err) => {
@@ -251,5 +362,23 @@ export class CatalogsComponent implements OnInit {
             catalog.status = 'Error';
         }
     });
+  }
+
+  getAiJobStatusClass(status: string): string {
+    const s = status?.toLowerCase();
+    if (s === 'pending') return 'job-chip pending';
+    if (s === 'processing') return 'job-chip processing';
+    if (s === 'completed') return 'job-chip completed';
+    if (s === 'failed') return 'job-chip failed';
+    return 'job-chip';
+  }
+
+  getAiJobStatusText(status: string): string {
+    const s = status?.toLowerCase();
+    if (s === 'pending') return 'Beklemede';
+    if (s === 'processing') return 'İşleniyor';
+    if (s === 'completed') return 'Tamamlandı';
+    if (s === 'failed') return 'Başarısız';
+    return status || 'Bilinmiyor';
   }
 }

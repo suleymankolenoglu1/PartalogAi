@@ -1,7 +1,5 @@
 services:
   db:
-    # 👇 DEĞİŞİKLİK BURADA: Standart 'postgres' yerine 'pgvector' imajını kullanıyoruz.
-    # Bu imaj, PostgreSQL 16 üzerine kurulmuş pgvector eklentisini içerir.
     image: pgvector/pgvector:pg16
     container_name: katalogcu_db
     environment:
@@ -11,7 +9,92 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata_new:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d KatalogcuDb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - katalogcu_net
+
+  partalog-ai:
+    build:
+      context: ../partalog-ai
+      dockerfile: Dockerfile
+    container_name: partalog_ai
+    env_file:
+      - ../partalog-ai/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      DB_CONNECTION_STRING: postgresql://postgres:Password123!@db:5432/KatalogcuDb
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_DIR: /shared/visual-parts
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - visual_parts_data:/shared/visual-parts
+    networks:
+      - katalogcu_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Katalogcu.API/Dockerfile
+    container_name: katalogcu_api
+    depends_on:
+      db:
+        condition: service_healthy
+      partalog-ai:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=KatalogcuDb;Username=postgres;Password=Password123!
+      AiService__BaseUrl: http://partalog-ai:8000
+    ports:
+      - "5159:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/swagger/index.html"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - visual_parts_data:/app/wwwroot/static/visual-parts
+    networks:
+      - katalogcu_net
+
+  frontend:
+    build:
+      context: ../frontend/katalogcu-frontend
+      dockerfile: Dockerfile
+    container_name: katalogcu_frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "4200:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - katalogcu_net
 
 volumes:
-  pgdata_new:
+  pgdata:
+  visual_parts_data:
+
+networks:
+  katalogcu_net:
+    driver: bridge

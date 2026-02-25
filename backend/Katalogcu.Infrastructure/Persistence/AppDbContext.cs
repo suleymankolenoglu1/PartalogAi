@@ -17,10 +17,12 @@ namespace Katalogcu.Infrastructure.Persistence
         public DbSet<Hotspot> Hotspots { get; set; }
         public DbSet<Order> Orders { get; set; }
         public DbSet<OrderItem> OrderItems { get; set; }
+        public DbSet<OrderStatusHistory> OrderStatusHistory { get; set; }
         public DbSet<CatalogItem> CatalogItems { get; set; }
         public DbSet<Folder> Folders { get; set; }
         public DbSet<Customer> Customers { get; set; }
         public DbSet<StockMovement> StockMovements { get; set; }
+        public DbSet<CatalogAiJob> CatalogAiJobs { get; set; }
 
         // İlişki ve Davranış Ayarları
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -39,6 +41,12 @@ namespace Katalogcu.Infrastructure.Persistence
                 .OnDelete(DeleteBehavior.Cascade); 
                 // ÖNEMLİ: Sipariş silinirse içindeki kalemler de silinsin.
 
+            modelBuilder.Entity<Order>()
+                .HasMany(o => o.StatusHistory)
+                .WithOne()
+                .HasForeignKey(h => h.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             // 2. Sipariş Kalemi ile Ürün arasındaki ilişki
             modelBuilder.Entity<OrderItem>()
                 .HasOne(i => i.Product)
@@ -51,6 +59,37 @@ namespace Katalogcu.Infrastructure.Persistence
             modelBuilder.Entity<Order>()
                 .Property(o => o.TotalAmount)
                 .HasPrecision(18, 2);
+
+            modelBuilder.Entity<Order>()
+                .Property(o => o.IdempotencyKey)
+                .HasMaxLength(128);
+
+            modelBuilder.Entity<Order>()
+                .HasIndex(o => o.IdempotencyKey)
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL AND \"IdempotencyKey\" <> ''");
+
+            modelBuilder.Entity<Order>()
+                .HasIndex(o => o.OwnerUserId);
+
+            modelBuilder.Entity<OrderStatusHistory>()
+                .HasIndex(h => new { h.OrderId, h.CreatedDate });
+
+            modelBuilder.Entity<OrderStatusHistory>()
+                .Property(h => h.Source)
+                .HasMaxLength(64);
+
+            modelBuilder.Entity<OrderStatusHistory>()
+                .Property(h => h.IsVisibleToCustomer)
+                .HasDefaultValue(true);
+
+            modelBuilder.Entity<OrderStatusHistory>()
+                .Property(h => h.Note)
+                .HasMaxLength(512);
+
+            modelBuilder.Entity<OrderStatusHistory>()
+                .Property(h => h.ChangedBy)
+                .HasMaxLength(256);
 
             modelBuilder.Entity<OrderItem>()
                 .Property(i => i.UnitPrice)
@@ -110,6 +149,27 @@ namespace Katalogcu.Infrastructure.Persistence
                 .HasOne(m => m.Product)
                 .WithMany()
                 .HasForeignKey(m => m.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CatalogAiJob>()
+                .HasIndex(j => j.CatalogId)
+                .IsUnique();
+
+            modelBuilder.Entity<CatalogAiJob>()
+                .HasIndex(j => new { j.Status, j.NextAttemptAt });
+
+            modelBuilder.Entity<CatalogAiJob>()
+                .Property(j => j.Status)
+                .HasMaxLength(32);
+
+            modelBuilder.Entity<CatalogAiJob>()
+                .Property(j => j.LastError)
+                .HasMaxLength(2048);
+
+            modelBuilder.Entity<CatalogAiJob>()
+                .HasOne(j => j.Catalog)
+                .WithMany()
+                .HasForeignKey(j => j.CatalogId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }

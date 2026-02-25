@@ -2,34 +2,11 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text; // Encoding için gerekli
+using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Features.Ai.Common;
 using Katalogcu.Domain.Entities; 
 
 namespace Katalogcu.API.Services;
-
-// --- ARAYÜZ (INTERFACE) ---
-public interface IPartalogAiService
-{
-    // 1. YOLO (Resimdeki Parçaları Bulma)
-    Task<List<Hotspot>> DetectHotspotsAsync(IFormFile file, Guid pageId);
-    
-    // 2. GEMINI (Tablo Okuma)
-    Task<List<ProductItemDto>> ExtractTableAsync(byte[] fileBytes, int pageNumber);
-    
-    // 3. Sayfa Analizi (Teknik Çizim mi?)
-    Task<PageAnalysisResult> AnalyzePageAsync(byte[] fileBytes);
-    
-    // 4. EXPERT CHAT (Yedek Parça Asistanı)
-    Task<AiChatResponseDto> GetExpertChatResponseAsync(AiChatRequestDto request);
-
-    // 4.1 Kullanıcı görsel geri bildirimi kaydet
-    Task<VisualFeedbackResponseDto> SaveVisualFeedbackAsync(VisualFeedbackRequestDto request);
-
-    // 5. EĞİTİM TETİKLEYİCİ (Admin)
-    Task TriggerTrainingAsync();
-
-    // 6. METİN VEKTÖRLEŞTİRME (Semantic Search için)
-    Task<float[]?> GetEmbeddingAsync(string text);
-}
 
 // --- SERVİS (IMPLEMENTATION) ---
 public class PartalogAiService : IPartalogAiService
@@ -342,112 +319,4 @@ public class PartalogAiService : IPartalogAiService
         [JsonPropertyName("embedding")]
         public float[]? Embedding { get; set; }
     }
-}
-
-// --- PUBLIC DTO'LAR (GÜNCELLENMİŞ YAPI) ---
-public class AiChatRequestDto
-{
-    public string? Text { get; set; }
-    public List<ChatMessageDto> History { get; set; } = new(); 
-    public IFormFile? Image { get; set; }
-
-    // ✅ EKLENECEK
-    public List<string>? CatalogIds { get; set; }
-}
-
-public class ChatMessageDto
-{
-    public string Role { get; set; } = "user";
-    public string Text { get; set; } = string.Empty;
-}
-
-// 🔥 Python'dan gelen JSON yapısına tam uygun DTO
-public class AiChatResponseDto
-{
-    [JsonPropertyName("answer")]
-    public string? Answer { get; set; }
-
-    [JsonPropertyName("sources")]
-    public List<ChatSourceDto>? Sources { get; set; }
-
-    [JsonPropertyName("debug_intent")]
-    public object? DebugIntent { get; set; }
-}
-
-public class ChatSourceDto
-{
-    [JsonPropertyName("code")]
-    public string? Code { get; set; }
-
-    [JsonPropertyName("name")]
-    public string? Name { get; set; }
-
-    // ✅ Python: machine_model
-    [JsonPropertyName("machine_model")]
-    public string? Model { get; set; }
-
-    // ⬅️ Eski alan gelirse de yakala
-    [JsonPropertyName("model")]
-    public string? LegacyModel { get; set; }
-
-    // ✅ Python: description
-    [JsonPropertyName("description")]
-    public string? Description { get; set; }
-
-    // ⬅️ Eski alan gelirse de yakala
-    [JsonPropertyName("desc")]
-    public string? LegacyDescription { get; set; }
-
-    // ✅ Multi-term grouping
-    [JsonPropertyName("query")]
-    public string? Query { get; set; }
-
-    [JsonPropertyName("similarity")]
-    public double Similarity { get; set; }
-}
-
-public class PageAnalysisResult
-{
-    [JsonPropertyName("is_technical_drawing")]
-    public bool IsTechnicalDrawing { get; set; }
-
-    [JsonPropertyName("is_parts_list")]
-    public bool IsPartsList { get; set; }
-
-    [JsonPropertyName("title")]
-    public string Title { get; set; } = "Başlıksız";
-}
-
-public class ProductItemDto
-{
-    [JsonPropertyName("ref_number")] public string RefNumber { get; set; } = "0";
-    [JsonPropertyName("part_code")] public string? PartCode { get; set; }
-    [JsonPropertyName("part_name")] public string? PartName { get; set; }
-    [JsonPropertyName("description")] public string? Description { get; set; }
-    [JsonPropertyName("quantity")] public int Quantity { get; set; }
-    [JsonPropertyName("dimensions")] public string? Dimensions { get; set; }
-}
-
-public class VisualFeedbackRequestDto
-{
-    public IFormFile? Image { get; set; }
-    public string? PartName { get; set; }
-    public string? PartCode { get; set; }
-    public string? MachineBrand { get; set; }
-    public string? MachineType { get; set; }
-    public string? UserId { get; set; }
-    public string? PublicToken { get; set; }
-    public string? Note { get; set; }
-}
-
-public class VisualFeedbackResponseDto
-{
-    [JsonPropertyName("success")]
-    public bool Success { get; set; }
-
-    [JsonPropertyName("message")]
-    public string? Message { get; set; }
-
-    [JsonPropertyName("record")]
-    public object? Record { get; set; }
 }

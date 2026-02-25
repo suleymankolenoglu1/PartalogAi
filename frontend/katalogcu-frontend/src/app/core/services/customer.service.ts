@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { environment } from '../../../environments/environment.development';
+import { environment } from '../../../environments/environment';
 
 export interface Customer {
   id: string;
@@ -107,6 +107,16 @@ export interface PublicCustomerOrderDetailItem {
   } | null;
 }
 
+export interface PublicCustomerOrderStatusHistory {
+  id: string;
+  previousStatus?: number | null;
+  newStatus: number;
+  source: string;
+  note?: string | null;
+  changedBy?: string | null;
+  createdDate: string;
+}
+
 export interface PublicCustomerOrderDetail {
   id: string;
   orderNumber: string;
@@ -122,6 +132,7 @@ export interface PublicCustomerOrderDetail {
   deliveryNote?: string;
   paymentMethod?: string;
   items: PublicCustomerOrderDetailItem[];
+  statusHistory: PublicCustomerOrderStatusHistory[];
 }
 
 @Injectable({
@@ -130,6 +141,10 @@ export interface PublicCustomerOrderDetail {
 export class CustomerService {
   private http = inject(HttpClient);
   private apiUrl = environment.apiUrl;
+
+  private buildPublicSessionHeaders(sessionToken: string): HttpHeaders {
+    return new HttpHeaders({ 'X-Public-Session': sessionToken });
+  }
 
   getCustomers(): Observable<Customer[]> {
     return this.http.get<Customer[]>(`${this.apiUrl}/customers`);
@@ -156,23 +171,20 @@ export class CustomerService {
   }
 
   getPublicCustomerMe(publicToken: string, sessionToken: string): Observable<any> {
-    const params = new HttpParams()
-      .set('publicToken', publicToken)
-      .set('sessionToken', sessionToken);
-    return this.http.get<any>(`${this.apiUrl}/customers/public-auth/me`, { params });
+    const params = new HttpParams().set('publicToken', publicToken);
+    const headers = this.buildPublicSessionHeaders(sessionToken);
+    return this.http.get<any>(`${this.apiUrl}/customers/public-auth/me`, { params, headers });
   }
 
   getPublicCustomerOrders(publicToken: string, sessionToken: string): Observable<PublicCustomerOrder[]> {
-    const params = new HttpParams()
-      .set('publicToken', publicToken)
-      .set('sessionToken', sessionToken);
-    return this.http.get<PublicCustomerOrder[]>(`${this.apiUrl}/customers/public-auth/orders`, { params });
+    const params = new HttpParams().set('publicToken', publicToken);
+    const headers = this.buildPublicSessionHeaders(sessionToken);
+    return this.http.get<PublicCustomerOrder[]>(`${this.apiUrl}/customers/public-auth/orders`, { params, headers });
   }
 
   getPublicCustomerOrderDetail(publicToken: string, sessionToken: string, orderId: string): Observable<PublicCustomerOrderDetail> {
-    const params = new HttpParams()
-      .set('publicToken', publicToken)
-      .set('sessionToken', sessionToken);
-    return this.http.get<PublicCustomerOrderDetail>(`${this.apiUrl}/customers/public-auth/orders/${orderId}`, { params });
+    const params = new HttpParams().set('publicToken', publicToken);
+    const headers = this.buildPublicSessionHeaders(sessionToken);
+    return this.http.get<PublicCustomerOrderDetail>(`${this.apiUrl}/customers/public-auth/orders/${orderId}`, { params, headers });
   }
 }

@@ -19,6 +19,8 @@ namespace Katalogcu.Domain.Entities
         public string? DeliveryDistrict { get; set; }
         public string? DeliveryNote { get; set; }
         public string PaymentMethod { get; set; } = "KapidaOdeme";
+        public string? IdempotencyKey { get; set; }
+        public Guid? OwnerUserId { get; set; }
 
         // Finansal
         public decimal TotalAmount { get; set; }
@@ -28,6 +30,7 @@ namespace Katalogcu.Domain.Entities
 
         // İlişki: Bir siparişin birden çok kalemi olur
         public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+        public ICollection<OrderStatusHistory> StatusHistory { get; set; } = new List<OrderStatusHistory>();
     }
 
     public enum OrderStatus

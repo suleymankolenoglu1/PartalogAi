@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { environment } from '../../../environments/environment.development';
+import { environment } from '../../../environments/environment';
 
 export type AdminOrderStatus = 0 | 1 | 2 | 3 | 9;
 
@@ -21,6 +21,17 @@ export interface AdminOrderItem {
   product?: AdminOrderProduct | null;
 }
 
+export interface AdminOrderStatusHistory {
+  id: string;
+  previousStatus?: number | null;
+  newStatus: number;
+  isVisibleToCustomer?: boolean;
+  source: string;
+  note?: string | null;
+  changedBy?: string | null;
+  createdDate: string;
+}
+
 export interface AdminOrder {
   id: string;
   orderNumber: string;
@@ -38,6 +49,7 @@ export interface AdminOrder {
   status: AdminOrderStatus;
   createdDate: string;
   items: AdminOrderItem[];
+  statusHistory?: AdminOrderStatusHistory[];
 }
 
 @Injectable({
@@ -51,7 +63,16 @@ export class OrderService {
     return this.http.get<AdminOrder[]>(`${this.apiUrl}/orders`);
   }
 
-  updateOrderStatus(orderId: string, status: AdminOrderStatus): Observable<AdminOrder> {
-    return this.http.put<AdminOrder>(`${this.apiUrl}/orders/${orderId}/status`, { status });
+  updateOrderStatus(
+    orderId: string,
+    status: AdminOrderStatus,
+    note?: string,
+    isVisibleToCustomer: boolean = true
+  ): Observable<AdminOrder> {
+    return this.http.put<AdminOrder>(`${this.apiUrl}/orders/${orderId}/status`, {
+      status,
+      note,
+      isVisibleToCustomer
+    });
   }
 }

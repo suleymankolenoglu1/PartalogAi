@@ -1,6 +1,8 @@
 using Katalogcu.Infrastructure.Persistence;
+using Katalogcu.Application;
+using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using System.Text.Json.Serialization;
 using System.Text;
 using Microsoft.OpenApi.Models;
@@ -13,8 +15,17 @@ using Polly; // 🔥 Polly için
 using Polly.Extensions.Http; // 🔥 Polly HTTP Extensions için
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var defaultMaxBodySizeMb = builder.Configuration.GetValue<int?>("RequestLimits:DefaultMaxBodySizeMb") ?? 50;
+if (defaultMaxBodySizeMb is < 1 or > 512)
+{
+    throw new InvalidOperationException("RequestLimits:DefaultMaxBodySizeMb 1 ile 512 arasında olmalıdır.");
+}
+
+var defaultMaxBodySizeBytes = defaultMaxBodySizeMb * 1024L * 1024L;
 
 // ========================================================
 // 1. SERVİSLERİN KAYDEDİLMESİ (DEPENDENCY INJECTION)
@@ -23,24 +34,39 @@ var builder = WebApplication.CreateBuilder(args);
 // BÜYÜK DOSYA YÜKLEME LİMİTLERİ (PDF/Resim için)
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.ValueLengthLimit = int.MaxValue;
-    options.MultipartBodyLengthLimit = int.MaxValue;
-    options.MemoryBufferThreshold = int.MaxValue;
+    options.ValueLengthLimit = 2 * 1024 * 1024;
+    options.MultipartBodyLengthLimit = defaultMaxBodySizeBytes;
+    options.MemoryBufferThreshold = 1024 * 1024;
 });
 
 builder.Services.Configure<KestrelServerOptions>(options =>
 {
-    options.Limits.MaxRequestBodySize = int.MaxValue;
+    options.Limits.MaxRequestBodySize = defaultMaxBodySizeBytes;
 });
 
 // Genel HttpClient Fabrikası
 builder.Services.AddHttpClient(); 
+builder.Services.AddHttpContextAccessor();
 
 // Yardımcı Servisler
 builder.Services.AddScoped<PdfService>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.AddScoped<CatalogProcessorService>();
 builder.Services.AddScoped<IPublicLinkService, PublicLinkService>();
+builder.Services.AddScoped<IPublicCatalogLinkService, PublicCatalogLinkService>();
+builder.Services.AddScoped<IPublicAccessTokenService, PublicAccessTokenService>();
+builder.Services.AddScoped<IChatStreamProxyService, ChatStreamProxyService>();
+builder.Services.AddScoped<IVisualFeedbackService, VisualFeedbackService>();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IHotspotDetectionService, HotspotDetectionService>();
+builder.Services.AddScoped<ICatalogPdfPageService, CatalogPdfPageService>();
+builder.Services.AddScoped<ICatalogPageFileService, CatalogPageFileService>();
+builder.Services.AddScoped<ICatalogCoverMetadataService, CatalogCoverMetadataService>();
+builder.Services.AddScoped<IChatFeedbackStore, ChatFeedbackJsonlStore>();
+builder.Services.AddScoped<ICatalogAiBackgroundProcessor, CatalogAiBackgroundProcessor>();
+builder.Services.AddApplication();
+builder.Services.AddInfrastructureServices();
 
 // 🔥 KUYRUK SİSTEMİ (BACKGROUND JOB) 🔥
 // 1. Kuyruğu Singleton yapıyoruz (Tüm uygulama aynı sırayı kullansın)
@@ -51,12 +77,19 @@ builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx =>
 
 // 2. Arka Plan İşçisini (Worker) başlatıyoruz
 builder.Services.AddHostedService<QueuedHostedService>();
+builder.Services.AddHostedService<CatalogAiOutboxWorker>();
 
 
 // 🔥 AI SERVİS ENTEGRASYONU (POLLY İLE GÜÇLENDİRİLDİ) 🔥
+var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"] ?? "http://127.0.0.1:8000";
+if (!aiServiceBaseUrl.EndsWith("/"))
+{
+    aiServiceBaseUrl += "/";
+}
+
 builder.Services.AddHttpClient<IPartalogAiService, PartalogAiService>(client =>
 {
-    client.BaseAddress = new Uri("http://127.0.0.1:8000/"); 
+    client.BaseAddress = new Uri(aiServiceBaseUrl);
     client.Timeout = TimeSpan.FromMinutes(10); // Timeout süresini biraz artırdık
 })
 .AddPolicyHandler(GetRetryPolicy()); // 👈 Hata Telafisi Eklendi
@@ -64,7 +97,7 @@ builder.Services.AddHttpClient<IPartalogAiService, PartalogAiService>(client =>
 // Named HttpClient for direct proxying (e.g. SSE streaming)
 builder.Services.AddHttpClient("PartalogAi", client =>
 {
-    client.BaseAddress = new Uri("http://127.0.0.1:8000/");
+    client.BaseAddress = new Uri(aiServiceBaseUrl);
     client.Timeout = TimeSpan.FromMinutes(2);
 });
 
@@ -77,7 +110,6 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 // 🔥 VERİTABANI BAĞLANTISI (PostgreSQL + Vektör Desteği) 🔥
 builder.Services.AddDbContext<AppDbContext>(options =>
     options
-        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))
         .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), x =>
         {
             x.UseVector();
@@ -85,7 +117,32 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // JWT Authentication Ayarları
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = Encoding.ASCII.GetBytes(jwtSettings["SecretKey"] ?? "bu_cok_gizli_ve_uzun_bir_test_anahtaridir_123456");
+var jwtSecret = jwtSettings["SecretKey"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Trim().Length < 32)
+{
+    throw new InvalidOperationException("JwtSettings:SecretKey zorunludur ve en az 32 karakter olmalıdır.");
+}
+
+var secretKey = Encoding.ASCII.GetBytes(jwtSecret);
+
+// CORS origins (prod ortamında config zorunlu, development'ta localhost fallback var)
+var configuredCorsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
+    .Get<string[]>()?
+    .Where(x => !string.IsNullOrWhiteSpace(x))
+    .Select(x => x.Trim().TrimEnd('/'))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray()
+    ?? [];
+
+if (configuredCorsOrigins.Length == 0 && builder.Environment.IsDevelopment())
+{
+    configuredCorsOrigins = ["http://localhost:4200", "http://127.0.0.1:4200"];
+}
+
+if (configuredCorsOrigins.Length == 0)
+{
+    throw new InvalidOperationException("Cors:AllowedOrigins ayarı zorunludur.");
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -107,6 +164,19 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("PrivilegedUser", policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireAssertion(context =>
+            {
+                var roles = context.User.FindAll(ClaimTypes.Role).Select(x => x.Value);
+                return roles.Any(role =>
+                    role.Equals("admin", StringComparison.OrdinalIgnoreCase) ||
+                    role.Equals("owner", StringComparison.OrdinalIgnoreCase));
+            }));
 });
 
 // Swagger Konfigürasyonu
@@ -142,10 +212,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowAngularApp",
         policy =>
         {
-            policy.WithOrigins("http://localhost:4200", "http://localhost:4200/") 
+            policy.WithOrigins(configuredCorsOrigins)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
-                  .SetIsOriginAllowed(_ => true)
                   .AllowCredentials();
         });
 });
@@ -203,6 +272,26 @@ builder.Services.AddRateLimiter(options =>
                 AutoReplenishment = true
             });
     });
+
+    options.AddPolicy("public-order", httpContext =>
+    {
+        var isAuthenticated = httpContext.User?.Identity?.IsAuthenticated == true;
+        if (isAuthenticated)
+        {
+            return RateLimitPartition.GetNoLimiter("auth-user-order");
+        }
+
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"public-order:{ip}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 8,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
 });
 
 var app = builder.Build();
@@ -211,9 +300,31 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var pendingMigrations = db.Database.GetPendingMigrations().ToArray();
+    if (pendingMigrations.Length > 0)
+    {
+        app.Logger.LogInformation(
+            "Applying {Count} pending EF migration(s): {Migrations}",
+            pendingMigrations.Length,
+            string.Join(", ", pendingMigrations));
+    }
+
     db.Database.Migrate();
-    EnsureUserProfileColumns(db);
-    EnsureStockMovementTable(db);
+
+    var stillPendingMigrations = db.Database.GetPendingMigrations().ToArray();
+    if (stillPendingMigrations.Length > 0)
+    {
+        throw new InvalidOperationException(
+            $"Database startup check failed. Pending migrations remain: {string.Join(", ", stillPendingMigrations)}");
+    }
+
+    if (db.Database.HasPendingModelChanges())
+    {
+        throw new InvalidOperationException(
+            "Database startup check failed. EF model has pending changes. Add and apply a migration before starting API.");
+    }
+
+    app.Logger.LogInformation("Database startup check passed: migrations and EF model are in sync.");
 }
 
 // ========================================================
@@ -250,69 +361,4 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
         // 3. Bekle ve Tekrar Dene (Exponential Backoff)
         // İlk deneme: 2sn, İkinci: 4sn, Üçüncü: 8sn bekle.
         .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
-}
-
-static void EnsureUserProfileColumns(AppDbContext db)
-{
-    // Eski veritabanlarında AppUser profiline sonradan eklenen alanlar için.
-    db.Database.ExecuteSqlRaw("""
-        ALTER TABLE "Users"
-        ADD COLUMN IF NOT EXISTS "PhoneNumber" text NULL;
-        """);
-}
-
-static void EnsureStockMovementTable(AppDbContext db)
-{
-    // Bu tabloyu migration beklemeden güvenli şekilde oluşturuyoruz.
-    db.Database.ExecuteSqlRaw("""
-        CREATE TABLE IF NOT EXISTS "StockMovements" (
-            "Id" uuid NOT NULL,
-            "CreatedDate" timestamp with time zone NOT NULL,
-            "UpdatedDate" timestamp with time zone NULL,
-            "UserId" uuid NOT NULL,
-            "ProductId" uuid NOT NULL,
-            "ProductCode" character varying(128) NOT NULL,
-            "ProductName" character varying(512) NOT NULL,
-            "PreviousQuantity" integer NOT NULL,
-            "DeltaQuantity" integer NOT NULL,
-            "NewQuantity" integer NOT NULL,
-            "MovementType" character varying(32) NOT NULL,
-            "Reason" character varying(1024) NOT NULL,
-            "Source" character varying(128) NULL,
-            "ActorName" character varying(256) NULL,
-            "ReferenceId" character varying(128) NULL,
-            CONSTRAINT "PK_StockMovements" PRIMARY KEY ("Id"),
-            CONSTRAINT "FK_StockMovements_Products_ProductId"
-                FOREIGN KEY ("ProductId") REFERENCES "Products" ("Id") ON DELETE CASCADE
-        );
-        """);
-
-    db.Database.ExecuteSqlRaw("""
-        CREATE INDEX IF NOT EXISTS "IX_StockMovements_UserId_CreatedDate"
-        ON "StockMovements" ("UserId", "CreatedDate" DESC);
-        """);
-
-    db.Database.ExecuteSqlRaw("""
-        CREATE INDEX IF NOT EXISTS "IX_StockMovements_ProductId_CreatedDate"
-        ON "StockMovements" ("ProductId", "CreatedDate" DESC);
-        """);
-
-    db.Database.ExecuteSqlRaw("""
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1
-                FROM information_schema.table_constraints
-                WHERE constraint_name = 'FK_StockMovements_Products_ProductId'
-                  AND table_name = 'StockMovements'
-            ) THEN
-                ALTER TABLE "StockMovements" DROP CONSTRAINT "FK_StockMovements_Products_ProductId";
-            END IF;
-
-            ALTER TABLE "StockMovements"
-                ADD CONSTRAINT "FK_StockMovements_Products_ProductId"
-                FOREIGN KEY ("ProductId") REFERENCES "Products"("Id") ON DELETE CASCADE;
-        END
-        $$;
-        """);
 }

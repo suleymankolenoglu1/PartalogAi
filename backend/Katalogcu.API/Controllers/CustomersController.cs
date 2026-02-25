@@ -1,174 +1,68 @@
-using System.Security.Claims;
-using System.Security.Cryptography;
 using Katalogcu.API.Services;
-using Katalogcu.Domain.Entities;
-using Katalogcu.Infrastructure.Persistence;
+using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Features.Customers.Commands.ConfirmPasswordReset;
+using Katalogcu.Application.Features.Customers.Commands.PublicLogin;
+using Katalogcu.Application.Features.Customers.Commands.PublicRegister;
+using Katalogcu.Application.Features.Customers.Commands.PublicRegisterAccount;
+using Katalogcu.Application.Features.Customers.Commands.RequestPasswordReset;
+using Katalogcu.Application.Features.Customers.Queries.GetMyCustomers;
+using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerMe;
+using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerOrderDetail;
+using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerOrders;
+using FluentValidation;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
 
 namespace Katalogcu.API.Controllers
 {
-    [Authorize]
+    [Authorize(Policy = "PrivilegedUser")]
     [Route("api/[controller]")]
     [ApiController]
     public class CustomersController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly IPublicLinkService _publicLinkService;
-        private const int MaxFailedLoginAttempts = 5;
-        private static readonly TimeSpan LoginLockoutDuration = TimeSpan.FromMinutes(15);
-        private static readonly TimeSpan ResetCodeDuration = TimeSpan.FromMinutes(10);
+        private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly ISender _sender;
 
-        public CustomersController(AppDbContext context, IPublicLinkService publicLinkService)
+        public CustomersController(IPublicAccessTokenService publicAccessTokenService, ISender sender)
         {
-            _context = context;
-            _publicLinkService = publicLinkService;
+            _publicAccessTokenService = publicAccessTokenService;
+            _sender = sender;
         }
 
-        private Guid GetCurrentUserId()
+        private string? ResolvePublicSessionToken(string? sessionTokenFromQuery)
         {
-            var idString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (Guid.TryParse(idString, out var guid)) return guid;
-            return Guid.Empty;
-        }
-
-        private static string NormalizePhone(string? phone)
-        {
-            if (string.IsNullOrWhiteSpace(phone)) return string.Empty;
-            return new string(phone.Where(char.IsDigit).ToArray());
-        }
-
-        private async Task<Customer?> ValidatePublicSessionAsync(string publicToken, string sessionToken)
-        {
-            if (string.IsNullOrWhiteSpace(publicToken) || string.IsNullOrWhiteSpace(sessionToken))
-                return null;
-
-            var payload = _publicLinkService.Validate(publicToken);
-            if (payload == null) return null;
-
-            var now = DateTime.UtcNow;
-            var customer = await _context.Customers.FirstOrDefaultAsync(c =>
-                c.UserId == payload.UserId &&
-                c.PublicSessionToken == sessionToken &&
-                c.PublicSessionExpiresAt != null &&
-                c.PublicSessionExpiresAt > now);
-
-            return customer;
-        }
-
-        private static string? NormalizeEmail(string? email)
-        {
-            if (string.IsNullOrWhiteSpace(email)) return null;
-            return email.Trim().ToLowerInvariant();
-        }
-
-        private static string NormalizeName(string? name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return string.Empty;
-            return string.Join(" ", name.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        }
-
-        private static bool IsPasswordStrong(string password) => !string.IsNullOrWhiteSpace(password) && password.Length >= 8;
-
-        private static void CreatePasswordHash(string password, out string hash, out string salt)
-        {
-            var saltBytes = RandomNumberGenerator.GetBytes(16);
-            using var pbkdf2 = new Rfc2898DeriveBytes(password, saltBytes, 120_000, HashAlgorithmName.SHA256);
-            var hashBytes = pbkdf2.GetBytes(32);
-            hash = Convert.ToBase64String(hashBytes);
-            salt = Convert.ToBase64String(saltBytes);
-        }
-
-        private static bool VerifyPassword(string password, string storedHash, string storedSalt)
-        {
-            if (string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(storedHash) || string.IsNullOrWhiteSpace(storedSalt))
-                return false;
-
-            byte[] saltBytes;
-            byte[] expectedHashBytes;
-            try
+            var sessionTokenFromHeader = Request.Headers["X-Public-Session"].ToString();
+            if (!string.IsNullOrWhiteSpace(sessionTokenFromHeader))
             {
-                saltBytes = Convert.FromBase64String(storedSalt);
-                expectedHashBytes = Convert.FromBase64String(storedHash);
-            }
-            catch
-            {
-                return false;
+                return sessionTokenFromHeader.Trim();
             }
 
-            using var pbkdf2 = new Rfc2898DeriveBytes(password, saltBytes, 120_000, HashAlgorithmName.SHA256);
-            var actualHashBytes = pbkdf2.GetBytes(32);
-            return CryptographicOperations.FixedTimeEquals(actualHashBytes, expectedHashBytes);
+            return string.IsNullOrWhiteSpace(sessionTokenFromQuery) ? null : sessionTokenFromQuery.Trim();
         }
-
-        private static string GenerateResetCode()
-        {
-            var code = RandomNumberGenerator.GetInt32(0, 1_000_000);
-            return code.ToString("D6");
-        }
-
-        private static bool IsDebugEnabled()
-        {
-            var raw = Environment.GetEnvironmentVariable("DEBUG");
-            if (string.IsNullOrWhiteSpace(raw)) return false;
-            return raw.Equals("1", StringComparison.OrdinalIgnoreCase) ||
-                   raw.Equals("true", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private async Task<Customer?> FindCustomerByPhoneOrEmailAsync(Guid userId, string normalizedPhone, string? normalizedEmail)
-        {
-            Customer? customer = null;
-
-            if (!string.IsNullOrWhiteSpace(normalizedPhone))
-            {
-                customer = await _context.Customers.FirstOrDefaultAsync(c =>
-                    c.UserId == userId &&
-                    c.NormalizedPhone == normalizedPhone);
-            }
-
-            if (customer == null && !string.IsNullOrWhiteSpace(normalizedEmail))
-            {
-                customer = await _context.Customers.FirstOrDefaultAsync(c =>
-                    c.UserId == userId &&
-                    c.Email != null &&
-                    c.Email.ToLower() == normalizedEmail);
-            }
-
-            return customer;
-        }
-
-        private string CreateSessionToken() => Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 
         [HttpGet]
         public async Task<IActionResult> GetMyCustomers()
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty) return Unauthorized("Geçersiz kullanıcı.");
-
-            var customers = await _context.Customers
-                .AsNoTracking()
-                .Where(c => c.UserId == userId)
-                .OrderByDescending(c => c.LastVisitDate)
-                .Select(c => new
+            try
+            {
+                var result = await _sender.Send(new GetMyCustomersQuery());
+                if (!result.IsSuccess)
                 {
-                    c.Id,
-                    name = c.FullName,
-                    company = c.CompanyName,
-                    email = c.Email,
-                    phone = c.Phone,
-                    orderCount = c.OrderCount,
-                    totalSpent = c.TotalSpent,
-                    lastVisitDate = c.LastVisitDate,
-                    lastOrderDate = c.LastOrderDate,
-                    status = c.IsActive ? "active" : "inactive",
-                    note = c.Note,
-                    createdDate = c.CreatedDate
-                })
-                .ToListAsync();
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Müşteriler alınamadı.")
+                    };
+                }
 
-            return Ok(customers);
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
@@ -179,66 +73,34 @@ namespace Katalogcu.API.Controllers
             if (string.IsNullOrWhiteSpace(request.PublicToken))
                 return BadRequest("Public token zorunludur.");
 
-            if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Phone))
-                return BadRequest("Ad soyad ve telefon zorunludur.");
+            var payload = _publicAccessTokenService.Validate(request.PublicToken);
+            if (payload == null) return BadRequest("Geçersiz public link.");
 
-            var payload = _publicLinkService.Validate(request.PublicToken);
-            if (payload == null)
-                return BadRequest("Geçersiz public link.");
-
-            var normalizedPhone = NormalizePhone(request.Phone);
-            var normalizedEmail = string.IsNullOrWhiteSpace(request.Email)
-                ? null
-                : request.Email.Trim().ToLowerInvariant();
-
-            Customer? customer = null;
-
-            if (!string.IsNullOrWhiteSpace(normalizedPhone))
+            try
             {
-                customer = await _context.Customers.FirstOrDefaultAsync(c =>
-                    c.UserId == payload.UserId &&
-                    c.NormalizedPhone == normalizedPhone);
-            }
+                var result = await _sender.Send(new PublicRegisterCustomerCommand(
+                    payload.UserId,
+                    request.Name,
+                    request.Phone,
+                    request.Email,
+                    request.CompanyName,
+                    request.Note));
 
-            if (customer == null && !string.IsNullOrWhiteSpace(normalizedEmail))
-            {
-                customer = await _context.Customers.FirstOrDefaultAsync(c =>
-                    c.UserId == payload.UserId &&
-                    c.Email != null &&
-                    c.Email.ToLower() == normalizedEmail);
-            }
-
-            var isNew = customer == null;
-            if (isNew)
-            {
-                customer = new Customer
+                if (!result.IsSuccess)
                 {
-                    Id = Guid.NewGuid(),
-                    UserId = payload.UserId,
-                    CreatedDate = DateTime.UtcNow
-                };
-                _context.Customers.Add(customer);
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Müşteri kaydı oluşturulamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
             }
-
-            customer!.FullName = request.Name.Trim();
-            customer.Phone = request.Phone.Trim();
-            customer.NormalizedPhone = string.IsNullOrWhiteSpace(normalizedPhone) ? customer.NormalizedPhone : normalizedPhone;
-            customer.Email = string.IsNullOrWhiteSpace(normalizedEmail) ? customer.Email : normalizedEmail;
-            customer.CompanyName = string.IsNullOrWhiteSpace(request.CompanyName) ? customer.CompanyName : request.CompanyName.Trim();
-            customer.Note = string.IsNullOrWhiteSpace(request.Note) ? customer.Note : request.Note.Trim();
-            customer.LastVisitDate = DateTime.UtcNow;
-            customer.IsActive = true;
-            customer.UpdatedDate = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new
+            catch (ValidationException ex)
             {
-                success = true,
-                created = isNew,
-                customerId = customer.Id,
-                message = isNew ? "Müşteri kaydı oluşturuldu." : "Müşteri bilgisi güncellendi."
-            });
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
@@ -249,65 +111,34 @@ namespace Katalogcu.API.Controllers
             if (string.IsNullOrWhiteSpace(request.PublicToken))
                 return BadRequest("Public token zorunludur.");
 
-            var payload = _publicLinkService.Validate(request.PublicToken);
+            var payload = _publicAccessTokenService.Validate(request.PublicToken);
             if (payload == null) return BadRequest("Geçersiz public link.");
 
-            var normalizedPhone = NormalizePhone(request.Phone);
-            var normalizedEmail = NormalizeEmail(request.Email);
-            if (string.IsNullOrWhiteSpace(normalizedPhone) || string.IsNullOrWhiteSpace(request.Name))
-                return BadRequest("Ad soyad ve telefon zorunludur.");
-            if (!IsPasswordStrong(request.Password))
-                return BadRequest("Şifre en az 8 karakter olmalıdır.");
-
-            var existing = await FindCustomerByPhoneOrEmailAsync(payload.UserId, normalizedPhone, normalizedEmail);
-            if (existing != null && !string.IsNullOrWhiteSpace(existing.PasswordHash) && !string.IsNullOrWhiteSpace(existing.PasswordSalt))
+            try
             {
-                return Conflict("Bu telefon/e-posta ile kayıtlı hesap zaten var. Lütfen giriş yapın.");
-            }
+                var result = await _sender.Send(new PublicRegisterCustomerAccountCommand(
+                    payload.UserId,
+                    request.Name,
+                    request.Phone,
+                    request.Email,
+                    request.Password));
 
-            var customer = existing ?? new Customer
-            {
-                Id = Guid.NewGuid(),
-                UserId = payload.UserId,
-                CreatedDate = DateTime.UtcNow
-            };
-
-            customer.FullName = request.Name.Trim();
-            customer.Phone = request.Phone.Trim();
-            customer.NormalizedPhone = normalizedPhone;
-            customer.Email = string.IsNullOrWhiteSpace(normalizedEmail) ? customer.Email : normalizedEmail;
-            customer.LastVisitDate = DateTime.UtcNow;
-            customer.LastLoginDate = DateTime.UtcNow;
-            customer.IsActive = true;
-            customer.UpdatedDate = DateTime.UtcNow;
-
-            CreatePasswordHash(request.Password, out var hash, out var salt);
-            customer.PasswordHash = hash;
-            customer.PasswordSalt = salt;
-            customer.FailedLoginCount = 0;
-            customer.LoginLockoutUntil = null;
-            customer.LoginCode = null;
-            customer.LoginCodeExpiresAt = null;
-
-            customer.PublicSessionToken = CreateSessionToken();
-            customer.PublicSessionExpiresAt = DateTime.UtcNow.AddDays(30);
-
-            if (existing == null) _context.Customers.Add(customer);
-            await _context.SaveChangesAsync();
-
-            return Ok(new
-            {
-                success = true,
-                sessionToken = customer.PublicSessionToken,
-                customer = new
+                if (!result.IsSuccess)
                 {
-                    id = customer.Id,
-                    name = customer.FullName,
-                    phone = customer.Phone,
-                    email = customer.Email,
-                    company = customer.CompanyName
+                    return result.ErrorCode switch
+                    {
+                        "conflict" => Conflict(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Hesap oluşturulamadı.")
+                    };
                 }
-            });
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
@@ -318,73 +149,36 @@ namespace Katalogcu.API.Controllers
             if (string.IsNullOrWhiteSpace(request.PublicToken))
                 return BadRequest("Public token zorunludur.");
 
-            var payload = _publicLinkService.Validate(request.PublicToken);
+            var payload = _publicAccessTokenService.Validate(request.PublicToken);
             if (payload == null) return BadRequest("Geçersiz public link.");
 
-            var normalizedPhone = NormalizePhone(request.Phone);
-            var normalizedEmail = NormalizeEmail(request.Email);
-            if (string.IsNullOrWhiteSpace(normalizedPhone) && string.IsNullOrWhiteSpace(normalizedEmail))
-                return BadRequest("Telefon veya e-posta zorunludur.");
-            if (string.IsNullOrWhiteSpace(request.Password))
-                return BadRequest("Şifre zorunludur.");
-
-            var customer = await FindCustomerByPhoneOrEmailAsync(payload.UserId, normalizedPhone, normalizedEmail);
-
-            if (customer == null)
+            try
             {
-                return NotFound("Müşteri kaydı bulunamadı. Önce kayıt olmanız gerekiyor.");
-            }
+                var result = await _sender.Send(new PublicCustomerLoginCommand(
+                    payload.UserId,
+                    request.Phone,
+                    request.Email,
+                    request.Password));
 
-            if (customer.LoginLockoutUntil != null && customer.LoginLockoutUntil > DateTime.UtcNow)
-            {
-                var remainingMinutes = Math.Ceiling((customer.LoginLockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
-                return StatusCode(429, $"Çok fazla hatalı giriş denemesi. Lütfen {remainingMinutes:0} dakika sonra tekrar deneyin.");
-            }
-
-            if (string.IsNullOrWhiteSpace(customer.PasswordHash) || string.IsNullOrWhiteSpace(customer.PasswordSalt))
-                return BadRequest("Bu müşteri için hesap şifresi tanımlı değil. Lütfen kayıt olun.");
-
-            if (!VerifyPassword(request.Password, customer.PasswordHash, customer.PasswordSalt))
-            {
-                customer.FailedLoginCount += 1;
-                customer.UpdatedDate = DateTime.UtcNow;
-
-                if (customer.FailedLoginCount >= MaxFailedLoginAttempts)
+                if (!result.IsSuccess)
                 {
-                    customer.LoginLockoutUntil = DateTime.UtcNow.Add(LoginLockoutDuration);
-                    customer.FailedLoginCount = 0;
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "locked" => StatusCode(429, result.ErrorMessage),
+                        "no_password" => BadRequest(result.ErrorMessage),
+                        "invalid_credentials" => Unauthorized(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Giriş yapılamadı.")
+                    };
                 }
 
-                await _context.SaveChangesAsync();
-                return Unauthorized("Telefon/e-posta veya şifre hatalı.");
+                return Ok(result.Value);
             }
-
-            customer.LastVisitDate = DateTime.UtcNow;
-            customer.IsActive = true;
-            customer.FailedLoginCount = 0;
-            customer.LoginLockoutUntil = null;
-
-            var sessionToken = CreateSessionToken();
-            customer.PublicSessionToken = sessionToken;
-            customer.PublicSessionExpiresAt = DateTime.UtcNow.AddDays(30);
-            customer.LastLoginDate = DateTime.UtcNow;
-            customer.UpdatedDate = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new
+            catch (ValidationException ex)
             {
-                success = true,
-                sessionToken,
-                customer = new
-                {
-                    id = customer.Id,
-                    name = customer.FullName,
-                    phone = customer.Phone,
-                    email = customer.Email,
-                    company = customer.CompanyName
-                }
-            });
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
@@ -395,38 +189,31 @@ namespace Katalogcu.API.Controllers
             if (string.IsNullOrWhiteSpace(request.PublicToken))
                 return BadRequest("Public token zorunludur.");
 
-            var payload = _publicLinkService.Validate(request.PublicToken);
+            var payload = _publicAccessTokenService.Validate(request.PublicToken);
             if (payload == null) return BadRequest("Geçersiz public link.");
 
-            var normalizedPhone = NormalizePhone(request.Phone);
-            var normalizedEmail = NormalizeEmail(request.Email);
-            if (string.IsNullOrWhiteSpace(normalizedPhone) && string.IsNullOrWhiteSpace(normalizedEmail))
-                return BadRequest("Telefon veya e-posta zorunludur.");
-
-            var customer = await FindCustomerByPhoneOrEmailAsync(payload.UserId, normalizedPhone, normalizedEmail);
-
-            if (customer != null)
+            try
             {
-                var resetCode = GenerateResetCode();
-                customer.LoginCode = resetCode;
-                customer.LoginCodeExpiresAt = DateTime.UtcNow.Add(ResetCodeDuration);
-                customer.UpdatedDate = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
+                var result = await _sender.Send(new RequestCustomerPasswordResetCommand(
+                    payload.UserId,
+                    request.Phone,
+                    request.Email));
 
-                return Ok(new
+                if (!result.IsSuccess)
                 {
-                    success = true,
-                    message = "Şifre sıfırlama kodu oluşturuldu.",
-                    resetCode = IsDebugEnabled() ? resetCode : null
-                });
-            }
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Şifre sıfırlama kodu oluşturulamadı.")
+                    };
+                }
 
-            // Kullanıcı enumerasyonunu engellemek için yine başarı döndür.
-            return Ok(new
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
             {
-                success = true,
-                message = "Şifre sıfırlama kodu oluşturuldu."
-            });
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
@@ -437,99 +224,95 @@ namespace Katalogcu.API.Controllers
             if (string.IsNullOrWhiteSpace(request.PublicToken))
                 return BadRequest("Public token zorunludur.");
 
-            var payload = _publicLinkService.Validate(request.PublicToken);
+            var payload = _publicAccessTokenService.Validate(request.PublicToken);
             if (payload == null) return BadRequest("Geçersiz public link.");
 
-            var normalizedPhone = NormalizePhone(request.Phone);
-            var normalizedEmail = NormalizeEmail(request.Email);
-            if (string.IsNullOrWhiteSpace(normalizedPhone) && string.IsNullOrWhiteSpace(normalizedEmail))
-                return BadRequest("Telefon veya e-posta zorunludur.");
-            if (string.IsNullOrWhiteSpace(request.ResetCode))
-                return BadRequest("Doğrulama kodu zorunludur.");
-            if (!IsPasswordStrong(request.NewPassword))
-                return BadRequest("Yeni şifre en az 8 karakter olmalıdır.");
-
-            var customer = await FindCustomerByPhoneOrEmailAsync(payload.UserId, normalizedPhone, normalizedEmail);
-            if (customer == null) return BadRequest("Sıfırlama doğrulanamadı.");
-            if (string.IsNullOrWhiteSpace(customer.LoginCode) || customer.LoginCodeExpiresAt == null || customer.LoginCodeExpiresAt <= DateTime.UtcNow)
-                return BadRequest("Doğrulama kodu geçersiz veya süresi dolmuş.");
-            if (!string.Equals(customer.LoginCode, request.ResetCode.Trim(), StringComparison.Ordinal))
-                return BadRequest("Doğrulama kodu hatalı.");
-
-            CreatePasswordHash(request.NewPassword, out var hash, out var salt);
-            customer.PasswordHash = hash;
-            customer.PasswordSalt = salt;
-            customer.LoginCode = null;
-            customer.LoginCodeExpiresAt = null;
-            customer.FailedLoginCount = 0;
-            customer.LoginLockoutUntil = null;
-            customer.LastLoginDate = DateTime.UtcNow;
-            customer.LastVisitDate = DateTime.UtcNow;
-            customer.IsActive = true;
-            customer.PublicSessionToken = CreateSessionToken();
-            customer.PublicSessionExpiresAt = DateTime.UtcNow.AddDays(30);
-            customer.UpdatedDate = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new
+            try
             {
-                success = true,
-                sessionToken = customer.PublicSessionToken,
-                customer = new
+                var result = await _sender.Send(new ConfirmCustomerPasswordResetCommand(
+                    payload.UserId,
+                    request.Phone,
+                    request.Email,
+                    request.ResetCode,
+                    request.NewPassword));
+
+                if (!result.IsSuccess)
                 {
-                    id = customer.Id,
-                    name = customer.FullName,
-                    phone = customer.Phone,
-                    email = customer.Email,
-                    company = customer.CompanyName
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Şifre sıfırlanamadı.")
+                    };
                 }
-            });
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
         [HttpGet("public-auth/me")]
-        public async Task<IActionResult> GetPublicCustomerMe([FromQuery] string publicToken, [FromQuery] string sessionToken)
+        public async Task<IActionResult> GetPublicCustomerMe([FromQuery] string publicToken, [FromQuery] string? sessionToken = null)
         {
-            var customer = await ValidatePublicSessionAsync(publicToken, sessionToken);
-            if (customer == null) return Unauthorized("Oturum geçersiz.");
+            var payload = _publicAccessTokenService.Validate(publicToken);
+            if (payload == null) return Unauthorized("Oturum geçersiz.");
 
-            return Ok(new
+            var resolvedSessionToken = ResolvePublicSessionToken(sessionToken);
+            if (string.IsNullOrWhiteSpace(resolvedSessionToken)) return Unauthorized("Oturum geçersiz.");
+
+            try
             {
-                id = customer.Id,
-                name = customer.FullName,
-                phone = customer.Phone,
-                email = customer.Email,
-                company = customer.CompanyName,
-                lastLoginDate = customer.LastLoginDate
-            });
+                var result = await _sender.Send(new GetPublicCustomerMeQuery(payload.UserId, resolvedSessionToken));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Müşteri bilgisi alınamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
         [HttpGet("public-auth/orders")]
-        public async Task<IActionResult> GetPublicCustomerOrders([FromQuery] string publicToken, [FromQuery] string sessionToken)
+        public async Task<IActionResult> GetPublicCustomerOrders([FromQuery] string publicToken, [FromQuery] string? sessionToken = null)
         {
-            var customer = await ValidatePublicSessionAsync(publicToken, sessionToken);
-            if (customer == null) return Unauthorized("Oturum geçersiz.");
+            var payload = _publicAccessTokenService.Validate(publicToken);
+            if (payload == null) return Unauthorized("Oturum geçersiz.");
 
-            var orders = await _context.Orders
-                .AsNoTracking()
-                .Where(o => o.CustomerId == customer.Id)
-                .OrderByDescending(o => o.CreatedDate)
-                .Select(o => new
+            var resolvedSessionToken = ResolvePublicSessionToken(sessionToken);
+            if (string.IsNullOrWhiteSpace(resolvedSessionToken)) return Unauthorized("Oturum geçersiz.");
+
+            try
+            {
+                var result = await _sender.Send(new GetPublicCustomerOrdersQuery(payload.UserId, resolvedSessionToken));
+                if (!result.IsSuccess)
                 {
-                    o.Id,
-                    o.OrderNumber,
-                    o.Status,
-                    o.TotalAmount,
-                    o.CreatedDate,
-                    o.PaymentMethod,
-                    o.DeliveryCity,
-                    itemCount = o.Items.Count
-                })
-                .ToListAsync();
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Siparişler alınamadı.")
+                    };
+                }
 
-            return Ok(orders);
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [AllowAnonymous]
@@ -537,53 +320,34 @@ namespace Katalogcu.API.Controllers
         public async Task<IActionResult> GetPublicCustomerOrderDetail(
             Guid orderId,
             [FromQuery] string publicToken,
-            [FromQuery] string sessionToken)
+            [FromQuery] string? sessionToken = null)
         {
-            var customer = await ValidatePublicSessionAsync(publicToken, sessionToken);
-            if (customer == null) return Unauthorized("Oturum geçersiz.");
+            var payload = _publicAccessTokenService.Validate(publicToken);
+            if (payload == null) return Unauthorized("Oturum geçersiz.");
 
-            var order = await _context.Orders
-                .AsNoTracking()
-                .Include(o => o.Items)
-                .ThenInclude(i => i.Product)
-                .FirstOrDefaultAsync(o => o.Id == orderId && o.CustomerId == customer.Id);
+            var resolvedSessionToken = ResolvePublicSessionToken(sessionToken);
+            if (string.IsNullOrWhiteSpace(resolvedSessionToken)) return Unauthorized("Oturum geçersiz.");
 
-            if (order == null) return NotFound("Sipariş bulunamadı.");
-
-            return Ok(new
+            try
             {
-                order.Id,
-                order.OrderNumber,
-                order.Status,
-                order.TotalAmount,
-                order.CreatedDate,
-                order.CustomerName,
-                order.CustomerPhone,
-                order.CustomerEmail,
-                order.DeliveryAddress,
-                order.DeliveryCity,
-                order.DeliveryDistrict,
-                order.DeliveryNote,
-                order.PaymentMethod,
-                items = order.Items.Select(i => new
+                var result = await _sender.Send(new GetPublicCustomerOrderDetailQuery(payload.UserId, resolvedSessionToken, orderId));
+                if (!result.IsSuccess)
                 {
-                    i.Id,
-                    i.ProductId,
-                    i.Quantity,
-                    i.UnitPrice,
-                    lineTotal = i.UnitPrice * i.Quantity,
-                    product = i.Product == null
-                        ? null
-                        : new
-                        {
-                            i.Product.Id,
-                            i.Product.Code,
-                            i.Product.Name,
-                            i.Product.ImageUrl,
-                            i.Product.Description
-                        }
-                })
-            });
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Sipariş detayı alınamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
     }
 

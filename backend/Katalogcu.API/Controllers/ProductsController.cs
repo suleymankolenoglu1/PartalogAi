@@ -1,27 +1,36 @@
-using Katalogcu.Domain.Entities;
-using Katalogcu.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
+using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Common.Models;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Katalogcu.API.Services;
+using Katalogcu.Application.Features.Products.Commands.AdjustStock;
+using Katalogcu.Application.Features.Products.Commands.CreateProduct;
+using Katalogcu.Application.Features.Products.Commands.DeleteProduct;
+using Katalogcu.Application.Features.Products.Commands.ImportProducts;
+using Katalogcu.Application.Features.Products.Commands.ImportStock;
+using Katalogcu.Application.Features.Products.Queries.GetCatalogProducts;
+using Katalogcu.Application.Features.Products.Queries.GetOwnedProducts;
+using Katalogcu.Application.Features.Products.Queries.GetStockMovements;
+using FluentValidation;
+using MediatR;
 using System.Security.Claims; // ✨ User ID okumak için
 
 namespace Katalogcu.API.Controllers
 {
-    [Authorize] // 🔒 Sadece giriş yapanlar
+    [Authorize(Policy = "PrivilegedUser")] // 🔒 Yönetim paneli kullanıcıları
     [Route("api/[controller]")]
     [ApiController]
     public class ProductsController : ControllerBase
     {
-        private readonly AppDbContext _context;
         private readonly ExcelService _excelService;
-        private readonly IPublicLinkService _publicLinkService;
+        private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly ISender _sender;
 
-        public ProductsController(AppDbContext context, ExcelService excelService, IPublicLinkService publicLinkService)
+        public ProductsController(ExcelService excelService, IPublicAccessTokenService publicAccessTokenService, ISender sender)
         {
-            _context = context;
             _excelService = excelService;
-            _publicLinkService = publicLinkService;
+            _publicAccessTokenService = publicAccessTokenService;
+            _sender = sender;
         }
 
         // 🛠️ Yardımcı Metod: Token'dan UserID'yi (Guid) okur
@@ -32,21 +41,14 @@ namespace Katalogcu.API.Controllers
             return Guid.Empty;
         }
 
-        private string GetCurrentActorName()
-        {
-            return User.FindFirst(ClaimTypes.Name)?.Value
-                   ?? User.FindFirst(ClaimTypes.Email)?.Value
-                   ?? "admin";
-        }
-
-        private (Guid userId, bool isPublic, PublicLinkPayload? publicPayload) ResolveAccess(string? token)
+        private (Guid userId, bool isPublic, PublicAccessPayloadDto? publicPayload) ResolveAccess(string? token)
         {
             var tokenUserId = GetCurrentUserId();
             if (tokenUserId != Guid.Empty) return (tokenUserId, false, null);
 
             if (!string.IsNullOrWhiteSpace(token))
             {
-                var payload = _publicLinkService.Validate(token);
+                var payload = _publicAccessTokenService.Validate(token);
                 if (payload != null) return (payload.UserId, true, payload);
             }
 
@@ -57,29 +59,24 @@ namespace Katalogcu.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var userId = GetCurrentUserId();
-
-            // 🔥 DÜZELTME: Sadece giriş yapan kullanıcının kataloglarına bağlı ürünleri getir.
-            var products = await _context.Products
-                .Include(p => p.Catalog)
-                .Where(p => p.Catalog.UserId == userId) // 🔒 Veri İzolasyonu
-                .OrderByDescending(p => p.CreatedDate)
-                .Select(p => new 
+            try
+            {
+                var result = await _sender.Send(new GetOwnedProductsQuery());
+                if (!result.IsSuccess)
                 {
-                    p.Id,
-                    p.Code,
-                    p.Name,
-                    p.OemNo,
-                    p.Price,
-                    p.StockQuantity,
-                    p.ImageUrl,
-                    p.Category,
-                    CatalogName = p.Catalog != null ? p.Catalog.Name : "Genel Stok",
-                    CatalogId = p.CatalogId
-                })
-                .ToListAsync();
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Ürünler alınamadı.")
+                    };
+                }
 
-            return Ok(products);
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // 2. KATALOĞA GÖRE GETİR (Vitrin için açık bırakıldı)
@@ -90,84 +87,92 @@ namespace Katalogcu.API.Controllers
             var access = ResolveAccess(token);
             if (access.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
 
-            var query = _context.Products
-                                .Include(p => p.Catalog)
-                                .AsNoTracking()
-                                .Where(p => p.CatalogId == catalogId && p.Catalog.UserId == access.userId);
-
-            if (access.isPublic)
+            try
             {
-                query = query.Where(p => p.Catalog.Status == "Published");
-                if (access.publicPayload?.CatalogIds?.Any() == true)
-                {
-                    query = query.Where(p => access.publicPayload.CatalogIds.Contains(p.CatalogId));
-                }
-            }
+                var result = await _sender.Send(new GetCatalogProductsQuery(
+                    access.userId,
+                    catalogId,
+                    access.isPublic,
+                    access.publicPayload?.CatalogIds));
 
-            var products = await query.OrderBy(p => p.Code).ToListAsync();
-            return Ok(products);
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Katalog ürünleri alınamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // 3. YENİ ÜRÜN EKLE
         [HttpPost]
-        public async Task<IActionResult> Create(Product product)
+        public async Task<IActionResult> Create([FromBody] CreateProductRequest request)
         {
-            var userId = GetCurrentUserId();
-
-            // Güvenlik Kontrolü: Eklenmek istenen katalog bu kullanıcıya mı ait?
-            if (product.CatalogId != Guid.Empty)
+            try
             {
-                var ownsCatalog = await _context.Catalogs.AnyAsync(c => c.Id == product.CatalogId && c.UserId == userId);
-                if (!ownsCatalog) return BadRequest("Seçilen katalog size ait değil veya bulunamadı.");
+                var result = await _sender.Send(new CreateProductCommand(
+                    request.CatalogId,
+                    request.Name ?? string.Empty,
+                    request.Code ?? string.Empty,
+                    request.OemNo,
+                    request.Price,
+                    request.StockQuantity,
+                    request.ImageUrl,
+                    request.Category,
+                    request.Description,
+                    request.PageNumber,
+                    request.RefNo));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "not_found" => BadRequest(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Ürün oluşturulamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
             }
-
-            if (string.IsNullOrEmpty(product.Category)) product.Category = "Genel";
-
-            product.CreatedDate = DateTime.UtcNow;
-            _context.Products.Add(product);
-            await _context.SaveChangesAsync();
-            return Ok(product);
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
         
         // 4. ÜRÜN SİL (GÜÇLENDİRİLMİŞ)
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var userId = GetCurrentUserId();
-
-            // Ürünü ve Kataloğunu bul
-            var product = await _context.Products
-                .Include(p => p.Catalog)
-                .FirstOrDefaultAsync(p => p.Id == id);
-
-            if (product == null) return NotFound("Ürün bulunamadı.");
-
-            // 🔒 YETKİ KONTROLÜ: Ürün bir kataloğa bağlıysa, o katalog benim mi?
-            if (product.Catalog != null && product.Catalog.UserId != userId)
+            try
             {
-                return Unauthorized("Bu ürünü silme yetkiniz yok.");
-            }
-
-            try 
-            {
-                // A. Hotspotları Temizle
-                var linkedHotspots = await _context.Hotspots.Where(h => h.ProductId == id).ToListAsync();
-                if (linkedHotspots.Any())
+                var result = await _sender.Send(new DeleteProductCommand(id));
+                if (!result.IsSuccess)
                 {
-                    _context.Hotspots.RemoveRange(linkedHotspots);
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Silme hatası.")
+                    };
                 }
 
-                // B. 🔥 SİPARİŞ KALEMLERİNİ TEMİZLE (FK Hatasını Önler)
-                var orderItems = await _context.OrderItems.Where(oi => oi.ProductId == id).ToListAsync();
-                if (orderItems.Any())
-                {
-                    _context.OrderItems.RemoveRange(orderItems);
-                }
-
-                // C. Ürünü Sil
-                _context.Products.Remove(product);
-                await _context.SaveChangesAsync();
                 return NoContent();
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {
@@ -179,31 +184,47 @@ namespace Katalogcu.API.Controllers
         [HttpPost("import")]
         public async Task<IActionResult> Import(IFormFile file, [FromForm] Guid? catalogId)
         {
-            var userId = GetCurrentUserId();
-
-            if (file == null || file.Length == 0)
-                return BadRequest("Lütfen bir Excel dosyası yükleyin.");
-
-            // 🔒 Güvenlik: Eğer bir kataloğa yükleme yapılıyorsa, katalog kullanıcının mı?
-            if (catalogId.HasValue && catalogId != Guid.Empty)
-            {
-                var ownsCatalog = await _context.Catalogs.AnyAsync(c => c.Id == catalogId && c.UserId == userId);
-                if (!ownsCatalog) return BadRequest("Seçilen katalog size ait değil.");
-            }
+            var validationError = UploadValidation.ValidateSpreadsheet(file, required: true, allowCsv: false);
+            if (!string.IsNullOrWhiteSpace(validationError))
+                return BadRequest(validationError);
 
             try 
             {
-                var targetCatalogId = catalogId ?? Guid.Empty; 
+                var parsed = _excelService.ParseProducts(file, Guid.Empty);
+                var command = new ImportProductsCommand(
+                    catalogId,
+                    parsed.Select(x => new ImportProductRowInput
+                    {
+                        Name = x.Name,
+                        Code = x.Code,
+                        Category = x.Category,
+                        Price = x.Price,
+                        StockQuantity = x.StockQuantity,
+                        Description = x.Description
+                    }).ToList());
 
-                var products = _excelService.ParseProducts(file, targetCatalogId);
+                var result = await _sender.Send(command);
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "not_found" => BadRequest(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Yükleme hatası.")
+                    };
+                }
 
-                if (products.Count == 0)
-                    return BadRequest("Dosyada okunabilir ürün bulunamadı.");
-
-                _context.Products.AddRange(products);
-                await _context.SaveChangesAsync();
-
-                return Ok(new { message = $"{products.Count} adet ürün başarıyla yüklendi!", count = products.Count });
+                var response = result.Value!;
+                return Ok(new { message = $"{response.Count} adet ürün başarıyla yüklendi!", count = response.Count });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {
@@ -215,175 +236,63 @@ namespace Katalogcu.API.Controllers
         [HttpPost("import-stock")]
         public async Task<IActionResult> ImportStock(IFormFile file, [FromForm] Guid? catalogId, [FromForm] string mode = "update_only")
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty) return Unauthorized("Kullanıcı doğrulanamadı.");
-
-            if (file == null || file.Length == 0)
-                return BadRequest("Lütfen CSV veya Excel dosyası yükleyin.");
-
-            // upsert modunda yeni ürün açılabilmesi için hedef katalog gerekir.
-            var allowUpsert = string.Equals(mode, "upsert", StringComparison.OrdinalIgnoreCase);
-            if (allowUpsert && (!catalogId.HasValue || catalogId.Value == Guid.Empty))
-                return BadRequest("Upsert modunda yeni ürün oluşturmak için catalogId zorunludur.");
-
-            if (catalogId.HasValue && catalogId.Value != Guid.Empty)
-            {
-                var ownsCatalog = await _context.Catalogs.AnyAsync(c => c.Id == catalogId && c.UserId == userId);
-                if (!ownsCatalog) return BadRequest("Seçilen katalog size ait değil.");
-            }
+            var validationError = UploadValidation.ValidateSpreadsheet(file, required: true, allowCsv: true);
+            if (!string.IsNullOrWhiteSpace(validationError))
+                return BadRequest(validationError);
 
             try
             {
                 var rows = _excelService.ParseStockRows(file);
-                if (rows.Count == 0) return BadRequest("Dosyada işlenecek satır bulunamadı.");
+                var command = new ImportStockCommand(
+                    catalogId,
+                    mode,
+                    rows.Select(x => new ImportStockRowInput
+                    {
+                        RowNumber = x.RowNumber,
+                        Code = x.Code,
+                        StockQuantity = x.StockQuantity,
+                        Price = x.Price,
+                        Name = x.Name,
+                        Category = x.Category,
+                        Description = x.Description
+                    }).ToList());
 
-                var query = _context.Products
-                    .Include(p => p.Catalog)
-                    .Where(p => p.Catalog != null && p.Catalog.UserId == userId);
-
-                if (catalogId.HasValue && catalogId.Value != Guid.Empty)
+                var result = await _sender.Send(command);
+                if (!result.IsSuccess)
                 {
-                    query = query.Where(p => p.CatalogId == catalogId.Value);
-                }
-
-                var existingProducts = await query.ToListAsync();
-                var codeMap = existingProducts
-                    .GroupBy(p => NormalizeCode(p.Code))
-                    .Where(g => !string.IsNullOrWhiteSpace(g.Key))
-                    .ToDictionary(g => g.Key, g => g.ToList());
-
-                var updated = 0;
-                var created = 0;
-                var skipped = 0;
-                var skippedRows = new List<StockImportSkipRow>();
-                var movementLogs = new List<StockMovement>();
-                var actorName = GetCurrentActorName();
-                var importBatchId = Guid.NewGuid().ToString("N");
-
-                foreach (var row in rows)
-                {
-                    var codeKey = NormalizeCode(row.Code);
-                    if (string.IsNullOrWhiteSpace(codeKey))
+                    return result.ErrorCode switch
                     {
-                        skipped++;
-                        skippedRows.Add(new StockImportSkipRow(row.RowNumber, row.Code, "Parça kodu boş."));
-                        continue;
-                    }
-
-                    if (!row.StockQuantity.HasValue)
-                    {
-                        skipped++;
-                        skippedRows.Add(new StockImportSkipRow(row.RowNumber, row.Code, "Stok adedi sayısal değil."));
-                        continue;
-                    }
-
-                    if (row.StockQuantity.Value < 0)
-                    {
-                        skipped++;
-                        skippedRows.Add(new StockImportSkipRow(row.RowNumber, row.Code, "Negatif stok desteklenmiyor."));
-                        continue;
-                    }
-
-                    if (codeMap.TryGetValue(codeKey, out var matches))
-                    {
-                        if (matches.Count > 1)
-                        {
-                            skipped++;
-                            skippedRows.Add(new StockImportSkipRow(row.RowNumber, row.Code, "Aynı koddan birden fazla ürün var. Katalog filtresiyle tekrar deneyin."));
-                            continue;
-                        }
-
-                        var product = matches[0];
-                        var previousQuantity = product.StockQuantity;
-                        product.StockQuantity = row.StockQuantity.Value;
-                        if (row.Price.HasValue) product.Price = row.Price.Value;
-                        if (!string.IsNullOrWhiteSpace(row.Name)) product.Name = row.Name.Trim();
-                        if (!string.IsNullOrWhiteSpace(row.Category)) product.Category = row.Category.Trim();
-                        if (!string.IsNullOrWhiteSpace(row.Description)) product.Description = row.Description.Trim();
-                        product.UpdatedDate = DateTime.UtcNow;
-
-                        if (previousQuantity != product.StockQuantity)
-                        {
-                            movementLogs.Add(BuildStockMovement(
-                                userId: userId,
-                                product: product,
-                                previousQuantity: previousQuantity,
-                                newQuantity: product.StockQuantity,
-                                movementType: "IMPORT",
-                                reason: $"Stok import satırı #{row.RowNumber}",
-                                source: "products/import-stock",
-                                actorName: actorName,
-                                referenceId: importBatchId));
-                        }
-
-                        updated++;
-                        continue;
-                    }
-
-                    if (!allowUpsert)
-                    {
-                        skipped++;
-                        skippedRows.Add(new StockImportSkipRow(row.RowNumber, row.Code, "Ürün bulunamadı (mode=update_only)."));
-                        continue;
-                    }
-
-                    if (!catalogId.HasValue || catalogId.Value == Guid.Empty)
-                    {
-                        skipped++;
-                        skippedRows.Add(new StockImportSkipRow(row.RowNumber, row.Code, "Yeni ürün için katalog seçilmedi."));
-                        continue;
-                    }
-
-                    var newProduct = new Product
-                    {
-                        Id = Guid.NewGuid(),
-                        CatalogId = catalogId.Value,
-                        Code = row.Code.Trim(),
-                        Name = !string.IsNullOrWhiteSpace(row.Name) ? row.Name.Trim() : $"Parça {row.Code.Trim()}",
-                        Category = !string.IsNullOrWhiteSpace(row.Category) ? row.Category.Trim() : "Genel",
-                        Description = row.Description?.Trim() ?? string.Empty,
-                        Price = row.Price ?? 0,
-                        StockQuantity = row.StockQuantity.Value,
-                        CreatedDate = DateTime.UtcNow
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "not_found" => BadRequest(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Stok aktarım hatası.")
                     };
-
-                    _context.Products.Add(newProduct);
-                    created++;
-
-                    movementLogs.Add(BuildStockMovement(
-                        userId: userId,
-                        product: newProduct,
-                        previousQuantity: 0,
-                        newQuantity: newProduct.StockQuantity,
-                        movementType: "IMPORT",
-                        reason: $"Import ile yeni ürün oluşturuldu (satır #{row.RowNumber})",
-                        source: "products/import-stock",
-                        actorName: actorName,
-                        referenceId: importBatchId));
-
-                    codeMap[codeKey] = new List<Product> { newProduct };
                 }
 
-                if (movementLogs.Count > 0)
-                {
-                    _context.StockMovements.AddRange(movementLogs);
-                }
-
-                await _context.SaveChangesAsync();
+                var response = result.Value!;
+                var skippedRows = response.SkippedRows.Take(100);
 
                 return Ok(new
                 {
-                    message = $"Stok aktarımı tamamlandı. Güncellenen: {updated}, yeni: {created}, atlanan: {skipped}.",
+                    message = $"Stok aktarımı tamamlandı. Güncellenen: {response.Updated}, yeni: {response.Created}, atlanan: {response.Skipped}.",
                     summary = new
                     {
-                        totalRows = rows.Count,
-                        updated,
-                        created,
-                        skipped,
-                        mode = allowUpsert ? "upsert" : "update_only"
+                        totalRows = response.TotalRows,
+                        updated = response.Updated,
+                        created = response.Created,
+                        skipped = response.Skipped,
+                        mode = response.Mode
                     },
-                    skippedRows = skippedRows.Take(100)
+                    skippedRows
                 });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {
@@ -395,127 +304,59 @@ namespace Katalogcu.API.Controllers
         [HttpPost("{id}/adjust-stock")]
         public async Task<IActionResult> AdjustStock(Guid id, [FromBody] AdjustStockRequest request)
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty) return Unauthorized("Kullanıcı doğrulanamadı.");
-
-            if (request.DeltaQuantity == 0) return BadRequest("Değişim miktarı 0 olamaz.");
-
-            var product = await _context.Products
-                .Include(p => p.Catalog)
-                .FirstOrDefaultAsync(p => p.Id == id);
-
-            if (product == null) return NotFound("Ürün bulunamadı.");
-            if (product.Catalog == null || product.Catalog.UserId != userId)
-                return Unauthorized("Bu üründe stok düzenleme yetkiniz yok.");
-
-            var previousQuantity = product.StockQuantity;
-            var nextQuantity = previousQuantity + request.DeltaQuantity;
-            if (nextQuantity < 0)
-                return BadRequest("Stok eksiye düşemez.");
-
-            product.StockQuantity = nextQuantity;
-            product.UpdatedDate = DateTime.UtcNow;
-
-            var movement = BuildStockMovement(
-                userId: userId,
-                product: product,
-                previousQuantity: previousQuantity,
-                newQuantity: nextQuantity,
-                movementType: "ADJUSTMENT",
-                reason: string.IsNullOrWhiteSpace(request.Reason) ? "Manuel stok düzeltmesi" : request.Reason.Trim(),
-                source: "dashboard/parts",
-                actorName: GetCurrentActorName(),
-                referenceId: null);
-
-            _context.StockMovements.Add(movement);
-            await _context.SaveChangesAsync();
-
-            return Ok(new
+            try
             {
-                message = "Stok başarıyla güncellendi.",
-                productId = product.Id,
-                code = product.Code,
-                previousQuantity,
-                newQuantity = nextQuantity,
-                delta = request.DeltaQuantity
-            });
+                var result = await _sender.Send(new AdjustStockCommand(id, request.DeltaQuantity, request.Reason));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Stok güncelleme hatası.")
+                    };
+                }
+
+                var response = result.Value!;
+                return Ok(new
+                {
+                    message = "Stok başarıyla güncellendi.",
+                    productId = response.ProductId,
+                    code = response.Code,
+                    previousQuantity = response.PreviousQuantity,
+                    newQuantity = response.NewQuantity,
+                    delta = response.Delta
+                });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // 8. STOK HAREKET GEÇMİŞİ
         [HttpGet("stock-movements")]
         public async Task<IActionResult> GetStockMovements([FromQuery] Guid? productId, [FromQuery] int limit = 50)
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty) return Unauthorized("Kullanıcı doğrulanamadı.");
-
-            limit = Math.Clamp(limit, 1, 200);
-
-            var query = _context.StockMovements
-                .AsNoTracking()
-                .Where(m => m.UserId == userId);
-
-            if (productId.HasValue && productId.Value != Guid.Empty)
+            try
             {
-                query = query.Where(m => m.ProductId == productId.Value);
-            }
-
-            var rows = await query
-                .OrderByDescending(m => m.CreatedDate)
-                .Take(limit)
-                .Select(m => new
+                var result = await _sender.Send(new GetStockMovementsQuery(productId, limit));
+                if (!result.IsSuccess)
                 {
-                    m.Id,
-                    m.ProductId,
-                    m.ProductCode,
-                    m.ProductName,
-                    m.PreviousQuantity,
-                    m.DeltaQuantity,
-                    m.NewQuantity,
-                    m.MovementType,
-                    m.Reason,
-                    m.Source,
-                    m.ActorName,
-                    m.ReferenceId,
-                    m.CreatedDate
-                })
-                .ToListAsync();
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Stok hareketleri alınamadı.")
+                    };
+                }
 
-            return Ok(rows);
-        }
-
-        private static StockMovement BuildStockMovement(
-            Guid userId,
-            Product product,
-            int previousQuantity,
-            int newQuantity,
-            string movementType,
-            string reason,
-            string source,
-            string actorName,
-            string? referenceId)
-        {
-            return new StockMovement
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
             {
-                Id = Guid.NewGuid(),
-                CreatedDate = DateTime.UtcNow,
-                UserId = userId,
-                ProductId = product.Id,
-                ProductCode = product.Code ?? string.Empty,
-                ProductName = product.Name ?? string.Empty,
-                PreviousQuantity = previousQuantity,
-                NewQuantity = newQuantity,
-                DeltaQuantity = newQuantity - previousQuantity,
-                MovementType = movementType,
-                Reason = string.IsNullOrWhiteSpace(reason) ? "-" : reason.Trim(),
-                Source = source,
-                ActorName = actorName,
-                ReferenceId = referenceId
-            };
-        }
-
-        private static string NormalizeCode(string? code)
-        {
-            return string.IsNullOrWhiteSpace(code) ? string.Empty : code.Trim().ToUpperInvariant();
+                return BadRequest(ex.Message);
+            }
         }
 
         public sealed class AdjustStockRequest
@@ -524,6 +365,19 @@ namespace Katalogcu.API.Controllers
             public string? Reason { get; set; }
         }
 
-        private sealed record StockImportSkipRow(int RowNumber, string? Code, string Reason);
+        public sealed class CreateProductRequest
+        {
+            public Guid CatalogId { get; set; }
+            public string Name { get; set; } = string.Empty;
+            public string Code { get; set; } = string.Empty;
+            public string? OemNo { get; set; }
+            public decimal Price { get; set; }
+            public int StockQuantity { get; set; }
+            public string? ImageUrl { get; set; }
+            public string? Category { get; set; }
+            public string? Description { get; set; }
+            public string? PageNumber { get; set; }
+            public int RefNo { get; set; }
+        }
     }
 }

@@ -162,10 +162,43 @@
                   <option [ngValue]="3">Tamamlandı</option>
                   <option [ngValue]="9">İptal</option>
                 </select>
-                <button (click)="updateStatus()" [disabled]="isUpdatingStatus || statusDraft === selectedOrder.status">
+                <button (click)="updateStatus()" [disabled]="isUpdatingStatus || (statusDraft === selectedOrder.status && !statusNote.trim())">
                   {{ isUpdatingStatus ? 'Güncelleniyor...' : 'Durumu Kaydet' }}
                 </button>
               </div>
+              <textarea
+                [(ngModel)]="statusNote"
+                maxlength="512"
+                placeholder="Durum notu (opsiyonel)"
+                class="status-note-input"></textarea>
+              <label class="status-visibility-toggle">
+                <input type="checkbox" [(ngModel)]="statusVisibleToCustomer" />
+                <span>Müşteri geçmişinde göster</span>
+              </label>
+            </div>
+
+            <div class="detail-card">
+              <h3>Durum Geçmişi</h3>
+              @if ((selectedOrder.statusHistory?.length || 0) === 0) {
+                <p class="empty-inline">Durum geçmişi bulunmuyor.</p>
+              } @else {
+                <div class="status-history-list">
+                  @for (entry of getSortedStatusHistory(selectedOrder); track entry.id) {
+                    <div class="status-history-row">
+                      <div class="status-history-head">
+                        <span>{{ getStatusLabel(entry.newStatus) }}</span>
+                        <span>{{ entry.createdDate | date:'dd.MM.yyyy HH:mm' }}</span>
+                      </div>
+                      <div class="status-history-meta">
+                        {{ getStatusSourceLabel(entry.source) }} · {{ entry.changedBy || '-' }} · {{ getVisibilityLabel(entry.isVisibleToCustomer) }}
+                      </div>
+                      @if (entry.note) {
+                        <div class="status-history-note">{{ entry.note }}</div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
             </div>
 
             <div class="detail-card">

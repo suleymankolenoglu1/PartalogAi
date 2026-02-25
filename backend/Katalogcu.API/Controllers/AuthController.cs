@@ -1,26 +1,23 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using Katalogcu.Domain.Entities;
-using Katalogcu.Infrastructure.Persistence;
+using FluentValidation;
+using Katalogcu.Application.Features.Auth.Commands.Login;
+using Katalogcu.Application.Features.Auth.Commands.Register;
+using Katalogcu.Application.Features.Auth.Commands.UpdateMe;
+using Katalogcu.Application.Features.Auth.Queries.GetMe;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Katalogcu.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController: ControllerBase
+    public class AuthController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly IConfiguration _configuration;
+        private readonly ISender _sender;
 
-        public AuthController(AppDbContext context, IConfiguration configuration)
+        public AuthController(ISender sender)
         {
-            _context = context;
-            _configuration = configuration;
+            _sender = sender;
         }
 
         public record LoginRequest(string Email, string Password);
@@ -33,153 +30,143 @@ namespace Katalogcu.API.Controllers
             public string? PhoneNumber { get; set; }
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return Guid.TryParse(id, out var userId) ? userId : Guid.Empty;
-        }
-
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            // 1. Kullanıcıyı veritabanında bul
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
-
-            // 2. Kullanıcı yoksa veya şifre yanlışsa hata dön
-            if (user == null || user.PasswordHash != request.Password)
+            try
             {
-                return Unauthorized(new { message = "Email veya şifre hatalı!" });
-            }
-
-            // 3. Token Oluşturma (JWT)
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_configuration["JwtSettings:SecretKey"]!);
-
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(new[]
+                var result = await _sender.Send(new LoginCommand(request.Email, request.Password));
+                if (!result.IsSuccess)
                 {
-                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                    new Claim(ClaimTypes.Email, user.Email),
-                    new Claim(ClaimTypes.Name, $"{user.FirstName} {user.LastName}".Trim()),
-                    new Claim(ClaimTypes.Role, user.Role)
-                }),
-                Expires = DateTime.UtcNow.AddDays(7),
-                Issuer = _configuration["JwtSettings:Issuer"],
-                Audience = _configuration["JwtSettings:Audience"],
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-            };
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(new { message = result.ErrorMessage }),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Giriş işlemi başarısız.")
+                    };
+                }
 
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            var tokenString = tokenHandler.WriteToken(token);
-
-            // 4. Token'ı ve kullanıcı bilgisini dön (id + userId garanti)
-            return Ok(new 
-            { 
-                token = tokenString, 
-                user = new 
-                { 
-                    id = user.Id,
-                    userId = user.Id,
-                    firstName = user.FirstName, 
-                    lastName = user.LastName, 
-                    email = user.Email, 
-                    companyName = user.CompanyName,
-                    phoneNumber = user.PhoneNumber,
-                    role = user.Role 
-                } 
-            });
+                var response = result.Value!;
+                return Ok(new
+                {
+                    token = response.Token,
+                    user = new
+                    {
+                        id = response.User.Id,
+                        userId = response.User.UserId,
+                        firstName = response.User.FirstName,
+                        lastName = response.User.LastName,
+                        email = response.User.Email,
+                        companyName = response.User.CompanyName,
+                        phoneNumber = response.User.PhoneNumber,
+                        role = response.User.Role
+                    }
+                });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
-            if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            try
             {
-                return BadRequest(new { message = "Bu e-posta adresi zaten kayıtlı!" });
+                var result = await _sender.Send(new RegisterCommand(request.FullName, request.Email, request.Password));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "duplicate" => BadRequest(new { message = result.ErrorMessage }),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Kayıt işlemi başarısız.")
+                    };
+                }
+
+                return Ok(new { message = result.Value!.Message });
             }
-
-            var names = request.FullName.Split(' ', 2);
-            var firstName = names[0];
-            var lastName = names.Length > 1 ? names[1] : "";
-
-            var newUser = new AppUser
+            catch (ValidationException ex)
             {
-                FirstName = firstName,
-                LastName = lastName,
-                Email = request.Email,
-                PasswordHash = request.Password,
-                Role = "Customer",
-                CreatedDate = DateTime.UtcNow
-            };
-
-            _context.Users.Add(newUser);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Kayıt başarılı! Giriş yapabilirsiniz." });
+                return BadRequest(ex.Message);
+            }
         }
 
         [Authorize]
         [HttpGet("me")]
         public async Task<IActionResult> GetMe()
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty) return Unauthorized();
-
-            var user = await _context.Users
-                .AsNoTracking()
-                .Where(u => u.Id == userId)
-                .Select(u => new
+            try
+            {
+                var result = await _sender.Send(new GetMeQuery());
+                if (!result.IsSuccess)
                 {
-                    id = u.Id,
-                    firstName = u.FirstName,
-                    lastName = u.LastName,
-                    email = u.Email,
-                    companyName = u.CompanyName,
-                    phoneNumber = u.PhoneNumber,
-                    role = u.Role
-                })
-                .FirstOrDefaultAsync();
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Kullanıcı bilgisi alınamadı.")
+                    };
+                }
 
-            if (user == null) return NotFound("Kullanıcı bulunamadı.");
-            return Ok(user);
+                var user = result.Value!;
+                return Ok(new
+                {
+                    id = user.Id,
+                    firstName = user.FirstName,
+                    lastName = user.LastName,
+                    email = user.Email,
+                    companyName = user.CompanyName,
+                    phoneNumber = user.PhoneNumber,
+                    role = user.Role
+                });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [Authorize]
         [HttpPut("me")]
         public async Task<IActionResult> UpdateMe([FromBody] UpdateMeRequest request)
         {
-            var userId = GetCurrentUserId();
-            if (userId == Guid.Empty) return Unauthorized();
-
-            var firstName = request.FirstName?.Trim() ?? string.Empty;
-            var lastName = request.LastName?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+            try
             {
-                return BadRequest("Ad ve soyad zorunludur.");
+                var result = await _sender.Send(new UpdateMeCommand(
+                    request.FirstName,
+                    request.LastName,
+                    request.CompanyName,
+                    request.PhoneNumber));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Profil güncellenemedi.")
+                    };
+                }
+
+                var user = result.Value!;
+                return Ok(new
+                {
+                    id = user.Id,
+                    firstName = user.FirstName,
+                    lastName = user.LastName,
+                    email = user.Email,
+                    companyName = user.CompanyName,
+                    phoneNumber = user.PhoneNumber,
+                    role = user.Role
+                });
             }
-
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
-            if (user == null) return NotFound("Kullanıcı bulunamadı.");
-
-            user.FirstName = firstName;
-            user.LastName = lastName;
-            user.CompanyName = string.IsNullOrWhiteSpace(request.CompanyName) ? null : request.CompanyName.Trim();
-            user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
-            user.UpdatedDate = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new
+            catch (ValidationException ex)
             {
-                id = user.Id,
-                firstName = user.FirstName,
-                lastName = user.LastName,
-                email = user.Email,
-                companyName = user.CompanyName,
-                phoneNumber = user.PhoneNumber,
-                role = user.Role
-            });
+                return BadRequest(ex.Message);
+            }
         }
     }
 }

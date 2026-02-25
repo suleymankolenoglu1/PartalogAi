@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Katalogcu.API.Controllers
 {
-    [Authorize]
+    [Authorize(Policy = "PrivilegedUser")]
     [Route("api/[controller]")]
     [ApiController]
     public class VisualFeedbackController : ControllerBase

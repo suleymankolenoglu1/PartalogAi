@@ -1,8 +1,8 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject } from 'rxjs';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { BehaviorSubject, finalize } from 'rxjs';
 import { CatalogPageItem } from './catalog.service'; // 🔥 Doğru interface'i buradan alıyoruz
-import { environment } from '../../../environments/environment.development';
+import { environment } from '../../../environments/environment';
 
 export interface CartItem {
   product: CatalogPageItem; 
@@ -17,6 +17,7 @@ export class CartService {
   private apiUrl = environment.apiUrl;
   private cartKeyBase = 'partalog_cart';
   private cartScope = 'global';
+  private pendingOrderKey: string | null = null;
 
   private get cartKey(): string {
     return `${this.cartKeyBase}_${this.cartScope}`;
@@ -132,6 +133,9 @@ export class CartService {
       paymentMethod?: string;
     }
   ) {
+    const idempotencyKey = this.pendingOrderKey ?? this.createIdempotencyKey();
+    this.pendingOrderKey = idempotencyKey;
+
     // Backend 'CreateOrderDto' yapısına uygun veri hazırlıyoruz
     const orderData = {
       customerName: customerInfo.name,
@@ -144,6 +148,7 @@ export class CartService {
       deliveryNote: options?.deliveryNote,
       paymentMethod: options?.paymentMethod,
       publicToken: options?.publicToken,
+      idempotencyKey,
       publicSessionToken: options?.publicSessionToken,
       items: this._cart.value.map(i => ({
         // Eğer stokta varsa ProductId, yoksa CatalogItemId veya null (Backend mantığına göre)
@@ -155,7 +160,15 @@ export class CartService {
       }))
     };
 
-    return this.http.post(`${this.apiUrl}/orders`, orderData);
+    const headers = new HttpHeaders({
+      'Idempotency-Key': idempotencyKey
+    });
+
+    return this.http.post(`${this.apiUrl}/orders`, orderData, { headers }).pipe(
+      finalize(() => {
+        this.pendingOrderKey = null;
+      })
+    );
   }
 
   // --- YARDIMCI METODLAR ---
@@ -200,5 +213,13 @@ export class CartService {
 
     this._cart.next([]);
     this.calculateTotals([]);
+  }
+
+  private createIdempotencyKey(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
   }
 }

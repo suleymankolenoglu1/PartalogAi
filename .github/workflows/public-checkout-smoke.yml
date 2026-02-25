@@ -1,0 +1,35 @@
+name: Public Checkout Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke-public-checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PARTALOG_BASE_URL: ${{ secrets.PARTALOG_BASE_URL }}
+      PARTALOG_PUBLIC_TOKEN: ${{ secrets.PARTALOG_PUBLIC_TOKEN }}
+      PARTALOG_ADMIN_TOKEN: ${{ secrets.PARTALOG_ADMIN_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          [ -n "${PARTALOG_BASE_URL:-}" ] || (echo "Missing secret: PARTALOG_BASE_URL" && exit 1)
+          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || (echo "Missing secret: PARTALOG_PUBLIC_TOKEN" && exit 1)
+
+      - name: Run smoke test
+        run: |
+          python backend/scripts/smoke_public_checkout.py \
+            --base-url "${PARTALOG_BASE_URL}" \
+            --public-token "${PARTALOG_PUBLIC_TOKEN}" \
+            --admin-token "${PARTALOG_ADMIN_TOKEN:-}"

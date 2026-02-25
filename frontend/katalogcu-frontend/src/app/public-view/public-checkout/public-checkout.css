@@ -337,6 +337,61 @@
   color: #334155;
 }
 
+.detail-history {
+  margin-top: 10px;
+  border: 1px solid #edf2f7;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fbfdff;
+}
+
+.detail-history-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.history-list {
+  display: grid;
+  gap: 6px;
+}
+
+.history-row {
+  border-top: 1px solid #eaf0f6;
+  padding-top: 6px;
+}
+
+.history-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.history-status {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.history-from {
+  font-weight: 500;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+.history-meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.history-note {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #334155;
+}
+
 .detail-items {
   margin-top: 10px;
   display: grid;

@@ -82,6 +82,91 @@
         </div>
     </section>
 
+    <section class="ai-widget-container">
+        <div class="ai-widget-header">
+            <div>
+                <h3>AI İşlem Kuyruğu</h3>
+                <p>Analiz süreçlerinin anlık durumu</p>
+            </div>
+            <button class="apple-btn btn-small" (click)="loadAiJobs()" [disabled]="aiJobsLoading">
+                <span class="material-symbols-outlined" style="font-size: 16px;">refresh</span>
+                Yenile
+            </button>
+        </div>
+
+        @if (aiJobsError) {
+            <div class="ai-widget-error">{{ aiJobsError }}</div>
+        } @else {
+            <div class="ai-widget-stats">
+                <div class="mini-stat">
+                    <span class="mini-label">Toplam</span>
+                    <span class="mini-value">{{ aiJobsSummary.total }}</span>
+                </div>
+                <div class="mini-stat pending">
+                    <span class="mini-label">Bekleyen</span>
+                    <span class="mini-value">{{ aiJobsSummary.pending }}</span>
+                </div>
+                <div class="mini-stat processing">
+                    <span class="mini-label">İşlenen</span>
+                    <span class="mini-value">{{ aiJobsSummary.processing }}</span>
+                </div>
+                <div class="mini-stat failed">
+                    <span class="mini-label">Hatalı</span>
+                    <span class="mini-value">{{ aiJobsSummary.failed }}</span>
+                </div>
+            </div>
+
+            @if (aiJobsLoading) {
+                <div class="ai-widget-loading">AI işleri yükleniyor...</div>
+            } @else if (aiJobs.length === 0) {
+                <div class="ai-widget-empty">Kuyrukta aktif iş yok.</div>
+            } @else {
+                <div class="table-responsive">
+                    <table class="apple-full-table ai-mini-table">
+                        <thead>
+                            <tr>
+                                <th>KATALOG</th>
+                                <th>DURUM</th>
+                                <th>DENEME</th>
+                                <th>SONRAKİ DENEME</th>
+                                <th style="text-align: right;">İŞLEM</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (job of aiJobs; track job.jobId) {
+                                <tr class="ai-job-clickable-row" (click)="openAiJobInCatalogs(job)">
+                                    <td>
+                                        <a [routerLink]="['/dashboard/catalog', job.catalogId]" class="apple-link" (click)="$event.stopPropagation()">
+                                            {{ job.catalogName }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span [class]="getAiJobStatusClass(job.status)">
+                                            {{ getAiJobStatusLabel(job.status) }}
+                                        </span>
+                                    </td>
+                                    <td>{{ job.attemptCount }} / {{ job.maxAttempts }}</td>
+                                    <td>
+                                        @if (job.status.toLowerCase() === 'completed') {
+                                            <span>-</span>
+                                        } @else {
+                                            <span>{{ job.nextAttemptAt | date:'dd.MM HH:mm' }}</span>
+                                        }
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <button class="apple-link-btn" (click)="openAiJobInCatalogs(job, $event)">
+                                            Kuyrukta Gör
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </section>
+
     <section class="apple-table-container">
         <div class="apple-table-header">
             <h3>Son Yüklenenler</h3>

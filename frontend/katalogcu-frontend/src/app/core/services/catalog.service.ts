@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
 
 // --- INTERFACES ---
 
@@ -24,6 +25,34 @@ export interface PublicStorefront {
   ownerName?: string;
   email?: string;
   phoneNumber?: string;
+}
+
+export interface CatalogAiJobSummary {
+  total: number;
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+}
+
+export interface CatalogAiJobItem {
+  jobId: string;
+  catalogId: string;
+  catalogName: string;
+  status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  lastAttemptAt?: string | null;
+  lockedUntil?: string | null;
+  lastError?: string | null;
+  createdDate: string;
+  updatedDate?: string | null;
+}
+
+export interface CatalogAiJobsResponse {
+  summary: CatalogAiJobSummary;
+  jobs: CatalogAiJobItem[];
 }
 
 export interface DashboardCatalogItem {
@@ -131,10 +160,7 @@ export interface Catalog {
 })
 export class CatalogService {
   private http = inject(HttpClient);
-  
-  // ⚠️ DİKKAT: Backend HTTPS (7xxx) portunda çalışıyorsa burayı güncellemelisin.
-  // Genelde .NET 7xxx portunu kullanır. Eğer 5159 doğruysa dokunma.
-  private apiUrl = 'http://localhost:5159/api'; 
+  private apiUrl = environment.apiUrl;
 
   constructor() { }
 
@@ -164,6 +190,11 @@ export class CatalogService {
 
   getDashboardStats(): Observable<DashboardStats> {
     return this.http.get<DashboardStats>(`${this.apiUrl}/catalogs/stats`);
+  }
+
+  getCatalogAiJobs(take = 50): Observable<CatalogAiJobsResponse> {
+    const params = new HttpParams().set('take', take.toString());
+    return this.http.get<CatalogAiJobsResponse>(`${this.apiUrl}/catalogs/ai-jobs`, { params });
   }
 
   // Admin/Üye Paneli için (Yetki ister)

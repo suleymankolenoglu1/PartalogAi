@@ -8,6 +8,7 @@ namespace Katalogcu.Domain.Entities
         public string LastName {get;set;} = string.Empty;
         public string Email {get;set;} = string.Empty;
         public string PasswordHash {get;set;} = string.Empty;
+        public string? PasswordSalt { get; set; }
         public string Role {get;set;} = "Customer";
         public string? CompanyName {get; set;} 
         public string? PhoneNumber { get; set; }

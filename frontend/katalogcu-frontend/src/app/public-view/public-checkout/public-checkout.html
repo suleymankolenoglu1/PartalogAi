@@ -204,6 +204,32 @@
                         <strong>Teslimat Notu:</strong> {{ selectedOrderDetail.deliveryNote || '-' }}
                       </div>
 
+                      <div class="detail-history">
+                        <div class="detail-history-title">Durum Geçmişi</div>
+                        @if ((selectedOrderDetail.statusHistory.length || 0) === 0) {
+                          <div class="detail-state">Durum geçmişi bulunmuyor.</div>
+                        } @else {
+                          <div class="history-list">
+                            @for (entry of selectedOrderDetail.statusHistory; track entry.id) {
+                              <div class="history-row">
+                                <div class="history-status">
+                                  {{ formatOrderStatus(entry.newStatus) }}
+                                  @if (entry.previousStatus !== null && entry.previousStatus !== undefined && entry.previousStatus !== entry.newStatus) {
+                                    <span class="history-from">({{ formatOrderStatus(entry.previousStatus) }} →)</span>
+                                  }
+                                </div>
+                                <div class="history-meta">
+                                  {{ getStatusSourceLabel(entry.source) }} · {{ entry.changedBy || '-' }} · {{ entry.createdDate | date:'dd.MM.yyyy HH:mm' }}
+                                </div>
+                                @if (entry.note) {
+                                  <div class="history-note">{{ entry.note }}</div>
+                                }
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
+
                       <div class="detail-items">
                         <div class="detail-items-head">
                           <span>Kod</span>

@@ -1,49 +1,107 @@
-using Katalogcu.Domain.Entities;
-using Katalogcu.Infrastructure.Persistence;
+using FluentValidation;
+using Katalogcu.Application.Features.Users.Commands.CreateUser;
+using Katalogcu.Application.Features.Users.Queries.GetAllUsers;
+using Katalogcu.Application.Features.Users.Queries.GetUserById;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Katalogcu.API.Controllers
 {
+    [Authorize(Policy = "PrivilegedUser")]
     [Route("api/[controller]")]
     [ApiController]
     public class UsersController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly ISender _sender;
 
-        public UsersController(AppDbContext context)
+        public UsersController(ISender sender)
         {
-            _context = context;
+            _sender = sender;
         }
 
-        // GET: api/users
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var users = await _context.Users.ToListAsync();
-            return Ok(users);
+            var result = await _sender.Send(new GetAllUsersQuery());
+            if (!result.IsSuccess)
+            {
+                return StatusCode(500, result.ErrorMessage ?? "Kullanıcılar alınamadı.");
+            }
+
+            return Ok(result.Value);
         }
 
-        // GET: api/users/{id}  <-- EKSİK OLAN METOD BUYDU
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            var user = await _context.Users.FindAsync(id);
-            if (user == null) return NotFound();
-            return Ok(user);
+            try
+            {
+                var result = await _sender.Send(new GetUserByIdQuery(id));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Kullanıcı alınamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
-        // POST: api/users
         [HttpPost]
-        public async Task<IActionResult> Create(AppUser user)
+        public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
         {
-            user.CreatedDate = DateTime.UtcNow;
-            
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+            try
+            {
+                var password = string.IsNullOrWhiteSpace(request.PasswordHash)
+                    ? request.Password ?? string.Empty
+                    : request.PasswordHash;
 
-            // Düzeltme: Artık 'GetById' metoduna yönlendiriyoruz
-            return CreatedAtAction(nameof(GetById), new { id = user.Id }, user);
+                var result = await _sender.Send(new CreateUserCommand(
+                    request.FirstName ?? string.Empty,
+                    request.LastName ?? string.Empty,
+                    request.Email ?? string.Empty,
+                    password,
+                    request.Role ?? "Owner",
+                    request.CompanyName,
+                    request.PhoneNumber));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Kullanıcı oluşturulamadı.")
+                    };
+                }
+
+                var created = result.Value!;
+                return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        public sealed class CreateUserRequest
+        {
+            public string FirstName { get; set; } = string.Empty;
+            public string LastName { get; set; } = string.Empty;
+            public string Email { get; set; } = string.Empty;
+            public string? Password { get; set; }
+            public string? PasswordHash { get; set; }
+            public string? Role { get; set; }
+            public string? CompanyName { get; set; }
+            public string? PhoneNumber { get; set; }
         }
     }
 }

@@ -1,133 +1,101 @@
-using Katalogcu.API.Services;
-using Katalogcu.Domain.Entities;
-using Katalogcu.Infrastructure.Persistence;
+using FluentValidation;
+using Katalogcu.Application.Features.Folders.Commands.CreateFolder;
+using Katalogcu.Application.Features.Folders.Commands.DeleteFolder;
+using Katalogcu.Application.Features.Folders.Queries.GetMyFolders;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 
 namespace Katalogcu.API.Controllers
 {
-    [Authorize] // 🔒 Sadece giriş yapmış kullanıcılar erişebilir
+    [Authorize(Policy = "PrivilegedUser")]
     [Route("api/[controller]")]
     [ApiController]
     public class FoldersController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly ILogger<FoldersController> _logger;
+        private readonly ISender _sender;
 
-        public FoldersController(AppDbContext context, ILogger<FoldersController> logger)
+        public FoldersController(ISender sender)
         {
-            _context = context;
-            _logger = logger;
+            _sender = sender;
         }
 
-        // Kullanıcı ID'sini token'dan alma yardımcısı
-        private Guid GetCurrentUserId()
-        {
-            var idString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (Guid.TryParse(idString, out var guid))
-            {
-                return guid;
-            }
-            return Guid.Empty;
-        }
-
-        // ==========================================
-        // 1. SORUN ÇÖZÜMÜ: SADECE KENDİ KLASÖRLERİNİ GÖR
-        // ==========================================
         [HttpGet]
         public async Task<IActionResult> GetMyFolders()
         {
-            var userId = GetCurrentUserId();
-
-            var folders = await _context.Folders
-                .Where(f => f.UserId == userId) // 👈 İŞTE BU SATIR EKSİKTİ!
-                .OrderByDescending(f => f.CreatedDate)
-                .Select(f => new 
+            try
+            {
+                var result = await _sender.Send(new GetMyFoldersQuery());
+                if (!result.IsSuccess)
                 {
-                    f.Id,
-                    f.Name,
-                    // Klasörün içindeki katalog sayısını da dönelim (Opsiyonel)
-                    CatalogCount = _context.Catalogs.Count(c => c.FolderId == f.Id)
-                })
-                .ToListAsync();
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Klasörler alınamadı.")
+                    };
+                }
 
-            return Ok(folders);
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
-        // Klasör Oluşturma
         [HttpPost]
         public async Task<IActionResult> CreateFolder([FromBody] CreateFolderDto request)
         {
-            var userId = GetCurrentUserId();
-
-            // Aynı isimde klasör var mı kontrolü (Kendi klasörleri içinde)
-            var exists = await _context.Folders
-                .AnyAsync(f => f.UserId == userId && f.Name == request.Name);
-
-            if (exists)
-                return BadRequest("Bu isimde bir klasörünüz zaten var.");
-
-            var folder = new Folder
+            try
             {
-                Id = Guid.NewGuid(),
-                Name = request.Name,
-                UserId = userId,
-                CreatedDate = DateTime.UtcNow
-            };
+                var result = await _sender.Send(new CreateFolderCommand(request.Name));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "duplicate" => BadRequest(result.ErrorMessage),
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Klasör oluşturulamadı.")
+                    };
+                }
 
-            _context.Folders.Add(folder);
-            await _context.SaveChangesAsync();
-
-            return Ok(folder);
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
-        // ==========================================
-        // 2. İSTEK: KLASÖR SİLME ÖZELLİĞİ
-        // ==========================================
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteFolder(Guid id)
         {
-            var userId = GetCurrentUserId();
-
-            // 1. Klasörü bul (Sadece bu kullanıcıya aitse!)
-            var folder = await _context.Folders
-                .FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-
-            if (folder == null)
-                return NotFound("Klasör bulunamadı veya silme yetkiniz yok.");
-
             try
             {
-                // 2. Senaryo A: Klasörün içindeki katalogları ne yapacağız?
-                // Seçenek 1: Klasör silinince içindeki katalogların FolderId'sini null yap (Ana dizine düşer)
-                var catalogsInFolder = await _context.Catalogs.Where(c => c.FolderId == id).ToListAsync();
-                foreach (var catalog in catalogsInFolder)
+                var result = await _sender.Send(new DeleteFolderCommand(id));
+                if (!result.IsSuccess)
                 {
-                    catalog.FolderId = null; // Katalog silinmez, klasörden çıkar.
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "unauthorized" => Unauthorized(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Klasör silinirken hata oluştu.")
+                    };
                 }
 
-                // Seçenek 2: Eğer klasörle birlikte içindekileri de silmek istersen:
-                // _context.Catalogs.RemoveRange(catalogsInFolder); (DİKKATLİ KULLAN)
-
-                // 3. Klasörü Sil
-                _context.Folders.Remove(folder);
-                await _context.SaveChangesAsync();
-
-                return Ok(new { message = "Klasör başarıyla silindi." });
+                return Ok(result.Value);
             }
-            catch (Exception ex)
+            catch (ValidationException ex)
             {
-                _logger.LogError(ex, "Klasör silme hatası");
-                return StatusCode(500, "Klasör silinirken hata oluştu.");
+                return BadRequest(ex.Message);
             }
         }
     }
 
-    // Basit DTO
     public class CreateFolderDto
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
     }
 }

@@ -19,6 +19,15 @@ Bu proje Clean Architecture prensiplerine uygun olarak 3 ana bileşenden oluşur
 Proje dosya yapısı ve tüm bileşenlerin detaylı açıklaması için:
 👉 **[PROJE_YAPISI.md](./PROJE_YAPISI.md)** dosyasına bakınız.
 
+Backend migration süreç disiplini için:
+👉 **[backend/MIGRATION_DISCIPLINE.md](./backend/MIGRATION_DISCIPLINE.md)** dosyasına bakınız.
+
+Docker orkestrasyonu için:
+👉 **[backend/DOCKER_ORCHESTRATION.md](./backend/DOCKER_ORCHESTRATION.md)** dosyasına bakınız.
+
+MVP smoke testleri için:
+👉 **[backend/SMOKE_TESTS.md](./backend/SMOKE_TESTS.md)** dosyasına bakınız.
+
 ## 🚀 Hızlı Başlangıç
 
 ### Gereksinimler
@@ -30,31 +39,39 @@ Proje dosya yapısı ve tüm bileşenlerin detaylı açıklaması için:
 
 ### Kurulum
 
-1. **Veritabanını başlatın:**
+1. **Tüm servisleri Docker Compose ile başlatın (önerilen):**
 ```bash
 cd backend
-docker-compose up -d
+docker compose up -d --build
 ```
 
-2. **Backend'i çalıştırın:**
+Servisler:
+- Frontend: `http://localhost:4200`
+- Backend API: `http://localhost:5159`
+- Swagger: `http://localhost:5159/swagger`
+- Partalog AI: `http://localhost:8000`
+
+2. **Alternatif: Servisleri manuel çalıştırın**
+
+**Backend:**
 ```bash
 cd backend/Katalogcu.API
 dotnet restore
 dotnet run
 ```
 
-3. **Frontend'i çalıştırın:**
+**Frontend:**
 ```bash
 cd frontend/katalogcu-frontend
 npm install
 npm start
 ```
 
-4. **YOLO servisini çalıştırın:**
+**Partalog AI servisi:**
 ```bash
-cd yolo-service
+cd partalog-ai
 pip install -r requirements.txt
-python api.py
+python main.py
 ```
 
 ## 🔑 Özellikler

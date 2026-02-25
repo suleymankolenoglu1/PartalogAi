@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
 
 interface VisualFeedback {
   id: string;
@@ -31,7 +32,7 @@ export class VisualFeedbackComponent implements OnInit {
   searchQuery = '';
   errorMsg: string | null = null;
 
-  private apiUrl = 'http://localhost:5159/api';
+  private apiUrl = environment.apiUrl;
 
   ngOnInit() {
     this.loadFeedback();

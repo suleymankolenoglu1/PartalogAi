@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Katalogcu.API.Services;
 
 namespace Katalogcu.API.Controllers
 {
+    [Authorize(Policy = "PrivilegedUser")]
     [Route("api/[controller]")]
     [ApiController]
     public class FilesController : ControllerBase
@@ -16,8 +19,9 @@ namespace Katalogcu.API.Controllers
         [HttpPost("upload")]
         public async Task<IActionResult> Upload(IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                return BadRequest("Lütfen bir dosya seçin.");
+            var validationError = UploadValidation.ValidateUploadFile(file);
+            if (!string.IsNullOrWhiteSpace(validationError))
+                return BadRequest(validationError);
 
             // 1. Kök dizini garantiye al (PdfService ile AYNI mantık)
             var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
@@ -30,7 +34,8 @@ namespace Katalogcu.API.Controllers
                 Directory.CreateDirectory(uploadsFolder);
 
             // 4. Benzersiz isim oluştur
-            string uniqueFileName = Guid.NewGuid().ToString() + "_" + file.FileName;
+            string safeFileName = UploadValidation.SanitizeFileName(file.FileName);
+            string uniqueFileName = $"{Guid.NewGuid():N}_{safeFileName}";
             string filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
             // 5. Dosyayı Fiziksel Olarak Kaydet

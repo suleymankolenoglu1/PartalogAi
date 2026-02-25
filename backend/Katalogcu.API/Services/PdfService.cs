@@ -15,64 +15,65 @@ namespace Katalogcu.API.Services
             _env = env;
         }
 
-        public async Task<List<string>> ConvertPdfToImages(string pdfFileName)
+        public Task<List<string>> ConvertPdfToImagesAsync(string pdfFileName, CancellationToken cancellationToken = default)
         {
-            var imagePaths = new List<string>();
-            
-            // 1. Kök dizini garantiye al (Mac/Windows uyumlu)
-            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            
-            // 2. Dosya yollarını oluştur
-            var pdfPath = Path.Combine(webRoot, "uploads", pdfFileName);
-            var outputFolder = Path.Combine(webRoot, "uploads", "pages");
-
-            // 3. Dosya var mı kontrol et
-            if (!File.Exists(pdfPath))
+            return Task.Run(() =>
             {
-                throw new FileNotFoundException($"PDF dosyası sunucuda bulunamadı! Yol: {pdfPath}");
-            }
+                var imagePaths = new List<string>();
 
-            // 4. Çıktı klasörü yoksa oluştur
-            if (!Directory.Exists(outputFolder))
-                Directory.CreateDirectory(outputFolder);
+                // 1. Kök dizini garantiye al (Mac/Windows uyumlu)
+                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
 
-            // 5. PDF İşleme (Kilitleme olmasın diye using bloğu)
-            lock (DocLib.Instance) 
-            {
-                using (var docReader = DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(2.0))) // Kalite: 2.0
+                // 2. Dosya yollarını oluştur
+                var pdfPath = Path.Combine(webRoot, "uploads", pdfFileName);
+                var outputFolder = Path.Combine(webRoot, "uploads", "pages");
+
+                // 3. Dosya var mı kontrol et
+                if (!File.Exists(pdfPath))
                 {
-                    int pageCount = docReader.GetPageCount();
+                    throw new FileNotFoundException($"PDF dosyası sunucuda bulunamadı! Yol: {pdfPath}");
+                }
 
-                    for (int i = 0; i < pageCount; i++)
+                // 4. Çıktı klasörü yoksa oluştur
+                if (!Directory.Exists(outputFolder))
+                    Directory.CreateDirectory(outputFolder);
+
+                // 5. PDF İşleme (Kilitleme olmasın diye using bloğu)
+                lock (DocLib.Instance)
+                {
+                    using (var docReader = DocLib.Instance.GetDocReader(pdfPath, new PageDimensions(2.0))) // Kalite: 2.0
                     {
-                        using (var pageReader = docReader.GetPageReader(i))
+                        int pageCount = docReader.GetPageCount();
+
+                        for (int i = 0; i < pageCount; i++)
                         {
-                            var rawBytes = pageReader.GetImage();
-                            var width = pageReader.GetPageWidth();
-                            var height = pageReader.GetPageHeight();
-
-                            if (rawBytes == null || rawBytes.Length == 0)
-                                continue;
-
-                            using (var image = Image.LoadPixelData<Bgra32>(rawBytes, width, height))
+                            using (var pageReader = docReader.GetPageReader(i))
                             {
-                                image.Mutate(x => x.BackgroundColor(Color.White));
+                                var rawBytes = pageReader.GetImage();
+                                var width = pageReader.GetPageWidth();
+                                var height = pageReader.GetPageHeight();
 
-                                var imageName = $"{Path.GetFileNameWithoutExtension(pdfFileName)}_page_{i + 1}.png";
-                                var savePath = Path.Combine(outputFolder, imageName);
+                                if (rawBytes == null || rawBytes.Length == 0)
+                                    continue;
 
-                                // Asenkron kaydet
-                                image.SaveAsPng(savePath);
+                                using (var image = Image.LoadPixelData<Bgra32>(rawBytes, width, height))
+                                {
+                                    image.Mutate(x => x.BackgroundColor(Color.White));
 
-                                // URL formatına çevir (Ters slash sorununu çöz)
-                                imagePaths.Add($"uploads/pages/{imageName}");
+                                    var imageName = $"{Path.GetFileNameWithoutExtension(pdfFileName)}_page_{i + 1}.png";
+                                    var savePath = Path.Combine(outputFolder, imageName);
+
+                                    image.SaveAsPng(savePath);
+
+                                    // URL formatına çevir (Ters slash sorununu çöz)
+                                    imagePaths.Add($"uploads/pages/{imageName}");
+                                }
                             }
                         }
                     }
                 }
-            }
-
-            return imagePaths;
+                return imagePaths;
+            }, cancellationToken);
         }
     }
 }

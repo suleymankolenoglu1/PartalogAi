@@ -1,86 +1,150 @@
+using Katalogcu.API.Contracts.Chat;
 using Katalogcu.API.Services;
-using Katalogcu.Domain.Entities;
+using FluentValidation;
+using Katalogcu.Application.Features.Ai.Commands.AnalyzePageFromFile;
+using Katalogcu.Application.Features.Ai.Commands.DetectHotspotsFromFile;
+using Katalogcu.Application.Features.Ai.Commands.ExtractTableFromFile;
+using Katalogcu.Application.Features.Ai.Commands.RunExpertChat;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json; // JSON Dönüşümü için gerekli
 
 namespace Katalogcu.API.Controllers
 {
+    [Authorize(Policy = "PrivilegedUser")]
     [Route("api/[controller]")]
     [ApiController]
     public class AiController : ControllerBase
     {
-        private readonly IPartalogAiService _aiService;
-        private readonly ILogger<AiController> _logger;
+        private readonly ISender _sender;
 
-        public AiController(IPartalogAiService aiService, ILogger<AiController> logger)
+        public AiController(ISender sender)
         {
-            _aiService = aiService;
-            _logger = logger;
+            _sender = sender;
         }
 
         // 1. Hotspot Tespiti (YOLO) 
         [HttpPost("detect-hotspots")]
         public async Task<IActionResult> DetectHotspots(IFormFile file, [FromQuery] Guid pageId)
         {
-            if (file == null) return BadRequest("Dosya yüklenmedi.");
-            var result = await _aiService.DetectHotspotsAsync(file, pageId);
-            return Ok(result);
+            var validationError = UploadValidation.ValidateImage(file, required: true);
+            if (!string.IsNullOrWhiteSpace(validationError))
+            {
+                return BadRequest(validationError);
+            }
+
+            try
+            {
+                var result = await _sender.Send(new DetectHotspotsFromFileCommand(file, pageId));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Hotspot tespit edilemedi.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // 2. Tablo Okuma (Gemini) 
         [HttpPost("extract-table")]
         public async Task<IActionResult> ExtractTable(IFormFile file, [FromQuery] int pageNumber)
         {
-            if (file == null) return BadRequest("Dosya yüklenmedi.");
-            
-            using var memoryStream = new MemoryStream();
-            await file.CopyToAsync(memoryStream);
-            var bytes = memoryStream.ToArray();
+            var validationError = UploadValidation.ValidateImage(file, required: true);
+            if (!string.IsNullOrWhiteSpace(validationError))
+            {
+                return BadRequest(validationError);
+            }
 
-            var result = await _aiService.ExtractTableAsync(bytes, pageNumber);
-            return Ok(result);
+            try
+            {
+                var result = await _sender.Send(new ExtractTableFromFileCommand(file, pageNumber));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Tablo çıkarılamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // 3. Sayfa Analizi (Başlık ve Tür)
         [HttpPost("analyze-page")]
         public async Task<IActionResult> AnalyzePage(IFormFile file)
         {
-            if (file == null) return BadRequest("Dosya yüklenmedi.");
+            var validationError = UploadValidation.ValidateImage(file, required: true);
+            if (!string.IsNullOrWhiteSpace(validationError))
+            {
+                return BadRequest(validationError);
+            }
 
-            using var memoryStream = new MemoryStream();
-            await file.CopyToAsync(memoryStream);
-            var bytes = memoryStream.ToArray();
+            try
+            {
+                var result = await _sender.Send(new AnalyzePageFromFileCommand(file));
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Sayfa analiz edilemedi.")
+                    };
+                }
 
-            var result = await _aiService.AnalyzePageAsync(bytes);
-            return Ok(result);
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
-        // 4. Expert Chat (Basit Proxy)
-        // DÜZELTME: Parametre olarak ChatController'da tanımladığımız 'AiChatRequestWithHistoryDto'yu kullanıyoruz.
-        // Bu sayede formdan gelen string History'yi alıp servisin istediği List formatına çevirebiliriz.
         [HttpPost("expert-chat")]
         public async Task<IActionResult> ExpertChat([FromForm] AiChatRequestWithHistoryDto request)
         {
-            // 1. String History -> List<ChatMessageDto> Dönüşümü
-            List<ChatMessageDto> chatHistory = new();
-            if (!string.IsNullOrEmpty(request.History))
+            var validationError = UploadValidation.ValidateImage(request.Image, required: false);
+            if (!string.IsNullOrWhiteSpace(validationError))
             {
-                try {
-                    chatHistory = JsonConvert.DeserializeObject<List<ChatMessageDto>>(request.History) ?? new();
-                } catch { _logger.LogWarning("History parse edilemedi"); }
+                return BadRequest(validationError);
             }
 
-            // 2. Service DTO'suna Mapleme (Hatanın asıl çözümü burası)
-            // Katalogcu.API.Services.AiChatRequestDto türünde yeni bir nesne oluşturuyoruz.
-            var serviceRequest = new Katalogcu.API.Services.AiChatRequestDto
+            try
             {
-                Text = request.Text,
-                Image = request.Image,
-                History = chatHistory
-            };
+                var result = await _sender.Send(new RunExpertChatCommand(
+                    request.Text,
+                    request.Image,
+                    request.History,
+                    null));
 
-            var result = await _aiService.GetExpertChatResponseAsync(serviceRequest);
-            return Ok(result);
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Expert chat çalıştırılamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
     }
 }

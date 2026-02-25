@@ -1,0 +1,53 @@
+name: Regression Smoke Gate
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/regression-smoke-gate.yml"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/regression-smoke-gate.yml"
+  workflow_dispatch:
+
+jobs:
+  smoke-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PARTALOG_BASE_URL: ${{ secrets.PARTALOG_BASE_URL }}
+      PARTALOG_PUBLIC_TOKEN: ${{ secrets.PARTALOG_PUBLIC_TOKEN }}
+      PARTALOG_ADMIN_TOKEN: ${{ secrets.PARTALOG_ADMIN_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate required secret
+        run: |
+          set -euo pipefail
+          [ -n "${PARTALOG_BASE_URL:-}" ] || (echo "Missing secret: PARTALOG_BASE_URL" && exit 1)
+          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || (echo "Missing secret: PARTALOG_PUBLIC_TOKEN" && exit 1)
+
+      - name: Run regression smoke (remote)
+        run: |
+          chmod +x backend/scripts/smoke_all.sh
+          backend/scripts/smoke_all.sh \
+            --skip-up \
+            --skip-ai-check \
+            --skip-frontend-check \
+            --no-bootstrap \
+            --base-url "${PARTALOG_BASE_URL}" \
+            --public-token "${PARTALOG_PUBLIC_TOKEN:-}" \
+            --admin-token "${PARTALOG_ADMIN_TOKEN:-}"

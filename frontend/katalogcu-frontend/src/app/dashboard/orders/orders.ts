@@ -1,7 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { AdminOrder, AdminOrderStatus, OrderService } from '../../core/services/order.service';
+import { AdminOrder, AdminOrderStatus, AdminOrderStatusHistory, OrderService } from '../../core/services/order.service';
 
 @Component({
   selector: 'app-orders',
@@ -24,6 +24,8 @@ export class OrdersComponent implements OnInit {
   isUpdatingStatus = false;
   loadError: string | null = null;
   statusDraft: AdminOrderStatus = 0;
+  statusNote = '';
+  statusVisibleToCustomer = true;
 
   ngOnInit(): void {
     this.loadOrders();
@@ -52,6 +54,8 @@ export class OrdersComponent implements OnInit {
   selectOrder(order: AdminOrder) {
     this.selectedOrder = order;
     this.statusDraft = order.status;
+    this.statusNote = '';
+    this.statusVisibleToCustomer = true;
   }
 
   onSearch(value: string) {
@@ -138,6 +142,8 @@ export class OrdersComponent implements OnInit {
     if (filtered.length === 0) {
       this.selectedOrder = null;
       this.statusDraft = 0;
+      this.statusNote = '';
+      this.statusVisibleToCustomer = true;
       return;
     }
 
@@ -152,17 +158,27 @@ export class OrdersComponent implements OnInit {
 
     this.selectedOrder = filtered[0];
     this.statusDraft = this.selectedOrder.status;
+    this.statusNote = '';
+    this.statusVisibleToCustomer = true;
   }
 
   updateStatus() {
     if (!this.selectedOrder || this.isUpdatingStatus) return;
 
     this.isUpdatingStatus = true;
-    this.orderService.updateOrderStatus(this.selectedOrder.id, this.statusDraft).subscribe({
+    const note = this.statusNote.trim();
+    this.orderService.updateOrderStatus(
+      this.selectedOrder.id,
+      this.statusDraft,
+      note ? note : undefined,
+      this.statusVisibleToCustomer
+    ).subscribe({
       next: (updated) => {
         const idx = this.orders.findIndex(o => o.id === updated.id);
         if (idx >= 0) this.orders[idx] = updated;
         this.syncSelection();
+        this.statusNote = '';
+        this.statusVisibleToCustomer = true;
         this.isUpdatingStatus = false;
       },
       error: () => {
@@ -201,5 +217,22 @@ export class OrdersComponent implements OnInit {
 
   getItemLineTotal(quantity: number, unitPrice: number): number {
     return (quantity || 0) * (unitPrice || 0);
+  }
+
+  getStatusSourceLabel(source?: string | null): string {
+    const value = (source || '').toLowerCase();
+    if (value === 'ordercreated') return 'Sipariş';
+    if (value === 'adminupdate') return 'İşletme';
+    return source || 'Sistem';
+  }
+
+  getVisibilityLabel(isVisibleToCustomer?: boolean): string {
+    return isVisibleToCustomer === false ? 'İç Not' : 'Müşteriye Açık';
+  }
+
+  getSortedStatusHistory(order: AdminOrder): AdminOrderStatusHistory[] {
+    return [...(order.statusHistory || [])].sort((a, b) =>
+      new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime()
+    );
   }
 }

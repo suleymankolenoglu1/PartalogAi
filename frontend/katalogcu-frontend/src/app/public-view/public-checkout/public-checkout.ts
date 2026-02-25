@@ -500,4 +500,11 @@ export class PublicCheckoutComponent implements OnInit {
       default: return String(status);
     }
   }
+
+  getStatusSourceLabel(source?: string | null): string {
+    const value = (source || '').toLowerCase();
+    if (value === 'ordercreated') return 'Sipariş';
+    if (value === 'adminupdate') return 'İşletme';
+    return source || 'Sistem';
+  }
 }

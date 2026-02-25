@@ -1,0 +1,88 @@
+name: Backend Migration Discipline
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-migration-discipline.yml"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-migration-discipline.yml"
+  workflow_dispatch:
+
+jobs:
+  migration-discipline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: KatalogcuCiDb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d KatalogcuCiDb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Install dotnet-ef tool
+        run: |
+          dotnet tool install --global dotnet-ef --version "9.*"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Restore backend solution
+        run: dotnet restore backend/Katalogcu.sln
+
+      - name: Build API startup project
+        run: dotnet build backend/Katalogcu.API/Katalogcu.API.csproj --configuration Release --no-restore
+
+      - name: Fail if EF model has pending changes
+        run: |
+          dotnet ef migrations has-pending-model-changes \
+            --project backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj \
+            --startup-project backend/Katalogcu.API/Katalogcu.API.csproj \
+            --context AppDbContext
+
+      - name: Build migration bundle artifact
+        run: |
+          mkdir -p backend/artifacts
+          dotnet ef migrations bundle \
+            --project backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj \
+            --startup-project backend/Katalogcu.API/Katalogcu.API.csproj \
+            --context AppDbContext \
+            --self-contained false \
+            --output backend/artifacts/efbundle
+
+      - name: Smoke apply migration bundle on clean Postgres
+        run: |
+          chmod +x backend/artifacts/efbundle
+          backend/artifacts/efbundle \
+            --connection "Host=127.0.0.1;Port=5432;Database=KatalogcuCiDb;Username=postgres;Password=postgres"
+
+      - name: Smoke re-run migration bundle (idempotency)
+        run: |
+          backend/artifacts/efbundle \
+            --connection "Host=127.0.0.1;Port=5432;Database=KatalogcuCiDb;Username=postgres;Password=postgres"
+
+      - name: Upload migration bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ef-migration-bundle-${{ github.run_number }}
+          path: backend/artifacts/efbundle

@@ -1,42 +1,52 @@
 using Katalogcu.API.Services;
-using Katalogcu.Domain.Entities;
-using Katalogcu.Infrastructure.Persistence;
+using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Common.Models;
+using Katalogcu.Application.Features.Catalogs.Commands.ClearCatalogPageData;
+using Katalogcu.Application.Features.Catalogs.Commands.CompleteCatalogUpload;
+using Katalogcu.Application.Features.Catalogs.Commands.CreateCatalog;
+using Katalogcu.Application.Features.Catalogs.Commands.DeleteCatalog;
+using Katalogcu.Application.Features.Catalogs.Commands.FailCatalogUpload;
+using Katalogcu.Application.Features.Catalogs.Commands.MoveCatalog;
+using Katalogcu.Application.Features.Catalogs.Commands.PublishCatalog;
+using Katalogcu.Application.Features.Catalogs.Commands.RevokePublicToken;
+using Katalogcu.Application.Features.Catalogs.Commands.RotatePublicToken;
+using Katalogcu.Application.Features.Catalogs.Commands.StartCatalogAiProcess;
+using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogById;
+using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogPageItems;
+using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogAiJobs;
+using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogStats;
+using Katalogcu.Application.Features.Catalogs.Queries.GetMyCatalogs;
+using Katalogcu.Application.Features.Catalogs.Queries.GetPublicCatalogs;
+using Katalogcu.Application.Features.Catalogs.Queries.GetPublicCatalogsByUser;
+using Katalogcu.Application.Features.Catalogs.Queries.GetPublicStorefront;
+using Katalogcu.Application.Features.Catalogs.Queries.GetPublicToken;
+using Katalogcu.Application.Features.Catalogs.Queries.GetPublicTokenStatus;
+using FluentValidation;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
 namespace Katalogcu.API.Controllers
 {
-    [Authorize] // 🔒 Varsayılan: Giriş yapmış kullanıcılar
+    [Authorize(Policy = "PrivilegedUser")] // 🔒 Varsayılan: Yönetim paneli kullanıcıları
     [Route("api/[controller]")]
     [ApiController]
     public class CatalogsController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly PdfService _pdfService;
-        private readonly CatalogProcessorService _processorService;
         private readonly ILogger<CatalogsController> _logger;
-        private readonly IWebHostEnvironment _env;
-        private readonly IServiceScopeFactory _scopeFactory;
-        private readonly IPublicLinkService _publicLinkService;
+        private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly ISender _sender;
 
         public CatalogsController(
-            AppDbContext context,
-            PdfService pdfService,
-            CatalogProcessorService processorService,
             ILogger<CatalogsController> logger,
-            IWebHostEnvironment env,
-            IServiceScopeFactory scopeFactory,
-            IPublicLinkService publicLinkService)
+            IPublicAccessTokenService publicAccessTokenService,
+            ISender sender)
         {
-            _context = context;
-            _pdfService = pdfService;
-            _processorService = processorService;
             _logger = logger;
-            _env = env;
-            _scopeFactory = scopeFactory;
-            _publicLinkService = publicLinkService;
+            _publicAccessTokenService = publicAccessTokenService;
+            _sender = sender;
         }
 
         private Guid GetCurrentUserId()
@@ -49,14 +59,14 @@ namespace Katalogcu.API.Controllers
             return Guid.Empty;
         }
 
-        private (Guid userId, bool isPublic, PublicLinkPayload? publicPayload) ResolveUserId(string? publicToken)
+        private (Guid userId, bool isPublic, PublicAccessPayloadDto? publicPayload) ResolveUserId(string? publicToken)
         {
             var tokenUserId = GetCurrentUserId();
             if (tokenUserId != Guid.Empty) return (tokenUserId, false, null);
 
             if (!string.IsNullOrWhiteSpace(publicToken))
             {
-                var payload = _publicLinkService.Validate(publicToken);
+                var payload = _publicAccessTokenService.Validate(publicToken);
                 if (payload != null) return (payload.UserId, true, payload);
             }
             return (Guid.Empty, true, null);
@@ -87,14 +97,13 @@ namespace Katalogcu.API.Controllers
         [HttpGet("public")] 
         public async Task<IActionResult> GetPublicCatalogs()
         {
-            var catalogs = await _context.Catalogs
-                .AsNoTracking()
-                .Where(c => c.Status == "Published")
-                .Include(c => c.Pages.OrderBy(p => p.PageNumber).Take(1))
-                .OrderByDescending(c => c.CreatedDate)
-                .ToListAsync();
+            var result = await _sender.Send(new GetPublicCatalogsQuery());
+            if (!result.IsSuccess)
+            {
+                return StatusCode(500, result.ErrorMessage ?? "Public kataloglar alınamadı.");
+            }
 
-            return Ok(catalogs);
+            return Ok(result.Value);
         }
 
         // ==========================================
@@ -102,7 +111,7 @@ namespace Katalogcu.API.Controllers
         // ==========================================
         [AllowAnonymous]
         [HttpGet("public/{userId:guid}")]
-        public async Task<IActionResult> GetPublicCatalogsByUser(Guid userId)
+        public IActionResult GetPublicCatalogsByUser(Guid userId)
         {
             return BadRequest("Bu endpoint devre dışı. public token kullanın.");
         }
@@ -111,59 +120,47 @@ namespace Katalogcu.API.Controllers
         [HttpGet("public-by-token")]
         public async Task<IActionResult> GetPublicCatalogsByToken([FromQuery] string token)
         {
-            var payload = _publicLinkService.Validate(token);
+            var payload = _publicAccessTokenService.Validate(token);
             if (payload == null) return BadRequest("Geçersiz token.");
 
-            var query = _context.Catalogs
-                .AsNoTracking()
-                .Where(c => c.Status == "Published" && c.UserId == payload.UserId);
-
-            if (payload.CatalogIds.Any())
+            var result = await _sender.Send(new GetPublicCatalogsByUserQuery(payload.UserId, payload.CatalogIds));
+            if (!result.IsSuccess)
             {
-                query = query.Where(c => payload.CatalogIds.Contains(c.Id));
+                return result.ErrorCode switch
+                {
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Public kataloglar alınamadı.")
+                };
             }
 
-            var catalogs = await query
-                .Include(c => c.Pages.OrderBy(p => p.PageNumber).Take(1))
-                .OrderByDescending(c => c.CreatedDate)
-                .ToListAsync();
-
-            return Ok(catalogs);
+            return Ok(result.Value);
         }
 
         [AllowAnonymous]
         [HttpGet("public-storefront")]
         public async Task<IActionResult> GetPublicStorefront([FromQuery] string token)
         {
-            var payload = _publicLinkService.Validate(token);
+            var payload = _publicAccessTokenService.Validate(token);
             if (payload == null) return BadRequest("Geçersiz token.");
 
-            var user = await _context.Users
-                .AsNoTracking()
-                .Where(u => u.Id == payload.UserId)
-                .Select(u => new
+            var result = await _sender.Send(new GetPublicStorefrontQuery(payload.UserId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
                 {
-                    u.FirstName,
-                    u.LastName,
-                    u.Email,
-                    u.CompanyName,
-                    u.PhoneNumber
-                })
-                .FirstOrDefaultAsync();
+                    "not_found" => NotFound(result.ErrorMessage),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Storefront bilgisi alınamadı.")
+                };
+            }
 
-            if (user == null) return NotFound("İşletme bulunamadı.");
-
-            var ownerName = $"{user.FirstName} {user.LastName}".Trim();
-            var businessName = !string.IsNullOrWhiteSpace(user.CompanyName)
-                ? user.CompanyName.Trim()
-                : (!string.IsNullOrWhiteSpace(ownerName) ? ownerName : "Katalog Magazasi");
-
+            var storefront = result.Value!;
             return Ok(new
             {
-                businessName,
-                ownerName,
-                email = user.Email,
-                phoneNumber = user.PhoneNumber
+                businessName = storefront.BusinessName,
+                ownerName = storefront.OwnerName,
+                email = storefront.Email,
+                phoneNumber = storefront.PhoneNumber
             });
         }
 
@@ -173,37 +170,19 @@ namespace Katalogcu.API.Controllers
             var userId = GetCurrentUserId();
             if (userId == Guid.Empty) return Unauthorized();
 
-            var user = await _context.Users
-                .AsNoTracking()
-                .Where(u => u.Id == userId)
-                .Select(u => new { u.PublicLinkVersion, u.PublicLinkEnabled })
-                .FirstOrDefaultAsync();
-
-            if (user == null) return Unauthorized();
-            if (!user.PublicLinkEnabled)
-            {
-                return BadRequest("Public link devre dışı. Yeniden açmak için linki yenileyin.");
-            }
-
             var requestedIds = ParseCatalogIds(catalogIds);
-            List<Guid> allowedIds = new();
-
-            if (requestedIds.Any())
+            var result = await _sender.Send(new GetPublicTokenQuery(userId, requestedIds));
+            if (!result.IsSuccess)
             {
-                allowedIds = await _context.Catalogs
-                    .AsNoTracking()
-                    .Where(c => c.UserId == userId && c.Status == "Published" && requestedIds.Contains(c.Id))
-                    .Select(c => c.Id)
-                    .ToListAsync();
-
-                if (!allowedIds.Any())
+                return result.ErrorCode switch
                 {
-                    return BadRequest("Seçilen kataloglar yayınlanmamış veya size ait değil.");
-                }
+                    "unauthorized" => Unauthorized(),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Public token oluşturulamadı.")
+                };
             }
 
-            var token = _publicLinkService.CreateToken(userId, user.PublicLinkVersion, allowedIds.Any() ? allowedIds : null);
-            return Ok(new { token });
+            return Ok(new { token = result.Value! });
         }
 
         [HttpGet("public-token/status")]
@@ -212,18 +191,21 @@ namespace Katalogcu.API.Controllers
             var userId = GetCurrentUserId();
             if (userId == Guid.Empty) return Unauthorized();
 
-            var user = await _context.Users
-                .AsNoTracking()
-                .Where(u => u.Id == userId)
-                .Select(u => new { u.PublicLinkVersion, u.PublicLinkEnabled })
-                .FirstOrDefaultAsync();
-
-            if (user == null) return Unauthorized();
+            var result = await _sender.Send(new GetPublicTokenStatusQuery(userId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "unauthorized" => Unauthorized(),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Public token durumu alınamadı.")
+                };
+            }
 
             return Ok(new
             {
-                enabled = user.PublicLinkEnabled,
-                version = user.PublicLinkVersion
+                enabled = result.Value!.Enabled,
+                version = result.Value.Version
             });
         }
 
@@ -233,18 +215,21 @@ namespace Katalogcu.API.Controllers
             var userId = GetCurrentUserId();
             if (userId == Guid.Empty) return Unauthorized();
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
-            if (user == null) return Unauthorized();
-
-            user.PublicLinkVersion += 1;
-            user.PublicLinkEnabled = false;
-            user.UpdatedDate = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            var result = await _sender.Send(new RevokePublicTokenCommand(userId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "unauthorized" => Unauthorized(),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Public token iptal edilemedi.")
+                };
+            }
 
             return Ok(new
             {
-                enabled = user.PublicLinkEnabled,
-                version = user.PublicLinkVersion
+                enabled = result.Value!.Enabled,
+                version = result.Value.Version
             });
         }
 
@@ -254,37 +239,23 @@ namespace Katalogcu.API.Controllers
             var userId = GetCurrentUserId();
             if (userId == Guid.Empty) return Unauthorized();
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
-            if (user == null) return Unauthorized();
-
             var requestedIds = ParseCatalogIds(catalogIds);
-            List<Guid> allowedIds = new();
-
-            if (requestedIds.Any())
+            var result = await _sender.Send(new RotatePublicTokenCommand(userId, requestedIds));
+            if (!result.IsSuccess)
             {
-                allowedIds = await _context.Catalogs
-                    .AsNoTracking()
-                    .Where(c => c.UserId == userId && c.Status == "Published" && requestedIds.Contains(c.Id))
-                    .Select(c => c.Id)
-                    .ToListAsync();
-
-                if (!allowedIds.Any())
+                return result.ErrorCode switch
                 {
-                    return BadRequest("Seçilen kataloglar yayınlanmamış veya size ait değil.");
-                }
+                    "unauthorized" => Unauthorized(),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Public token yenilenemedi.")
+                };
             }
 
-            user.PublicLinkVersion += 1;
-            user.PublicLinkEnabled = true;
-            user.UpdatedDate = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-
-            var token = _publicLinkService.CreateToken(userId, user.PublicLinkVersion, allowedIds.Any() ? allowedIds : null);
             return Ok(new
             {
-                token,
-                enabled = user.PublicLinkEnabled,
-                version = user.PublicLinkVersion
+                token = result.Value!.Token,
+                enabled = result.Value.Enabled,
+                version = result.Value.Version
             });
         }
 
@@ -295,24 +266,19 @@ namespace Katalogcu.API.Controllers
         public async Task<IActionResult> MoveCatalog(Guid id, [FromBody] MoveCatalogDto request)
         {
             var userId = GetCurrentUserId();
-
-            var catalog = await _context.Catalogs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-            if (catalog == null) return NotFound("Katalog bulunamadı.");
-
-            if (request.FolderId.HasValue)
+            var result = await _sender.Send(new MoveCatalogCommand(id, userId, request.FolderId));
+            if (!result.IsSuccess)
             {
-                var folderExists = await _context.Folders
-                    .AnyAsync(f => f.Id == request.FolderId.Value && f.UserId == userId);
-
-                if (!folderExists) return BadRequest("Hedef klasör bulunamadı veya size ait değil.");
+                return result.ErrorCode switch
+                {
+                    "not_found" => NotFound(result.ErrorMessage),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Katalog taşınamadı.")
+                };
             }
 
-            catalog.FolderId = request.FolderId;
-            catalog.UpdatedDate = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Katalog başarıyla taşındı.", folderId = catalog.FolderId });
+            var response = result.Value!;
+            return Ok(new { message = response.Message, folderId = response.FolderId });
         }
 
         // ==========================================
@@ -322,61 +288,18 @@ namespace Katalogcu.API.Controllers
         public async Task<IActionResult> StartAutonomousProcess(Guid id)
         {
             var userId = GetCurrentUserId();
-            var catalog = await _context.Catalogs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-
-            if (catalog == null) return NotFound("Katalog bulunamadı veya yetkiniz yok.");
-
-            if (catalog.Status == "Processing")
-                return BadRequest("Bu katalog zaten işleniyor.");
-
-            catalog.Status = "Processing";
-            await _context.SaveChangesAsync();
-
-            _ = Task.Run(async () =>
+            var commandResult = await _sender.Send(new StartCatalogAiProcessCommand(id, userId));
+            if (!commandResult.IsSuccess)
             {
-                using (var scope = _scopeFactory.CreateScope())
+                return commandResult.ErrorCode switch
                 {
-                    try
-                    {
-                        var scopedProcessor = scope.ServiceProvider.GetRequiredService<CatalogProcessorService>();
-                        var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                        var scopedAiService = scope.ServiceProvider.GetRequiredService<IPartalogAiService>();
+                    "not_found" => NotFound(commandResult.ErrorMessage),
+                    "validation" => BadRequest(commandResult.ErrorMessage),
+                    _ => StatusCode(500, commandResult.ErrorMessage ?? "AI analizi başlatılamadı.")
+                };
+            }
 
-                        await scopedProcessor.ProcessCatalogAsync(id);
-
-                        var cat = await scopedContext.Catalogs.FindAsync(id);
-                        if (cat != null)
-                        {
-                            cat.Status = "Published";
-                            cat.UpdatedDate = DateTime.UtcNow;
-                            await scopedContext.SaveChangesAsync();
-                        }
-
-                        await scopedAiService.TriggerTrainingAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, $"Arka plan işlem hatası: {id}");
-                        using (var errorScope = _scopeFactory.CreateScope())
-                        {
-                            var errorDb = errorScope.ServiceProvider.GetRequiredService<AppDbContext>();
-                            var cat = await errorDb.Catalogs.FindAsync(id);
-                            if (cat != null)
-                            {
-                                cat.Status = "Error";
-                                await errorDb.SaveChangesAsync();
-                            }
-                        }
-                    }
-                }
-            });
-
-            return Accepted(new
-            {
-                message = "AI Analizi başlatıldı. İşlem bitince katalog otomatik olarak yayına alınacak.",
-                catalogId = id,
-                status = "Processing"
-            });
+            return Accepted(commandResult.Value);
         }
 
         // ==========================================
@@ -391,61 +314,23 @@ namespace Katalogcu.API.Controllers
 
             if (!int.TryParse(pageNumber, out int currentPage)) return BadRequest("Sayfa numarası geçersiz.");
 
-            var catalogItems = await FetchItemsForPage(id, currentPage.ToString(), resolved.userId, resolved.isPublic, resolved.publicPayload);
+            var result = await _sender.Send(new GetCatalogPageItemsQuery(
+                id,
+                currentPage,
+                resolved.userId,
+                resolved.isPublic,
+                resolved.publicPayload?.CatalogIds));
 
-            if (!catalogItems.Any()) catalogItems = await FetchItemsForPage(id, (currentPage + 1).ToString(), resolved.userId, resolved.isPublic, resolved.publicPayload);
-            if (!catalogItems.Any() && currentPage > 1) catalogItems = await FetchItemsForPage(id, (currentPage - 1).ToString(), resolved.userId, resolved.isPublic, resolved.publicPayload);
-
-            if (!catalogItems.Any()) return Ok(new List<object>());
-
-            var itemCodes = catalogItems.Select(ci => ci.PartCode).Distinct().ToList();
-            var stockedProducts = await _context.Products
-                .Include(p => p.Catalog)
-                .AsNoTracking()
-                .Where(p => itemCodes.Contains(p.Code) && p.Catalog.UserId == resolved.userId)
-                .GroupBy(p => p.Code).Select(g => g.First()).ToDictionaryAsync(p => p.Code);
-
-            var result = catalogItems.Select(item =>
+            if (!result.IsSuccess)
             {
-                var isStocked = stockedProducts.ContainsKey(item.PartCode);
-                var product = isStocked ? stockedProducts[item.PartCode] : null;
-
-                return new
+                return result.ErrorCode switch
                 {
-                    catalogItemId = item.Id,
-                    refNo = item.RefNumber,
-                    partCode = item.PartCode,
-                    partName = item.PartName,
-                    description = item.Description,
-                    isStocked = isStocked,
-                    productId = product?.Id,
-                    price = product?.Price,
-                    localName = product?.Name
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Sayfa öğeleri alınamadı.")
                 };
-            });
-
-            return Ok(result);
-        }
-
-        private async Task<List<CatalogItem>> FetchItemsForPage(Guid catalogId, string pageNum, Guid userId, bool isPublic, PublicLinkPayload? publicPayload)
-        {
-            var query = _context.CatalogItems
-                .Include(ci => ci.Catalog)
-                .AsNoTracking()
-                .Where(ci => ci.CatalogId == catalogId && ci.PageNumber == pageNum && ci.Catalog.UserId == userId);
-
-            if (isPublic)
-            {
-                query = query.Where(ci => ci.Catalog.Status == "Published");
-                if (publicPayload?.CatalogIds?.Any() == true)
-                {
-                    query = query.Where(ci => publicPayload.CatalogIds.Contains(ci.CatalogId));
-                }
             }
 
-            return await query
-                .OrderBy(ci => ci.RefNumber)
-                .ToListAsync();
+            return Ok(result.Value);
         }
 
         // ==========================================
@@ -456,38 +341,60 @@ namespace Katalogcu.API.Controllers
         public async Task<IActionResult> GetStats()
         {
             var userId = GetCurrentUserId();
-            var totalCatalogs = await _context.Catalogs.CountAsync(c => c.UserId == userId);
-            var totalParts = await _context.Products.Include(p => p.Catalog).CountAsync(p => p.Catalog.UserId == userId);
+            var result = await _sender.Send(new GetCatalogStatsQuery(userId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "İstatistikler alınamadı.")
+                };
+            }
 
-            var pendingCount = await _context.Catalogs.Where(c => c.UserId == userId)
-                .CountAsync(c => c.Status == "Processing" || c.Status == "Pending" || c.Status == "Uploading");
-
-            var recentCatalogs = await _context.Catalogs.Where(c => c.UserId == userId)
-                .OrderByDescending(c => c.CreatedDate).Take(5)
-                .Select(c => new { c.Id, c.Name, c.Status, PartCount = _context.Products.Count(p => p.CatalogId == c.Id), c.CreatedDate })
-                .ToListAsync();
-
-            var visualEmbeddingCount = await _context.CatalogItems
-                .CountAsync(ci => ci.Catalog.UserId == userId && ci.VisualEmbedding != null);
-
+            var stats = result.Value!;
             return Ok(new
             {
-                TotalCatalogs = totalCatalogs,
-                TotalParts = totalParts,
-                TotalViews = 0, // TODO: gerçek view tracking henüz implemente edilmedi
-                PendingCount = pendingCount,
-                RecentCatalogs = recentCatalogs,
-                VisualEmbeddingCount = visualEmbeddingCount
+                TotalCatalogs = stats.TotalCatalogs,
+                TotalParts = stats.TotalParts,
+                TotalViews = stats.TotalViews,
+                PendingCount = stats.PendingCount,
+                RecentCatalogs = stats.RecentCatalogs,
+                VisualEmbeddingCount = stats.VisualEmbeddingCount
             });
+        }
+
+        [HttpGet("ai-jobs")]
+        public async Task<IActionResult> GetCatalogAiJobs([FromQuery] int take = 50)
+        {
+            var userId = GetCurrentUserId();
+            var result = await _sender.Send(new GetCatalogAiJobsQuery(userId, take));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "AI job listesi alınamadı.")
+                };
+            }
+
+            return Ok(result.Value);
         }
 
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var userId = GetCurrentUserId();
-            var catalogs = await _context.Catalogs.Where(c => c.UserId == userId)
-                .Include(c => c.Pages).OrderByDescending(c => c.CreatedDate).ToListAsync();
-            return Ok(catalogs);
+            var result = await _sender.Send(new GetMyCatalogsQuery(userId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Kataloglar alınamadı.")
+                };
+            }
+
+            return Ok(result.Value);
         }
 
         [AllowAnonymous]
@@ -497,100 +404,118 @@ namespace Katalogcu.API.Controllers
             var resolved = ResolveUserId(token);
             if (resolved.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
 
-            var query = _context.Catalogs
-                .Include(c => c.Pages.OrderBy(p => p.PageNumber))
-                .ThenInclude(p => p.Hotspots)
-                .Where(c => c.Id == id && c.UserId == resolved.userId);
+            var result = await _sender.Send(new GetCatalogByIdQuery(
+                id,
+                resolved.userId,
+                resolved.isPublic,
+                resolved.publicPayload?.CatalogIds));
 
-            if (resolved.isPublic)
+            if (!result.IsSuccess)
             {
-                query = query.Where(c => c.Status == "Published");
-                if (resolved.publicPayload?.CatalogIds?.Any() == true)
+                return result.ErrorCode switch
                 {
-                    query = query.Where(c => resolved.publicPayload.CatalogIds.Contains(c.Id));
-                }
+                    "not_found" => NotFound("Katalog bulunamadı."),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Katalog alınamadı.")
+                };
             }
 
-            var catalog = await query.FirstOrDefaultAsync();
-
-            if (catalog == null) return NotFound("Katalog bulunamadı.");
-            return Ok(catalog);
+            return Ok(result.Value);
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create(Catalog catalog)
+        public async Task<IActionResult> Create([FromBody] CreateCatalogRequest request)
         {
             var userId = GetCurrentUserId();
-            catalog.UserId = userId;
-            catalog.CreatedDate = DateTime.UtcNow;
-            catalog.Status = "Uploading";
+            var createResult = await _sender.Send(new CreateCatalogCommand(
+                userId,
+                request.Name ?? string.Empty,
+                request.Description,
+                request.PdfUrl,
+                request.ImageUrl,
+                request.FolderId));
 
-            _context.Catalogs.Add(catalog);
-            await _context.SaveChangesAsync();
+            if (!createResult.IsSuccess)
+            {
+                return createResult.ErrorCode switch
+                {
+                    "validation" => BadRequest(createResult.ErrorMessage),
+                    _ => StatusCode(500, createResult.ErrorMessage ?? "Katalog oluşturulamadı.")
+                };
+            }
 
-            if (!string.IsNullOrEmpty(catalog.PdfUrl))
+            var createdCatalog = createResult.Value!;
+
+            if (!string.IsNullOrEmpty(createdCatalog.PdfUrl))
             {
                 try
                 {
-                    var fileName = Path.GetFileName(catalog.PdfUrl);
-                    var pageUrls = await _pdfService.ConvertPdfToImages(fileName);
-                    int pageNum = 1;
-                    var newPages = new List<CatalogPage>();
-                    foreach (var imgPath in pageUrls)
+                    var completeResult = await _sender.Send(new CompleteCatalogUploadCommand(
+                        createdCatalog.Id,
+                        userId));
+
+                    if (!completeResult.IsSuccess)
                     {
-                        var fullUrl = $"{Request.Scheme}://{Request.Host}/{imgPath}";
-                        newPages.Add(new CatalogPage { CatalogId = catalog.Id, PageNumber = pageNum++, ImageUrl = fullUrl });
+                        await _sender.Send(new FailCatalogUploadCommand(createdCatalog.Id, userId));
+                        return completeResult.ErrorCode switch
+                        {
+                            "not_found" => NotFound(completeResult.ErrorMessage),
+                            "validation" => BadRequest(completeResult.ErrorMessage),
+                            _ => StatusCode(500, completeResult.ErrorMessage ?? "PDF işlenirken hata oluştu.")
+                        };
                     }
-                    _context.CatalogPages.AddRange(newPages);
-                    catalog.Status = "ReadyToProcess";
-                    _context.Catalogs.Update(catalog);
-                    await _context.SaveChangesAsync();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "PDF işleme hatası");
-                    catalog.Status = "Error";
-                    await _context.SaveChangesAsync();
+                    await _sender.Send(new FailCatalogUploadCommand(createdCatalog.Id, userId));
                     return StatusCode(500, "PDF işlenirken hata oluştu.");
                 }
             }
-            return CreatedAtAction(nameof(GetById), new { id = catalog.Id }, catalog);
+            return CreatedAtAction(nameof(GetById), new { id = createdCatalog.Id }, createdCatalog);
         }
 
         [HttpPost("{id}/publish")]
         public async Task<IActionResult> Publish(Guid id)
         {
             var userId = GetCurrentUserId();
-            var catalog = await _context.Catalogs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-            if (catalog == null) return NotFound();
-            
-            catalog.Status = "Published";
-            catalog.UpdatedDate = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Katalog yayına alındı", status = catalog.Status });
+            var result = await _sender.Send(new PublishCatalogCommand(id, userId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "not_found" => NotFound(),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Yayınlama başarısız.")
+                };
+            }
+
+            var response = result.Value!;
+            return Ok(new { message = response.Message, status = response.Status });
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
             var userId = GetCurrentUserId();
-            var catalog = await _context.Catalogs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-            if (catalog == null) return NotFound("Katalog bulunamadı veya yetkiniz yok.");
-
             try
             {
-                var productIds = await _context.Products.Where(p => p.CatalogId == id).Select(p => p.Id).ToListAsync();
-                if (productIds.Any())
+                var result = await _sender.Send(new DeleteCatalogCommand(id, userId));
+                if (!result.IsSuccess)
                 {
-                    await _context.OrderItems.Where(oi => productIds.Contains(oi.ProductId)).ExecuteDeleteAsync();
-                    await _context.Hotspots.Where(h => productIds.Contains(h.ProductId.Value)).ExecuteDeleteAsync();
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Silme işlemi sırasında hata oluştu.")
+                    };
                 }
-                await _context.Products.Where(p => p.CatalogId == id).ExecuteDeleteAsync();
-                await _context.CatalogItems.Where(ci => ci.CatalogId == id).ExecuteDeleteAsync();
-                await _context.CatalogPages.Where(cp => cp.CatalogId == id).ExecuteDeleteAsync();
-                _context.Catalogs.Remove(catalog);
-                await _context.SaveChangesAsync();
+
                 return NoContent();
+            }
+            catch (FluentValidation.ValidationException ex)
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {
@@ -603,19 +528,34 @@ namespace Katalogcu.API.Controllers
         public async Task<IActionResult> ClearPageData(Guid id, Guid pageId)
         {
             var userId = GetCurrentUserId();
-            var catalog = await _context.Catalogs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-            if (catalog == null) return NotFound("Katalog bulunamadı veya yetkiniz yok.");
-            var page = await _context.CatalogPages.FindAsync(pageId);
-            if (page == null) return NotFound("Sayfa bulunamadı.");
-            await _context.Hotspots.Where(h => h.PageId == pageId).ExecuteDeleteAsync();
-            await _context.CatalogItems.Where(ci => ci.CatalogId == id && ci.PageNumber == page.PageNumber.ToString()).ExecuteDeleteAsync();
-            return Ok(new { message = "Sayfa verileri temizlendi" });
+            var result = await _sender.Send(new ClearCatalogPageDataCommand(id, pageId, userId));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "not_found" => NotFound(result.ErrorMessage),
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Sayfa temizlenemedi.")
+                };
+            }
+
+            return Ok(new { message = result.Value!.Message });
         }
     }
 
     // --- DTO ---
     public class MoveCatalogDto
     {
+        public Guid? FolderId { get; set; }
+    }
+
+    public sealed class CreateCatalogRequest
+    {
+        [Required]
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string? ImageUrl { get; set; }
+        public string? PdfUrl { get; set; }
         public Guid? FolderId { get; set; }
     }
 }
