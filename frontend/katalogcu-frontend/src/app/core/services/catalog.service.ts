@@ -10,9 +10,19 @@ export interface DashboardStats {
   totalCatalogs: number;
   totalParts: number;
   totalViews: number;
+  viewsLast7Days?: number;
+  uniqueViewersLast30Days?: number;
   pendingCount: number;
   visualEmbeddingCount?: number;  // YENİ: Visual Embedding'li parça sayısı
   recentCatalogs: DashboardCatalogItem[];
+  topViewedCatalogs?: DashboardTopViewedCatalogItem[];
+}
+
+export interface DashboardTopViewedCatalogItem {
+  id: string;
+  name: string;
+  viewCount: number;
+  lastViewedAtUtc: string;
 }
 
 export interface PublicTokenStatus {

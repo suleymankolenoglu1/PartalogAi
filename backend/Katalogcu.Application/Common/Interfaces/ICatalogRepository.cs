@@ -28,8 +28,22 @@ public interface ICatalogRepository
     Task<int> CountPendingCatalogsByUserAsync(Guid userId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<CatalogRecentSummary>> GetRecentCatalogsByUserAsync(Guid userId, int take, CancellationToken cancellationToken);
+    Task<IReadOnlyList<CatalogTopViewedSummary>> GetTopViewedCatalogsByUserAsync(Guid userId, int take, CancellationToken cancellationToken);
 
     Task<int> CountVisualEmbeddingCatalogItemsByUserAsync(Guid userId, CancellationToken cancellationToken);
+
+    Task<int> CountCatalogViewsByUserAsync(Guid userId, CancellationToken cancellationToken);
+    Task<int> CountCatalogViewsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken);
+    Task<int> CountUniqueCatalogViewersByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken);
+
+    Task<bool> RecordCatalogViewAsync(
+        Guid catalogId,
+        Guid ownerUserId,
+        string fingerprintHash,
+        DateTime bucketStartUtc,
+        DateTime viewedAtUtc,
+        string source,
+        CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Catalog>> GetCatalogsByUserAsync(Guid userId, CancellationToken cancellationToken);
 

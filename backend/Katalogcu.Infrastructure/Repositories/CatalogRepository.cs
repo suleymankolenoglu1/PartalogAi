@@ -3,6 +3,9 @@ using Katalogcu.Application.Common.Models;
 using Katalogcu.Domain.Entities;
 using Katalogcu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using System.Data;
+using System.Data.Common;
 
 namespace Katalogcu.Infrastructure.Repositories;
 
@@ -101,9 +104,131 @@ public sealed class CatalogRepository : ICatalogRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CatalogTopViewedSummary>> GetTopViewedCatalogsByUserAsync(
+        Guid userId,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT
+                c."Id",
+                c."Name",
+                COUNT(v."Id")::int AS "ViewCount",
+                MAX(v."ViewedAtUtc") AS "LastViewedAtUtc"
+            FROM "CatalogViews" v
+            INNER JOIN "Catalogs" c ON c."Id" = v."CatalogId"
+            WHERE c."UserId" = @userId
+            GROUP BY c."Id", c."Name"
+            ORDER BY COUNT(v."Id") DESC, MAX(v."ViewedAtUtc") DESC
+            LIMIT @take
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        AddParameter(command, "take", take <= 0 ? 5 : take);
+
+        var result = new List<CatalogTopViewedSummary>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new CatalogTopViewedSummary
+            {
+                Id = reader.GetGuid(0),
+                Name = reader.GetString(1),
+                ViewCount = reader.GetInt32(2),
+                LastViewedAtUtc = reader.GetDateTime(3)
+            });
+        }
+
+        return result;
+    }
+
     public Task<int> CountVisualEmbeddingCatalogItemsByUserAsync(Guid userId, CancellationToken cancellationToken)
     {
         return _context.CatalogItems.CountAsync(ci => ci.Catalog.UserId == userId && ci.VisualEmbedding != null, cancellationToken);
+    }
+
+    public async Task<int> CountCatalogViewsByUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT COUNT(*)
+            FROM "CatalogViews"
+            WHERE "OwnerUserId" = @userId
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
+    }
+
+    public async Task<int> CountCatalogViewsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT COUNT(*)
+            FROM "CatalogViews"
+            WHERE "OwnerUserId" = @userId
+              AND "ViewedAtUtc" >= @fromUtc
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        AddParameter(command, "fromUtc", fromUtc);
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
+    }
+
+    public async Task<int> CountUniqueCatalogViewersByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT COUNT(DISTINCT "FingerprintHash")
+            FROM "CatalogViews"
+            WHERE "OwnerUserId" = @userId
+              AND "ViewedAtUtc" >= @fromUtc
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        AddParameter(command, "fromUtc", fromUtc);
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
+    }
+
+    public async Task<bool> RecordCatalogViewAsync(
+        Guid catalogId,
+        Guid ownerUserId,
+        string fingerprintHash,
+        DateTime bucketStartUtc,
+        DateTime viewedAtUtc,
+        string source,
+        CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            INSERT INTO "CatalogViews"
+                ("Id", "CatalogId", "OwnerUserId", "FingerprintHash", "BucketStartUtc", "ViewedAtUtc", "Source", "CreatedDate")
+            VALUES
+                (@id, @catalogId, @ownerUserId, @fingerprintHash, @bucketStartUtc, @viewedAtUtc, @source, @createdDate)
+            ON CONFLICT ("CatalogId", "FingerprintHash", "BucketStartUtc")
+            DO NOTHING
+            """,
+            cancellationToken);
+
+        AddParameter(command, "id", Guid.NewGuid());
+        AddParameter(command, "catalogId", catalogId);
+        AddParameter(command, "ownerUserId", ownerUserId);
+        AddParameter(command, "fingerprintHash", fingerprintHash);
+        AddParameter(command, "bucketStartUtc", bucketStartUtc);
+        AddParameter(command, "viewedAtUtc", viewedAtUtc);
+        AddParameter(command, "source", source);
+        AddParameter(command, "createdDate", DateTime.UtcNow);
+
+        var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+        return affected > 0;
     }
 
     public async Task<IReadOnlyList<Catalog>> GetCatalogsByUserAsync(Guid userId, CancellationToken cancellationToken)
@@ -253,5 +378,32 @@ public sealed class CatalogRepository : ICatalogRepository
     public Task SaveChangesAsync(CancellationToken cancellationToken)
     {
         return _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<DbCommand> CreateCommandAsync(string sql, CancellationToken cancellationToken)
+    {
+        var connection = _context.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        var tx = _context.Database.CurrentTransaction;
+        if (tx != null)
+        {
+            command.Transaction = tx.GetDbTransaction();
+        }
+
+        return command;
+    }
+
+    private static void AddParameter(DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 }

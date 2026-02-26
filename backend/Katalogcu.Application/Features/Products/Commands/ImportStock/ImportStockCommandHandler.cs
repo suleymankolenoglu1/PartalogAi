@@ -7,6 +7,13 @@ namespace Katalogcu.Application.Features.Products.Commands.ImportStock;
 
 public sealed class ImportStockCommandHandler : IRequestHandler<ImportStockCommand, OperationResult<ImportStockResponse>>
 {
+    private const int MaxStockQuantity = 1_000_000;
+    private const decimal MaxPrice = 10_000_000m;
+    private const int MaxCodeLength = 64;
+    private const int MaxNameLength = 200;
+    private const int MaxCategoryLength = 120;
+    private const int MaxDescriptionLength = 4000;
+
     private readonly ICurrentUserService _currentUser;
     private readonly IStockRepository _stockRepository;
 
@@ -53,6 +60,7 @@ public sealed class ImportStockCommandHandler : IRequestHandler<ImportStockComma
         var skippedRows = new List<ImportStockSkippedRow>();
         var movementLogs = new List<StockMovement>();
         var importBatchId = Guid.NewGuid().ToString("N");
+        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in request.Rows)
         {
@@ -61,6 +69,20 @@ public sealed class ImportStockCommandHandler : IRequestHandler<ImportStockComma
             {
                 skipped++;
                 skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, "Parça kodu boş."));
+                continue;
+            }
+
+            if (!seenCodes.Add(codeKey))
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, "Dosyada aynı kod birden fazla kez geçiyor."));
+                continue;
+            }
+
+            if (codeKey.Length > MaxCodeLength)
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, $"Parça kodu en fazla {MaxCodeLength} karakter olabilir."));
                 continue;
             }
 
@@ -75,6 +97,41 @@ public sealed class ImportStockCommandHandler : IRequestHandler<ImportStockComma
             {
                 skipped++;
                 skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, "Negatif stok desteklenmiyor."));
+                continue;
+            }
+
+            if (row.StockQuantity.Value > MaxStockQuantity)
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, $"Stok adedi en fazla {MaxStockQuantity} olabilir."));
+                continue;
+            }
+
+            if (row.Price.HasValue && (row.Price.Value < 0 || row.Price.Value > MaxPrice))
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, $"Fiyat 0 ile {MaxPrice} arasında olmalı."));
+                continue;
+            }
+
+            if (!IsWithinLimit(row.Name, MaxNameLength))
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, $"Ürün adı en fazla {MaxNameLength} karakter olabilir."));
+                continue;
+            }
+
+            if (!IsWithinLimit(row.Category, MaxCategoryLength))
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, $"Kategori en fazla {MaxCategoryLength} karakter olabilir."));
+                continue;
+            }
+
+            if (!IsWithinLimit(row.Description, MaxDescriptionLength))
+            {
+                skipped++;
+                skippedRows.Add(new ImportStockSkippedRow(row.RowNumber, row.Code, $"Açıklama en fazla {MaxDescriptionLength} karakter olabilir."));
                 continue;
             }
 
@@ -179,6 +236,11 @@ public sealed class ImportStockCommandHandler : IRequestHandler<ImportStockComma
     private static string NormalizeCode(string? code)
     {
         return string.IsNullOrWhiteSpace(code) ? string.Empty : code.Trim().ToUpperInvariant();
+    }
+
+    private static bool IsWithinLimit(string? value, int maxLength)
+    {
+        return string.IsNullOrWhiteSpace(value) || value.Trim().Length <= maxLength;
     }
 
     private static StockMovement BuildStockMovement(

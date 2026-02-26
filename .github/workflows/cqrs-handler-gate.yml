@@ -1,0 +1,35 @@
+name: CQRS Handler Gate
+
+on:
+  pull_request:
+    paths:
+      - "backend/Katalogcu.Application/**"
+      - ".github/workflows/cqrs-handler-gate.yml"
+      - "backend/scripts/check_cqrs_handlers.py"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "backend/Katalogcu.Application/**"
+      - ".github/workflows/cqrs-handler-gate.yml"
+      - "backend/scripts/check_cqrs_handlers.py"
+  workflow_dispatch:
+
+jobs:
+  cqrs-handler-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify IRequest/IRequestHandler coverage
+        run: |
+          python backend/scripts/check_cqrs_handlers.py

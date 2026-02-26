@@ -14,6 +14,8 @@ import { CatalogService, Catalog } from '../../../core/services/catalog.service'
   styleUrl: './parts-import.css'
 })
 export class PartsImportComponent implements OnInit {
+  private static readonly MAX_SPREADSHEET_BYTES = 25 * 1024 * 1024;
+
   private productService = inject(ProductService);
   private catalogService = inject(CatalogService);
   private router = inject(Router);
@@ -25,8 +27,11 @@ export class PartsImportComponent implements OnInit {
 
   selectedFile: File | null = null;
   isUploading = false;
+  uploadError: string | null = null;
+  resultMessage: string | null = null;
   resultSummary: { totalRows: number; updated: number; created: number; skipped: number; mode: string } | null = null;
   skippedRows: Array<{ rowNumber: number; code: string; reason: string }> = [];
+  skippedRowsTruncated = false;
 
   ngOnInit() {
     // Hangi kataloğa yükleneceğini seçmek için katalogları getir
@@ -38,37 +43,68 @@ export class PartsImportComponent implements OnInit {
   setMode(mode: 'catalog' | 'stock') {
     this.selectedMode = mode;
     this.selectedFile = null;
+    this.uploadError = null;
+    this.resultMessage = null;
     this.resultSummary = null;
     this.skippedRows = [];
+    this.skippedRowsTruncated = false;
   }
 
   onFileSelected(event: any) {
-    this.selectedFile = event.target.files[0];
+    this.uploadError = null;
+    this.resultMessage = null;
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      this.selectedFile = null;
+      return;
+    }
+
+    const extension = (file.name.split('.').pop() || '').toLowerCase();
+    const allowed = this.selectedMode === 'catalog'
+      ? ['xlsx']
+      : ['xlsx', 'csv'];
+
+    if (!allowed.includes(extension)) {
+      this.selectedFile = null;
+      this.uploadError = `Geçersiz dosya tipi. İzin verilen: ${allowed.map(x => '.' + x).join(', ')}.`;
+      return;
+    }
+
+    if (file.size > PartsImportComponent.MAX_SPREADSHEET_BYTES) {
+      this.selectedFile = null;
+      this.uploadError = 'Dosya boyutu 25 MB sınırını aşıyor.';
+      return;
+    }
+
+    this.selectedFile = file;
     this.resultSummary = null;
     this.skippedRows = [];
+    this.skippedRowsTruncated = false;
   }
 
   onUpload() {
     if (!this.selectedFile) {
-      alert('Lütfen bir dosya seçin.');
+      this.uploadError = 'Lütfen bir dosya seçin.';
       return;
     }
+    this.uploadError = null;
+    this.resultMessage = null;
 
     if (this.selectedMode === 'catalog') {
       if (!this.selectedCatalogId) {
-        alert('Lütfen bir katalog seçin.');
+        this.uploadError = 'Lütfen bir katalog seçin.';
         return;
       }
 
       this.isUploading = true;
       this.productService.importExcel(this.selectedFile, this.selectedCatalogId).subscribe({
         next: (res) => {
-          alert(res.message);
+          this.resultMessage = res?.message ?? 'Ürün import tamamlandı.';
           this.router.navigate(['/dashboard/parts']);
         },
         error: (err) => {
           console.error(err);
-          alert('Yükleme başarısız! Excel formatını kontrol edin.');
+          this.uploadError = this.extractErrorMessage(err, 'Yükleme başarısız! Excel formatını kontrol edin.');
           this.isUploading = false;
         }
       });
@@ -76,7 +112,7 @@ export class PartsImportComponent implements OnInit {
     }
 
     if (this.stockImportMode === 'upsert' && !this.selectedCatalogId) {
-      alert('Upsert modunda yeni ürünler için katalog seçmek zorunlu.');
+      this.uploadError = 'Upsert modunda yeni ürünler için katalog seçmek zorunlu.';
       return;
     }
 
@@ -86,13 +122,15 @@ export class PartsImportComponent implements OnInit {
       catalogId: this.stockImportMode === 'upsert' ? this.selectedCatalogId : undefined
     }).subscribe({
       next: (res) => {
+        this.resultMessage = res?.message ?? null;
         this.resultSummary = res?.summary ?? null;
         this.skippedRows = res?.skippedRows ?? [];
+        this.skippedRowsTruncated = !!res?.skippedRowsTruncated;
         this.isUploading = false;
       },
       error: (err) => {
         console.error(err);
-        alert(err?.error ?? 'Stok aktarımı başarısız.');
+        this.uploadError = this.extractErrorMessage(err, 'Stok aktarımı başarısız.');
         this.isUploading = false;
       }
     });
@@ -114,5 +152,13 @@ export class PartsImportComponent implements OnInit {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  }
+
+  private extractErrorMessage(err: any, fallback: string): string {
+    const payload = err?.error;
+    if (typeof payload === 'string' && payload.trim().length > 0) return payload;
+    if (payload?.message && typeof payload.message === 'string') return payload.message;
+    if (err?.message && typeof err.message === 'string') return err.message;
+    return fallback;
   }
 }

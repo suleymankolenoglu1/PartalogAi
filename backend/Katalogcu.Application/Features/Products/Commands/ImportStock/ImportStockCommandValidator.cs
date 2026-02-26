@@ -4,12 +4,18 @@ namespace Katalogcu.Application.Features.Products.Commands.ImportStock;
 
 public sealed class ImportStockCommandValidator : AbstractValidator<ImportStockCommand>
 {
+    private const int MaxRows = 10000;
+
     public ImportStockCommandValidator()
     {
         RuleFor(x => x.Rows)
             .NotNull()
             .Must(rows => rows.Count > 0)
             .WithMessage("Dosyada işlenecek satır bulunamadı.");
+
+        RuleFor(x => x.Rows.Count)
+            .LessThanOrEqualTo(MaxRows)
+            .WithMessage($"Tek seferde en fazla {MaxRows} satır işlenebilir.");
 
         RuleFor(x => x.Mode)
             .NotEmpty()

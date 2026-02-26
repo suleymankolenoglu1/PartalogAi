@@ -270,7 +270,7 @@ namespace Katalogcu.API.Controllers
                 }
 
                 var response = result.Value!;
-                var skippedRows = response.SkippedRows.Take(100);
+                var skippedRows = response.SkippedRows.Take(100).ToList();
 
                 return Ok(new
                 {
@@ -281,9 +281,12 @@ namespace Katalogcu.API.Controllers
                         updated = response.Updated,
                         created = response.Created,
                         skipped = response.Skipped,
-                        mode = response.Mode
+                        mode = response.Mode,
+                        processed = response.Updated + response.Created
                     },
-                    skippedRows
+                    skippedRows,
+                    skippedRowsReturned = skippedRows.Count,
+                    skippedRowsTruncated = response.SkippedRows.Count > skippedRows.Count
                 });
             }
             catch (ValidationException ex)

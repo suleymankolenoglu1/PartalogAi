@@ -11,6 +11,7 @@ using Katalogcu.Application.Features.Catalogs.Commands.PublishCatalog;
 using Katalogcu.Application.Features.Catalogs.Commands.RevokePublicToken;
 using Katalogcu.Application.Features.Catalogs.Commands.RotatePublicToken;
 using Katalogcu.Application.Features.Catalogs.Commands.StartCatalogAiProcess;
+using Katalogcu.Application.Features.Catalogs.Commands.TrackCatalogView;
 using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogById;
 using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogPageItems;
 using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogAiJobs;
@@ -26,7 +27,9 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
 using System.Security.Claims;
+using System.Text;
 
 namespace Katalogcu.API.Controllers
 {
@@ -357,8 +360,11 @@ namespace Katalogcu.API.Controllers
                 TotalCatalogs = stats.TotalCatalogs,
                 TotalParts = stats.TotalParts,
                 TotalViews = stats.TotalViews,
+                ViewsLast7Days = stats.ViewsLast7Days,
+                UniqueViewersLast30Days = stats.UniqueViewersLast30Days,
                 PendingCount = stats.PendingCount,
                 RecentCatalogs = stats.RecentCatalogs,
+                TopViewedCatalogs = stats.TopViewedCatalogs,
                 VisualEmbeddingCount = stats.VisualEmbeddingCount
             });
         }
@@ -420,7 +426,42 @@ namespace Katalogcu.API.Controllers
                 };
             }
 
+            if (resolved.isPublic)
+            {
+                var trackViewResult = await _sender.Send(new TrackCatalogViewCommand(
+                    id,
+                    resolved.userId,
+                    BuildPublicViewFingerprint(),
+                    DateTime.UtcNow,
+                    "public-view"));
+
+                if (!trackViewResult.IsSuccess)
+                {
+                    _logger.LogWarning(
+                        "Catalog view track failed. catalogId={CatalogId} userId={UserId} error={ErrorCode}",
+                        id,
+                        resolved.userId,
+                        trackViewResult.ErrorCode);
+                }
+            }
+
             return Ok(result.Value);
+        }
+
+        private string BuildPublicViewFingerprint()
+        {
+            var forwardedFor = Request.Headers["X-Forwarded-For"].ToString();
+            var ip = !string.IsNullOrWhiteSpace(forwardedFor)
+                ? forwardedFor.Split(',')[0].Trim()
+                : HttpContext.Connection.RemoteIpAddress?.ToString();
+
+            var userAgent = Request.Headers.UserAgent.ToString();
+            var acceptLanguage = Request.Headers.AcceptLanguage.ToString();
+
+            var rawFingerprint = $"{ip ?? "unknown"}|{userAgent}|{acceptLanguage}";
+            var bytes = Encoding.UTF8.GetBytes(rawFingerprint);
+            var hash = SHA256.HashData(bytes);
+            return Convert.ToHexString(hash);
         }
 
         [HttpPost]
