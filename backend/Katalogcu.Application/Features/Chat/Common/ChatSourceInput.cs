@@ -9,4 +9,6 @@ public sealed class ChatSourceInput
     public string? Description { get; init; }
     public string? LegacyDescription { get; init; }
     public string? Query { get; init; }
+    public Guid? CatalogId { get; init; }
+    public string? PageNumber { get; init; }
 }

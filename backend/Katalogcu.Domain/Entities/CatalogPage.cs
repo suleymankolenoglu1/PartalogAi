@@ -9,6 +9,7 @@ namespace Katalogcu.Domain.Entities
         public string ImageUrl { get; set; } = string.Empty;
 
         public string AiDescription { get; set; } = string.Empty;
+        public bool? IsTechnicalDrawing { get; set; }
         
         public Guid CatalogId { get; set; }
         

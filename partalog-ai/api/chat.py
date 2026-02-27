@@ -54,6 +54,20 @@ def _mask_key(value: str) -> str:
         return f"{value[:2]}...{value[-2:]}"
     return f"{value[:4]}...{value[-4:]}"
 
+
+def _normalize_location_fields(catalog_id_value, page_number_value) -> tuple[str | None, str]:
+    catalog_id = None
+    if catalog_id_value is not None:
+        raw = str(catalog_id_value).strip()
+        if raw:
+            catalog_id = raw
+
+    page_number = str(page_number_value).strip() if page_number_value is not None else ""
+    if not page_number:
+        page_number = "1"
+
+    return catalog_id, page_number
+
 def _get_gemini_urls() -> tuple[str, str, str]:
     global _gemini_key_logged
     key, source = _get_gemini_api_key_with_source()
@@ -71,13 +85,26 @@ VISUAL_FEEDBACK_RATE_LIMIT = "5/minute"
 TEXT_VECTOR_MIN_SIMILARITY = 0.50
 WEAK_MATCH_MIN_SIMILARITY = 0.52
 GEMINI_CHAT_GENERATION_CONFIG = {
-    "temperature": 0.3,
-    "maxOutputTokens": 220,
+    "temperature": 0.5,
+    "maxOutputTokens": 400,
+}
+
+_DOMAIN_PART_TERMS = {
+    "vida", "civata", "somun", "pul", "rondela", "conta", "percin",
+    "yay", "plaka", "mil", "rulman", "kayis", "kece", "igne", "disli",
+    "kapak", "pim", "burc", "kasnak", "kanca", "yayli", "nozul",
 }
 
 # ✅ Gerekli Servisler (exact_match_search eklendi)
 from services.embedding import get_text_embedding 
-from services.vector_db import search_vector_db, exact_match_search, search_visual_vector_db, update_visual_embedding_in_db
+from services.vector_db import (
+    search_vector_db,
+    exact_match_search,
+    search_visual_vector_db,
+    search_by_page_and_part,
+    get_catalog_brands,
+    update_visual_embedding_in_db,
+)
 
 router = APIRouter()
 
@@ -177,13 +204,117 @@ def _has_lexical_overlap(user_query: str, sources: list[dict]) -> bool:
 def _has_domain_part_keyword(text: str) -> bool:
     # Tek kelimelik ama domain-içi sorgular (örn: "vida var mı") için
     # overlap zorunluluğunu gevşet.
-    domain_terms = {
-        "vida", "civata", "somun", "pul", "rondela", "conta", "percin",
-        "yay", "plaka", "mil", "rulman", "kayis", "kece", "igne", "disli",
-        "kapak", "pim", "burc", "kasnak", "kanca", "yayli", "nozul",
-    }
     tokens = set(_extract_overlap_tokens(text))
-    return any(t in domain_terms for t in tokens)
+    return any(t in _DOMAIN_PART_TERMS for t in tokens)
+
+
+def _extract_requested_domain_terms(*texts: str) -> list[str]:
+    out: list[str] = []
+    for text in texts:
+        for tok in _extract_overlap_tokens(text or ""):
+            if tok in _DOMAIN_PART_TERMS and tok not in out:
+                out.append(tok)
+    return out
+
+
+def _brand_matches_available(extracted_brand: str, available_brands: list[str]) -> bool:
+    if not extracted_brand:
+        return True
+    expected = _normalize_for_overlap(extracted_brand).strip()
+    if not expected:
+        return True
+
+    for brand in available_brands:
+        normalized = _normalize_for_overlap(brand).strip()
+        if not normalized:
+            continue
+        if expected == normalized or expected in normalized or normalized in expected:
+            return True
+    return False
+
+
+def _filter_results_by_requested_terms(results: list[dict], requested_terms: list[str]) -> list[dict]:
+    if not results or not requested_terms:
+        return results
+
+    name_matched: list[dict] = []
+    for row in results:
+        part_name_norm = _normalize_for_overlap(str(row.get("PartName") or ""))
+        if any(term in part_name_norm for term in requested_terms):
+            name_matched.append(row)
+
+    if name_matched:
+        logger.info(
+            f"🧪 PartName term filtresi uygulandı: terms={requested_terms} | "
+            f"{len(results)} -> {len(name_matched)}"
+        )
+        return name_matched
+
+    filtered: list[dict] = []
+    for row in results:
+        hay = _normalize_for_overlap(
+            " ".join(
+                [
+                    str(row.get("PartName") or ""),
+                    str(row.get("Description") or ""),
+                    str(row.get("PartCode") or ""),
+                    str(row.get("RefNumber") or ""),
+                    str(row.get("Dimensions") or ""),
+                ]
+            )
+        )
+        if any(term in hay for term in requested_terms):
+            filtered.append(row)
+
+    if filtered:
+        logger.info(
+            f"🧪 Domain term filtresi uygulandı: terms={requested_terms} | "
+            f"{len(results)} -> {len(filtered)}"
+        )
+        return filtered
+
+    return results
+
+
+def _rerank_results_by_context_part(results: list[dict], context_part: str | None) -> list[dict]:
+    if not results or not context_part:
+        return results
+
+    context_tokens = [tok for tok in _extract_overlap_tokens(context_part) if len(tok) >= 3]
+    if not context_tokens:
+        return results
+
+    scored_rows: list[tuple[int, float, dict]] = []
+    for row in results:
+        hay = _normalize_for_overlap(
+            " ".join(
+                [
+                    str(row.get("PartName") or ""),
+                    str(row.get("Description") or ""),
+                    str(row.get("Mechanism") or ""),
+                    str(row.get("Dimensions") or ""),
+                    str(row.get("MachineModel") or ""),
+                ]
+            )
+        )
+        context_score = sum(1 for tok in context_tokens if tok in hay)
+        sim = row.get("similarity")
+        if not isinstance(sim, (int, float)):
+            sim = row.get("visual_similarity")
+        sim_score = float(sim) if isinstance(sim, (int, float)) else 0.0
+        scored_rows.append((context_score, sim_score, row))
+
+    max_ctx = max((x[0] for x in scored_rows), default=0)
+    if max_ctx <= 0:
+        return results
+
+    scored_rows.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    reranked = [x[2] for x in scored_rows]
+    logger.info(
+        f"🧭 Context rerank uygulandı: context='{context_part}' tokens={context_tokens} "
+        f"max_ctx={max_ctx} count={len(results)}"
+    )
+    return reranked
 
 
 _QUERY_TYPO_RULES: list[tuple[str, str]] = [
@@ -193,6 +324,35 @@ _QUERY_TYPO_RULES: list[tuple[str, str]] = [
     (r"\bvidaa\b", "vida"),
     (r"\bpercin\b", "perçin"),
 ]
+
+_KNOWN_BRANDS = [
+    "JUKI",
+    "YAMATO",
+    "PEGASUS",
+    "BROTHER",
+    "TYPICAL",
+    "SIRUBA",
+    "KANSAI",
+    "JACK",
+]
+
+_MACHINE_GROUP_ALIASES: list[tuple[str, str]] = [
+    ("overlok", "Overlok"),
+    ("surfile", "Overlok"),
+    ("recme", "Reçme"),
+    ("recmeci", "Reçme"),
+    ("coverstitch", "Reçme"),
+    ("duz", "Düz"),
+    ("duz dikis", "Düz"),
+    ("lockstitch", "Düz"),
+]
+
+_BRAND_PATTERN = re.compile(r"\b(" + "|".join(_KNOWN_BRANDS) + r")\b", re.IGNORECASE)
+_MODEL_AFTER_BRAND_PATTERN = re.compile(
+    r"\b(" + "|".join(_KNOWN_BRANDS) + r")\b[\s:/-]*([A-Z]{1,4}[- ]?\d[A-Z0-9-]*)",
+    re.IGNORECASE,
+)
+_MODEL_ONLY_PATTERN = re.compile(r"\b([A-Z]{1,4}[- ]?\d[A-Z0-9-]{1,})\b", re.IGNORECASE)
 
 
 def normalize_user_query(text: str) -> str:
@@ -235,6 +395,83 @@ def normalize_user_query(text: str) -> str:
     return t
 
 
+def _normalize_model_token(model: str | None) -> str | None:
+    if not model:
+        return None
+    m = re.sub(r"\s+", "-", model.strip().upper())
+    m = re.sub(r"-{2,}", "-", m).strip("-")
+    return m or None
+
+
+def _detect_brand_from_text(text: str) -> str | None:
+    if not text:
+        return None
+    m = _BRAND_PATTERN.search(text.upper())
+    return m.group(1).upper() if m else None
+
+
+def _detect_machine_group_from_text(text: str) -> str | None:
+    norm = _normalize_for_overlap(text or "")
+    for needle, canonical in _MACHINE_GROUP_ALIASES:
+        if needle in norm:
+            return canonical
+    return None
+
+
+def _detect_machine_model_from_text(text: str) -> tuple[str | None, str | None]:
+    if not text:
+        return None, None
+
+    up = (text or "").upper()
+    m = _MODEL_AFTER_BRAND_PATTERN.search(up)
+    if m:
+        brand = m.group(1).upper()
+        model = _normalize_model_token(m.group(2))
+        return model, brand
+
+    m2 = _MODEL_ONLY_PATTERN.search(up)
+    if m2:
+        model = _normalize_model_token(m2.group(1))
+        if model and any(ch.isdigit() for ch in model):
+            return model, None
+
+    return None, None
+
+
+def _extract_sticky_context_from_history(history_list: list | None) -> dict:
+    sticky_brand = None
+    sticky_machine_group = None
+    sticky_machine_model = None
+
+    messages = history_list or []
+    for msg in reversed(messages):
+        text = str((msg or {}).get("text") or "")
+        if not text:
+            continue
+
+        if not sticky_brand:
+            sticky_brand = _detect_brand_from_text(text)
+
+        if not sticky_machine_group:
+            sticky_machine_group = _detect_machine_group_from_text(text)
+
+        if not sticky_machine_model:
+            model, model_brand = _detect_machine_model_from_text(text)
+            if model:
+                sticky_machine_model = model
+            if not sticky_brand and model_brand:
+                sticky_brand = model_brand
+
+        if sticky_brand and sticky_machine_group and sticky_machine_model:
+            break
+
+    return {
+        "brand": sticky_brand,
+        "machine_group": sticky_machine_group,
+        "machine_model": sticky_machine_model,
+    }
+
+
 def _is_generic_part_name(name: str | None) -> bool:
     if not name:
         return False
@@ -253,11 +490,14 @@ def build_no_result_guidance(user_query: str, analysis: dict, reason: str) -> st
     part_name = (analysis or {}).get("part_name")
     dimensions = (analysis or {}).get("dimensions")
     machine_group = (analysis or {}).get("machine_group")
+    machine_model = (analysis or {}).get("machine_model")
 
     if reason == "out_of_domain":
         intro = "Ustam, bu sorgu katalogdaki parça içeriğiyle net eşleşmedi."
     elif reason == "weak_match":
         intro = "Ustam, eşleşmeler zayıf kaldı; yanlış parça önermemek için durdurdum."
+    elif reason == "low_confidence":
+        intro = "Ustam, ne aradığını büyük ölçüde anladım ama hâlâ belirsizlik var."
     else:
         intro = "Ustam, veritabanında bu sorguya doğrudan bir sonuç bulamadım."
 
@@ -265,6 +505,9 @@ def build_no_result_guidance(user_query: str, analysis: dict, reason: str) -> st
 
     if not brand:
         questions.append("Makine markası nedir? (örn: Yamato/Juki)")
+
+    if not machine_model:
+        questions.append("Makine modeli nedir? (örn: MO-3704, VG2500-8F)")
 
     if not machine_group:
         questions.append("Makine tipi nedir? (Düz dikiş / Overlok / Reçme)")
@@ -477,9 +720,10 @@ async def analyze_intent_with_gemini(text: str, history: list = None) -> dict:
     {context_block}
     ÇIKTI FORMATI (JSON):
     {{
-        "intent": "SEARCH" | "CHAT" | "PRICE" | "STOCK" | "COMPATIBILITY" | "HELP" | "COMPARE",
+        "intent": "SEARCH" | "CHAT" | "PRICE" | "STOCK" | "COMPATIBILITY" | "HELP" | "COMPARE" | "DIAGNOSE" | "ADVICE",
         "brand": "Marka Varsa Buraya (TYPICAL, JUKI, YAMATO, PEGASUS, BROTHER...)",
         "part_name": "Aranan Parçanın SAF TÜRKÇE ADI (Sıfatları ve ölçüleri at, kök ismi bul)",
+        "context_part": "Parçanın bağlamı (örn: vida neyi tutuyor/sabitleyor) varsa buraya",
         "part_code": "Parça kodu BİREBİR geçiyorsa buraya (örn: B2424-354-000, 110-40056)",
         "dimensions": "Sorgudaki ölçü, metrik veya ebat bilgisi (örn: 5mm, 3/16, M3, 10x20)",
         "parts": [
@@ -497,6 +741,13 @@ async def analyze_intent_with_gemini(text: str, history: list = None) -> dict:
     4. KOD TESPİTİ: Harf/Rakam karışık spesifik bir şey yazıldıysa (örn: S08084-001) bunu kesinlikle "part_code" alanına al!
     5. Birden fazla parça varsa "parts" listesine hepsini koy.
     6. BAĞLAM KULLANIMI: Kullanıcı "bunun", "bu parçanın", "onun fiyatı" gibi şeyler yazarsa, son mesajlardaki parçaya atıfta bulunduğunu anla ve o parçayı part_name/part_code'a koy.
+    7. BAĞLAÇ ANALİZİ: Kullanıcı "X'i sabitleyen/tutan/bağlayan/içindeki/üzerindeki Y" derse aranan parça Y'dir, X değil.
+       X sadece bağlamdır ve "context_part" alanına yazılır.
+       Örn: "ön kumaş plakasını sabitleyen vida" -> part_name="vida", context_part="ön kumaş plakası".
+    8. BAĞLAMSAL PARÇA: "sabitleyen", "tutan", "bağlayan", "içindeki", "altındaki", "üzerindeki", "montajı için"
+       gibi ilişki fiilleri varsa, fiilin bağladığı hedef isim aranan parçadır.
+    9. DIAGNOSE: Kullanıcı arıza/belirti anlatıyorsa seç. Örnek: "Makinam atlıyor", "ses yapıyor", "iplik kopuyor".
+    10. ADVICE: Kullanıcı öneri/tavsiye istiyorsa seç. Örnek: "Hangi iğneyi kullanmalıyım?", "ne önerirsin?".
     """
     payload = {
         "contents": [{"parts": [{"text": system_prompt + f"\n\nKULLANICI MESAJI: {text}"}]}],
@@ -508,17 +759,17 @@ async def analyze_intent_with_gemini(text: str, history: list = None) -> dict:
             key, api_url, _ = _get_gemini_urls()
             if not key:
                 logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
-                return {"intent": "SEARCH", "brand": None, "part_name": text, "machine_group": None}
+                return _normalize_intent_payload(None, text)
             async with session.post(api_url, json=payload) as resp:
                 if resp.status == 200:
                     res = await resp.json()
                     text_resp = res["candidates"][0]["content"]["parts"][0]["text"]
-                    return json.loads(text_resp)
+                    return _normalize_intent_payload(json.loads(text_resp), text)
                 else:
-                    return {"intent": "SEARCH", "brand": None, "part_name": text, "machine_group": None}
+                    return _normalize_intent_payload(None, text)
     except Exception as e:
         logger.error(f"Router Hatası: {e}")
-        return {"intent": "SEARCH", "brand": None, "part_name": text, "machine_group": None}
+        return _normalize_intent_payload(None, text)
 
 def split_terms(text: str):
     if not text:
@@ -528,6 +779,51 @@ def split_terms(text: str):
     for sep in seps:
         parts = [p for chunk in parts for p in chunk.split(sep)]
     return [p.strip() for p in parts if p.strip()]
+
+
+_ALLOWED_INTENTS = {
+    "SEARCH",
+    "CHAT",
+    "PRICE",
+    "STOCK",
+    "COMPATIBILITY",
+    "HELP",
+    "COMPARE",
+    "DIAGNOSE",
+    "ADVICE",
+}
+
+
+def _normalize_intent_payload(payload: dict | None, fallback_text: str) -> dict:
+    base = {
+        "intent": "SEARCH",
+        "brand": None,
+        "part_name": fallback_text,
+        "machine_group": None,
+    }
+    if not isinstance(payload, dict):
+        return base
+
+    normalized = dict(payload)
+    intent = str(normalized.get("intent", "SEARCH")).strip().upper()
+    normalized["intent"] = intent if intent in _ALLOWED_INTENTS else "SEARCH"
+    normalized.setdefault("brand", None)
+    normalized.setdefault("part_name", fallback_text)
+    normalized.setdefault("context_part", None)
+    normalized.setdefault("machine_group", None)
+    return normalized
+
+
+def _extract_confidence_value(analysis: dict) -> float | None:
+    val = (analysis or {}).get("confidence")
+    if isinstance(val, (int, float)):
+        try:
+            f = float(val)
+            if 0.0 <= f <= 1.0:
+                return f
+        except Exception:
+            return None
+    return None
 
 # =========================================================
 # 🔧 ORTAK ARAMA YARDIMCISI (send + stream paylaşır)
@@ -567,6 +863,8 @@ async def _prepare_chat_context(
     except Exception:
         history_list_for_intent = []
 
+    sticky_context = _extract_sticky_context_from_history(history_list_for_intent)
+
     image_analysis = {}
 
     if file is not None:
@@ -576,18 +874,23 @@ async def _prepare_chat_context(
             analyze_image_with_gemini(image_bytes, raw_user_query),
             return_exceptions=True
         )
-        analysis = results[0] if isinstance(results[0], dict) else {"intent": "SEARCH", "brand": None, "part_name": user_query, "machine_group": None}
+        analysis = _normalize_intent_payload(results[0] if isinstance(results[0], dict) else None, user_query)
         image_analysis = results[1] if isinstance(results[1], dict) else {}
         analysis["image_analysis"] = image_analysis
     else:
-        analysis = await analyze_intent_with_gemini(user_query, history=history_list_for_intent)
+        analysis = _normalize_intent_payload(
+            await analyze_intent_with_gemini(user_query, history=history_list_for_intent),
+            user_query,
+        )
 
     intent = analysis.get("intent", "CHAT")
     extracted_brand = analysis.get("brand")
     extracted_part = analysis.get("part_name")
+    extracted_context_part = analysis.get("context_part")
     extracted_code = analysis.get("part_code")
     extracted_dim = analysis.get("dimensions")
     extracted_machine_group = analysis.get("machine_group")
+    extracted_machine_model = analysis.get("machine_model")
 
     if file is not None:
         img_part = image_analysis.get("candidate_part_name")
@@ -610,21 +913,81 @@ async def _prepare_chat_context(
                 intent = "SEARCH"
                 analysis["intent"] = "SEARCH"
 
+    if (not extracted_brand) and sticky_context.get("brand"):
+        extracted_brand = sticky_context["brand"]
+        analysis["brand"] = extracted_brand
+
+    if (not extracted_machine_group) and sticky_context.get("machine_group"):
+        extracted_machine_group = sticky_context["machine_group"]
+        analysis["machine_group"] = extracted_machine_group
+
+    if (not extracted_machine_model) and sticky_context.get("machine_model"):
+        extracted_machine_model = sticky_context["machine_model"]
+        analysis["machine_model"] = extracted_machine_model
+
+    confidence = _extract_confidence_value(analysis)
+    if confidence is not None and confidence < 0.60:
+        logger.info(
+            f"⚠️ Low intent confidence early-exit: confidence={confidence:.2f} intent={intent} query={raw_user_query}"
+        )
+        msg = build_no_result_guidance(raw_user_query, analysis, reason="low_confidence")
+        return {"early": True, "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis}}
+
     parts = analysis.get("parts")
     if not parts:
         if extracted_part or extracted_code:
-            parts = [{"part_name": extracted_part, "part_code": extracted_code, "dimensions": extracted_dim}]
+            parts = [
+                {
+                    "part_name": extracted_part,
+                    "part_code": extracted_code,
+                    "dimensions": extracted_dim,
+                    "context_part": extracted_context_part,
+                }
+            ]
         else:
             parts = []
 
     if len(parts) <= 1 and intent == "SEARCH" and not extracted_code:
         fallback_parts = split_terms(user_query)
         if len(fallback_parts) > 1:
-            parts = [{"part_name": p, "part_code": None, "dimensions": None} for p in fallback_parts]
+            parts = [
+                {
+                    "part_name": p,
+                    "part_code": None,
+                    "dimensions": None,
+                    "context_part": extracted_context_part,
+                }
+                for p in fallback_parts
+            ]
+
+    if parts:
+        normalized_parts = []
+        for part in parts:
+            if isinstance(part, dict):
+                p = dict(part)
+                p.setdefault("context_part", extracted_context_part)
+                normalized_parts.append(p)
+        parts = normalized_parts if normalized_parts else parts
 
     analysis["parts"] = parts
 
-    if intent == "CHAT" or (not extracted_part and not extracted_code and not parts):
+    # Marka belirtildiyse aramaya başlamadan önce katalog kapsamında gerçekten var mı kontrol et.
+    # Yoksa fallback'e girmeden erken çık.
+    if extracted_brand:
+        available_brands = await get_catalog_brands(catalog_ids_list)
+        if not _brand_matches_available(str(extracted_brand), available_brands):
+            brands_text = ", ".join(available_brands[:10]) if available_brands else "tespit edilemedi"
+            msg = (
+                f"Ustam, depoda '{extracted_brand}' markalı katalog bulunmuyor. "
+                f"Mevcut markalar: {brands_text}."
+            )
+            return {
+                "early": True,
+                "response": {"answer": msg, "reply": msg, "sources": [], "debug_intent": analysis},
+            }
+
+    is_diagnose_or_advice = intent in {"DIAGNOSE", "ADVICE"}
+    if intent == "CHAT" or ((not extracted_part and not extracted_code and not parts) and not is_diagnose_or_advice):
         if image_analysis:
             candidate = image_analysis.get("candidate_part_name") or "parça adı çıkarılamadı"
             brand_hint = image_analysis.get("detected_brand_text") or "marka okunamadı"
@@ -648,6 +1011,7 @@ async def _prepare_chat_context(
 
     # ✅ Multi-part & Hybrid Search
     all_sources = []
+    context_page_hints: list[str] = []
 
     # --- YENİ: VISUAL SEARCH (VisualEmbedding dolu parçalarda önce ara) ---
     visual_sources = []
@@ -720,10 +1084,15 @@ async def _prepare_chat_context(
                 # visual_results'ı visual_sources'a ekle
                 for vr in visual_results:
                     p_code_db = vr.get("PartCode", "-")
+                    p_ref_db = vr.get("RefNumber", "")
                     p_name_db = vr.get("PartName", "Bilinmeyen")
                     p_brand_db = vr.get("MachineBrand", "-")
                     p_model_db = vr.get("MachineModel", "")
                     p_desc_db = vr.get("Description", "")
+                    p_catalog_id, p_page_number = _normalize_location_fields(
+                        vr.get("CatalogId"),
+                        vr.get("ViewerPageNumber") or vr.get("PageNumber"),
+                    )
                     visual_img_url = vr.get("VisualImageUrl")
                     safe_code = urllib.parse.quote(p_code_db.strip())
                     buy_link = f"{SHOP_BASE_URL}{safe_code}"
@@ -736,6 +1105,9 @@ async def _prepare_chat_context(
                             "name": p_name_db,
                             "brand": p_brand_db,
                             "buy_url": buy_link,
+                            "catalogId": p_catalog_id,
+                            "pageNumber": p_page_number,
+                            "refNo": p_ref_db,
                             "machine_model": p_model_db,
                             "description": p_desc_db,
                             "query": embedding_text_for_search,
@@ -754,11 +1126,59 @@ async def _prepare_chat_context(
         p_code = part.get("part_code")
         p_name = part.get("part_name")
         p_dim = part.get("dimensions")
+        p_context_part = part.get("context_part") or extracted_context_part
+        requested_terms = _extract_requested_domain_terms(p_name or "", raw_user_query or "")
 
         part_results = []
         is_fallback = False
         fallback_reason = None
         query_vector = None  # Adım 3'te hesaplanır, 4 ve 5'te yeniden kullanılır
+
+        # ADIM 0: context_part varsa önce bağlam parçasının geçtiği sayfayı bul,
+        # sonra aynı sayfada aranan parçayı tara.
+        if p_context_part and p_name and not p_code:
+            context_query_vector = await get_text_embedding(str(p_context_part))
+            context_anchor_results = []
+            if context_query_vector:
+                context_anchor_results = await search_vector_db(
+                    query_vector=context_query_vector,
+                    brand_filter=extracted_brand,
+                    limit=5,
+                    catalog_ids=catalog_ids_list,
+                    machine_group_filter=extracted_machine_group,
+                    min_similarity=0.40,
+                )
+                logger.info(
+                    f"🧭 Context anchor search: context_part='{p_context_part}' -> {len(context_anchor_results)} sonuç"
+                )
+
+            if context_anchor_results:
+                anchor = context_anchor_results[0]
+                anchor_catalog_id = anchor.get("CatalogId")
+                anchor_page = str(anchor.get("PageNumber") or "").strip()
+                anchor_code = anchor.get("PartCode")
+                if anchor_catalog_id and anchor_page:
+                    page_scoped_results = await search_by_page_and_part(
+                        catalog_ids=[anchor_catalog_id],
+                        page_number=anchor_page,
+                        part_name=str(p_name),
+                        limit=5,
+                        brand_filter=extracted_brand,
+                        machine_group_filter=extracted_machine_group,
+                    )
+                    logger.info(
+                        f"🧭 Context page search: catalog={anchor_catalog_id} page={anchor_page} "
+                        f"part='{p_name}' -> {len(page_scoped_results)} sonuç"
+                    )
+                    if page_scoped_results:
+                        part_results = page_scoped_results
+                        is_fallback = True
+                        fallback_reason = "context_page_match"
+                        sample_codes = [str(r.get("PartCode") or "-") for r in page_scoped_results[:4]]
+                        context_page_hints.append(
+                            f"'{p_context_part}' için bulunan ana parça: {anchor_code or '-'} (sayfa {anchor_page}). "
+                            f"Aynı sayfadaki '{p_name}' sonuçları: {', '.join(sample_codes)}."
+                        )
 
         # HİBRİT ADIM 1: EXACT MATCH (marka + machine_group ile)
         if p_code:
@@ -777,7 +1197,7 @@ async def _prepare_chat_context(
         if not part_results and p_name:
             logger.info(f"🧠 Kod yok veya bulunamadı. Vektör (Semantic) aranıyor: {p_name}")
             # Vektör gücünü arttırmak için ölçüyü de ekle
-            search_query = f"{p_name} {p_dim}" if p_dim else p_name
+            search_query = " ".join([x for x in [p_name, p_dim, p_context_part] if x])
             query_vector = await get_text_embedding(search_query)
 
             if query_vector:
@@ -826,12 +1246,19 @@ async def _prepare_chat_context(
                     fallback_reason = "all_filters_removed"
 
         # Sonuçları listeye toparla
+        part_results = _rerank_results_by_context_part(part_results, p_context_part)
+        part_results = _filter_results_by_requested_terms(part_results, requested_terms)
         for p in part_results:
             p_code_db = p.get('PartCode', '-')
+            p_ref_db = p.get("RefNumber", "")
             p_name_db = p.get('PartName', 'Bilinmeyen')
             p_brand_db = p.get('MachineBrand', '-')
             p_model_db = p.get('MachineModel', '')
             p_desc_db = p.get('Description', '')
+            p_catalog_id, p_page_number = _normalize_location_fields(
+                p.get("CatalogId"),
+                p.get("ViewerPageNumber") or p.get("PageNumber"),
+            )
 
             safe_code = urllib.parse.quote(p_code_db.strip())
             buy_link = f"{SHOP_BASE_URL}{safe_code}"
@@ -843,6 +1270,9 @@ async def _prepare_chat_context(
                     "name": p_name_db,
                     "brand": p_brand_db,
                     "buy_url": buy_link,
+                    "catalogId": p_catalog_id,
+                    "pageNumber": p_page_number,
+                    "refNo": p_ref_db,
                     "machine_model": p_model_db,
                     "description": p_desc_db,
                     "query": p_name or p_code,
@@ -854,6 +1284,18 @@ async def _prepare_chat_context(
                 all_sources.append(source_entry)
 
     logger.success(f"📦 Toplam Bulunan Benzersiz Sonuç: {len(all_sources)}")
+    logger.info(
+        "📍 Source preview: {}",
+        [
+            {
+                "code": s.get("code"),
+                "refNo": s.get("refNo"),
+                "pageNumber": s.get("pageNumber"),
+                "catalogId": (s.get("catalogId") or "")[:8],
+            }
+            for s in all_sources[:5]
+        ],
+    )
 
     if not all_sources:
         msg = build_no_result_guidance(raw_user_query, analysis, reason="no_result")
@@ -909,23 +1351,95 @@ async def _prepare_chat_context(
     except Exception:
         history_text = ""
 
+    conversation_machine = None
+    if extracted_brand and extracted_machine_model:
+        conversation_machine = f"{extracted_brand} {extracted_machine_model}"
+    elif extracted_machine_model:
+        conversation_machine = extracted_machine_model
+    elif extracted_brand and extracted_machine_group:
+        conversation_machine = f"{extracted_brand} ({extracted_machine_group})"
+    elif extracted_brand:
+        conversation_machine = extracted_brand
+    elif extracted_machine_group:
+        conversation_machine = extracted_machine_group
+
+    machine_context_line = (
+        f"BU SOHBETTE KONUŞULAN MAKİNE: {conversation_machine}\n"
+        if conversation_machine
+        else ""
+    )
+    context_parts = []
+    if extracted_context_part:
+        context_parts.append(str(extracted_context_part).strip())
+    for p in parts or []:
+        cp = str((p or {}).get("context_part") or "").strip()
+        if cp and cp not in context_parts:
+            context_parts.append(cp)
+    relation_context_line = (
+        f"PARÇA BAĞLAMI (NEYİN ÜZERİNDE/İÇİNDE): {', '.join(context_parts)}\n"
+        if context_parts
+        else ""
+    )
+    context_page_hint_block = (
+        "BAĞLAM SAYFA EŞLEŞTİRME NOTU:\n"
+        + "\n".join([f"- {h}" for h in context_page_hints[:3]])
+        + "\n"
+        if context_page_hints
+        else ""
+    )
+
+    intent_mode_block = ""
+    if intent == "DIAGNOSE":
+        intent_mode_block = (
+            "AKTİF NİYET: DIAGNOSE\n"
+            "- Teşhis modunda cevap ver.\n"
+            "- Olası 2-3 teknik nedeni kısa yaz.\n"
+            "- Sonunda teşhisi netleştirecek 1-2 soru sor.\n"
+        )
+    elif intent == "ADVICE":
+        intent_mode_block = (
+            "AKTİF NİYET: ADVICE\n"
+            "- Öneri modunda cevap ver.\n"
+            "- 2-3 uygulanabilir öneri sun ve hangi durumda hangisinin uygun olduğunu belirt.\n"
+            "- Gerekiyorsa model/ölçü netleştirme sorusu sor.\n"
+        )
+
     # 5. FİNAL PROMPT
     final_prompt = f"""
-Sen sanayi yedek parça uzmanısın (Partalog AI). Kısa, samimi, usta ağzıyla konuş.
+Sen Partalog AI'sın: 20 yıllık tekstil makinesi ustası gibi konuşan, Juki / Yamato / Pegasus hatlarını iyi bilen
+sanayi yedek parça uzmanısın. Dilin samimi, net, usta işi olsun.
 
 {"SOHBET GEÇMİŞİ (bağlam için kullan):" + chr(10) + history_text + chr(10) if history_text else ""}
 ŞİMDİKİ KULLANICI SORUSU: "{raw_user_query}"
+{machine_context_line}
+{relation_context_line}
+{context_page_hint_block}
 
 DEPODAN BULDUĞUN PARÇALAR:
 {context_text}
 
-GÖREV:
-1. Bulduğun parçaları özetle. Marka, model, ölçü uyumuna dikkat çek.
-2. Sohbet geçmişindeki bağlamı kullan — kullanıcı "bu parçanın fiyatı ne?" derse hangi parçadan bahsettiğini geçmişten anla.
-3. Sadece listelenen parçaları referans al; liste dışı marka/model/ürün uydurma.
-4. Eğer listede net ve güçlü bir eşleşme yoksa kullanıcıdan net bilgi iste.
-5. Link verme, sistem zaten gösterecek.
-6. Maksimum 3-4 cümle yaz.
+NİYET SINIFI: {intent}
+{intent_mode_block}
+
+GÖREVİ 3 MODDA YÜRÜT:
+MOD-1) DEPODA PARÇA BULUNDU:
+- Uygun parçaları kısa listele.
+- Marka/model/ölçü veya kullanım uyumunu açıkça söyle.
+- Varsa kritik farkı belirt (ör. diş ölçüsü, pitch, model uyumu).
+
+MOD-2) DEPODA NET PARÇA YOK AMA BELİRTİ VAR:
+- Kısa teşhis yap.
+- 1-2 net soru sor (marka-model, ölçü, eski kod, foto gibi) ve doğru parçayı daralt.
+
+MOD-3) GENEL SOHBET:
+- Kibarca yönlendir, sohbet bağlamını koru.
+- Konuyu parça aramaya veya teknik bilgiye geri bağla.
+
+KURALLAR:
+1) Sadece listelenen parçaları referans al; liste dışı marka/model/ürün uydurma.
+2) Sohbet geçmişindeki referansı koru (kullanıcı "bu parça" derse önceki bağlamdan anla).
+3) Link verme, sistem zaten gösterecek.
+4) Cevabı kısa ama doyurucu tut (genelde 4-6 cümle).
 """
 
     return {

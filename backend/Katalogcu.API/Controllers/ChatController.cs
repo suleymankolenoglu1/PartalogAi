@@ -134,7 +134,9 @@ namespace Katalogcu.API.Controllers
                         LegacyModel = source.LegacyModel,
                         Description = source.Description,
                         LegacyDescription = source.LegacyDescription,
-                        Query = source.Query
+                        Query = source.Query,
+                        CatalogId = source.CatalogId ?? source.LegacyCatalogId,
+                        PageNumber = source.PageNumber ?? source.LegacyPageNumber
                     })
                     .ToList();
 

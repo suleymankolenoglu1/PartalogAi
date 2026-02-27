@@ -252,6 +252,34 @@ input::placeholder {
     padding: 8px 0;
     overflow-y: auto;
     max-height: 60vh;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+}
+
+.chat-main-active {
+    display: flex;
+    flex-direction: column;
+    min-height: 520px;
+    max-height: 75vh;
+}
+
+.chat-main-active .messages-container {
+    flex: 1;
+    min-height: 0;
+    max-height: 52vh;
+    padding-right: 6px;
+    margin-bottom: 10px;
+}
+
+.chat-composer-shell {
+    margin-top: 14px;
+}
+
+.chat-composer-sticky {
+    margin-top: auto;
+    position: sticky;
+    bottom: 10px;
+    z-index: 30;
 }
 
 .message-bubble-user {
@@ -410,6 +438,66 @@ input::placeholder {
     font-size: 10px;
     color: #64748b;
     line-height: 1.2;
+}
+
+.part-location-text {
+    margin-top: 5px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.source-chip-page {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1e40af;
+}
+
+.part-action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+}
+
+.part-open-button,
+.part-cart-button {
+    border-radius: 8px;
+    border: 1px solid #dbe2ea;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+}
+
+.part-open-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
+.part-open-button .material-symbols-outlined {
+    font-size: 13px;
+}
+
+.part-open-button:hover {
+    background: #dbeafe;
+    border-color: #93c5fd;
+}
+
+.part-cart-button {
+    color: #1d1d1f;
+    background: #f8fafc;
+}
+
+.part-cart-button:hover {
+    background: #1d1d1f;
+    color: #ffffff;
+    border-color: #1d1d1f;
 }
 
 /* Yükleniyor: 3 nokta animasyonu */

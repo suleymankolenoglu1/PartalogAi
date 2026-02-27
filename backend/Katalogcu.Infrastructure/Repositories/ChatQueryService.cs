@@ -104,6 +104,11 @@ public sealed class ChatQueryService : IChatQueryService
 
             var sourceModel = source.Model ?? source.LegacyModel;
             var sourceDesc = source.Description ?? source.LegacyDescription;
+            var sourceCatalogId = source.CatalogId.HasValue && catalogIds.Contains(source.CatalogId.Value)
+                ? source.CatalogId.Value
+                : Guid.Empty;
+            var sourcePageNumber = string.IsNullOrWhiteSpace(source.PageNumber) ? "1" : source.PageNumber.Trim();
+            var resolvedCatalogItemPage = ResolveViewerPageNumber(catItem);
 
             string? finalName = catItem?.PartName;
             if (string.IsNullOrWhiteSpace(finalName) || finalName == "Unknown Part") finalName = source.Name;
@@ -117,8 +122,8 @@ public sealed class ChatQueryService : IChatQueryService
                 Name = finalName,
                 Description = catItem?.Description ?? sourceDesc,
                 Model = sourceModel,
-                CatalogId = catItem?.CatalogId ?? Guid.Empty,
-                PageNumber = catItem?.PageNumber,
+                CatalogId = catItem?.CatalogId ?? sourceCatalogId,
+                PageNumber = resolvedCatalogItemPage ?? sourcePageNumber,
                 StockStatus = product != null ? "Stokta Var" : "Stokta Yok",
                 Price = product?.Price,
                 ImageUrl = !string.IsNullOrWhiteSpace(catItem?.VisualImageUrl) ? catItem.VisualImageUrl : product?.ImageUrl
@@ -200,11 +205,26 @@ public sealed class ChatQueryService : IChatQueryService
                 Name = displayName,
                 Description = targetItem.Description,
                 CatalogId = targetItem.CatalogId,
-                PageNumber = targetItem.PageNumber,
+                PageNumber = ResolveViewerPageNumber(targetItem),
                 StockStatus = product != null ? "Stokta Var" : "Stokta Yok",
                 Price = product?.Price,
                 ImageUrl = !string.IsNullOrWhiteSpace(targetItem.VisualImageUrl) ? targetItem.VisualImageUrl : product?.ImageUrl
             };
         }).ToList();
+    }
+
+    private static string ResolveViewerPageNumber(CatalogItem? item)
+    {
+        if (item is null)
+        {
+            return "1";
+        }
+
+        if (item.VisualPageNumber.HasValue && item.VisualPageNumber.Value > 0)
+        {
+            return item.VisualPageNumber.Value.ToString();
+        }
+
+        return string.IsNullOrWhiteSpace(item.PageNumber) ? "1" : item.PageNumber;
     }
 }

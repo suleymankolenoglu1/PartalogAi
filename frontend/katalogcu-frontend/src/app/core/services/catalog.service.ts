@@ -146,6 +146,7 @@ export interface CatalogPage {
   catalogId: string;
   pageNumber: number;
   imageUrl: string;
+  isTechnicalDrawing?: boolean | null;
   width?: number;
   height?: number;
   hotspots?: Hotspot[];

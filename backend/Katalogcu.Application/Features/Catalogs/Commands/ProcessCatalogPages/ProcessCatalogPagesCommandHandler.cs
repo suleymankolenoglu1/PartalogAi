@@ -96,6 +96,7 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
 
                 var analysis = await _partalogAiService.AnalyzePageAsync(fileBytes);
                 page.AiDescription = analysis.Title ?? string.Empty;
+                page.IsTechnicalDrawing = analysis.IsTechnicalDrawing;
 
                 if (analysis.IsPartsList)
                 {
@@ -219,7 +220,7 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
             Dimensions = item.Dimensions
         };
 
-        var embeddingText = $"{item.PartName} {item.Description} {item.PartCode}".Trim();
+        var embeddingText = $"{item.PartName} {item.Description} {item.PartCode} {mechanism}".Trim();
         if (!string.IsNullOrWhiteSpace(embeddingText))
         {
             var vectorData = await _partalogAiService.GetEmbeddingAsync(embeddingText);

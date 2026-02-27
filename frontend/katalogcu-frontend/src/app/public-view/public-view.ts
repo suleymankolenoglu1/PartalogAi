@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -46,6 +46,7 @@ export class PublicViewComponent implements OnInit {
   private aiService = inject(AiService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  @ViewChild('messagesContainer') private messagesContainer?: ElementRef<HTMLDivElement>;
 
   // --- UI Durum Yönetimi ---
   searchText: string = '';
@@ -77,6 +78,7 @@ export class PublicViewComponent implements OnInit {
   latestAssistantMessage: ChatMessage | null = null;
   savingFeedbackCode: string | null = null;
   savedFeedbackKeys = new Set<string>();
+  private pendingAutoScroll = false;
 
   // --- Veri Havuzu ---
   visibleCatalogs: Catalog[] = [];
@@ -123,6 +125,7 @@ export class PublicViewComponent implements OnInit {
               compareGroups: lastAi.compareGroups || [],
             };
           }
+          setTimeout(() => this.scrollMessagesToBottom(), 0);
         }
       } catch (e) { console.warn('chat history parse error:', e); }
     }
@@ -185,6 +188,17 @@ export class PublicViewComponent implements OnInit {
   // 0. Sohbet Geçmişini Kaydet
   private saveHistory() {
     localStorage.setItem(this.getHistoryStorageKey(), JSON.stringify(this.messages));
+  }
+
+  private scrollMessagesToBottom() {
+    if (this.pendingAutoScroll) return;
+    this.pendingAutoScroll = true;
+    requestAnimationFrame(() => {
+      this.pendingAutoScroll = false;
+      const container = this.messagesContainer?.nativeElement;
+      if (!container) return;
+      container.scrollTop = container.scrollHeight;
+    });
   }
 
   // 0b. Sohbet Geçmişini Temizle
@@ -254,6 +268,7 @@ export class PublicViewComponent implements OnInit {
     this.messages.push(userMsg);
     this.chatHistory.push({ role: 'user', text: userText });
     this.saveHistory();
+    this.scrollMessagesToBottom();
 
     // Streaming asistan mesajı placeholder ekle
     const streamingMsg: ChatMessage = {
@@ -264,6 +279,7 @@ export class PublicViewComponent implements OnInit {
       isStreaming: true,
     };
     this.messages.push(streamingMsg);
+    this.scrollMessagesToBottom();
 
     let streamingText = '';
 
@@ -278,7 +294,7 @@ export class PublicViewComponent implements OnInit {
         if (event.type === 'sources') {
           const mappedProducts = (event.sources || []).map((part: any) => ({
             id: part.id,
-            catalogItemId: this.buildAiCartItemId(part),
+            catalogItemId: part.catalogItemId ?? part.catalog_item_id ?? part.id ?? this.buildAiCartItemId(part),
             code: part.code,
             refNo: part.refNo ?? part.ref_no,
             name: part.name,
@@ -306,10 +322,12 @@ export class PublicViewComponent implements OnInit {
             products: mappedProducts,
           };
           this.messages = [...this.messages];
+          this.scrollMessagesToBottom();
         } else if (event.type === 'token') {
           streamingText += event.token;
           streamingMsg.text = streamingText;
           this.messages = [...this.messages];
+          this.scrollMessagesToBottom();
           if (this.aiState.response) {
             this.aiState.response = { ...this.aiState.response, replySuggestion: streamingText };
           }
@@ -321,6 +339,7 @@ export class PublicViewComponent implements OnInit {
             products: streamingMsg.products || [],
           };
           this.messages = [...this.messages];
+          this.scrollMessagesToBottom();
           this.chatHistory.push({ role: 'assistant', text: streamingText });
           this.saveHistory();
           this.feedbackMessage = null;
@@ -337,6 +356,7 @@ export class PublicViewComponent implements OnInit {
         streamingMsg.text = '⚠️ Bağlantı hatası, lütfen tekrar deneyin.';
         streamingMsg.isStreaming = false;
         this.messages = [...this.messages];
+        this.scrollMessagesToBottom();
       }
     });
   }
@@ -404,8 +424,89 @@ export class PublicViewComponent implements OnInit {
     });
   }
 
-  openCatalog(catalogId: string) {
+  openCatalog(catalogId: string, pageNumber?: string | number | null) {
+    if (pageNumber !== undefined && pageNumber !== null && String(pageNumber).trim() !== '') {
+      const parsedPage = Number.parseInt(String(pageNumber), 10);
+      const pageIndex = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage - 1 : 0;
+      this.router.navigate(
+        ['/view', catalogId, 'viewer', pageIndex],
+        { queryParams: { token: this.publicToken, page: String(pageNumber) } }
+      );
+      return;
+    }
+
     this.router.navigate(['/view', catalogId], { queryParams: { token: this.publicToken } }); 
+  }
+
+  openPartInCatalog(part: any) {
+    const catalogId = String(part?.catalogId ?? '').trim();
+    if (!catalogId) return;
+
+    const rawPageNumber = part?.pageNumber;
+    const parsedPage = Number.parseInt(String(rawPageNumber ?? ''), 10);
+    const safePage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const fallbackNavigate = () => this.openCatalog(catalogId, rawPageNumber);
+
+    const queryParams: Record<string, string> = {};
+    if (this.publicToken) queryParams['token'] = this.publicToken;
+
+    if (rawPageNumber !== undefined && rawPageNumber !== null && String(rawPageNumber).trim() !== '') {
+      queryParams['page'] = String(rawPageNumber);
+    }
+
+    const refNo = String(part?.refNo ?? part?.ref_no ?? '').trim();
+    if (refNo) queryParams['ref'] = refNo;
+
+    const partCode = String(part?.code ?? '').trim();
+    if (partCode) queryParams['code'] = partCode;
+
+    const catalogItemId = String(part?.catalogItemId ?? '').trim();
+    if (catalogItemId) queryParams['itemId'] = catalogItemId;
+    if (!this.publicToken) {
+      this.router.navigate(
+        ['/view', catalogId, 'viewer', safePage - 1],
+        { queryParams }
+      );
+      return;
+    }
+
+    this.catalogService.getCatalogById(catalogId, { publicToken: this.publicToken }).subscribe({
+      next: (catalog) => {
+        const pages = catalog?.pages || [];
+        const refNoNorm = String(part?.refNo ?? part?.ref_no ?? '').trim().toLowerCase();
+        const partCodeNorm = String(part?.code ?? '').trim().toLowerCase();
+        const technicalPageByHotspot = pages.find((p) => {
+          if (p.isTechnicalDrawing !== true) return false;
+          const hotspots = p.hotspots || [];
+          return hotspots.some((h: any) => {
+            const label = String(h?.label ?? '').trim().toLowerCase();
+            if (!label) return false;
+            return (refNoNorm && label === refNoNorm) || (partCodeNorm && label === partCodeNorm);
+          });
+        });
+        const technicalPage = technicalPageByHotspot || pages.find(
+          (p) => p.pageNumber === safePage && p.isTechnicalDrawing === true
+        );
+        if (!technicalPage) {
+          fallbackNavigate();
+          return;
+        }
+
+        const technicalIndex = pages.findIndex((p) => p.id === technicalPage.id);
+        if (technicalIndex < 0) {
+          fallbackNavigate();
+          return;
+        }
+
+        queryParams['page'] = String(safePage);
+        queryParams['preferTech'] = '1';
+        this.router.navigate(
+          ['/view', catalogId, 'viewer', technicalIndex],
+          { queryParams }
+        );
+      },
+      error: () => fallbackNavigate()
+    });
   }
 
   goCheckout() {
@@ -508,6 +609,8 @@ export class PublicViewComponent implements OnInit {
         return 'Makine grubu filtresi kaldırıldı';
       case 'all_filters_removed':
         return 'Tüm filtreler kaldırıldı';
+      case 'context_page_match':
+        return 'Bağlam sayfası eşleşmesi';
       default:
         return reason || 'Fallback';
     }

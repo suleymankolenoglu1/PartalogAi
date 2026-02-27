@@ -102,11 +102,16 @@ async def exact_match_search(part_code: str, brand_filter: str = None, catalog_i
         sql = """
             SELECT 
                 "Id",
+                "CatalogId",
+                "PageNumber",
+                COALESCE("VisualPageNumber"::text, NULLIF("PageNumber", '')) AS "ViewerPageNumber",
+                "RefNumber",
                 "PartCode",
                 "PartName",
                 "MachineBrand",
                 "MachineModel", 
                 "MachineGroup",
+                "Mechanism",
                 "Description",
                 "Dimensions",
                 1.0 as similarity 
@@ -167,11 +172,16 @@ async def search_vector_db(query_vector: list, brand_filter: str = None, limit: 
         sql = """
             SELECT 
                 "Id",
+                "CatalogId",
+                "PageNumber",
+                COALESCE("VisualPageNumber"::text, NULLIF("PageNumber", '')) AS "ViewerPageNumber",
+                "RefNumber",
                 "PartCode",
                 "PartName",
                 "MachineBrand",
                 "MachineModel", 
                 "MachineGroup",
+                "Mechanism",
                 "Description",
                 "Dimensions",
                 1 - ("Embedding" <=> $1) as similarity
@@ -233,11 +243,16 @@ async def search_visual_vector_db(query_vector: list, brand_filter: str = None, 
         sql = """
             SELECT 
                 "Id",
+                "CatalogId",
+                "PageNumber",
+                COALESCE("VisualPageNumber"::text, NULLIF("PageNumber", '')) AS "ViewerPageNumber",
+                "RefNumber",
                 "PartCode",
                 "PartName",
                 "MachineBrand",
                 "MachineModel",
                 "MachineGroup",
+                "Mechanism",
                 "Description",
                 "Dimensions",
                 "VisualImageUrl",
@@ -274,6 +289,128 @@ async def search_visual_vector_db(query_vector: list, brand_filter: str = None, 
 
     except Exception as e:
         logger.error(f"❌ Visual Vektör Arama Hatası: {e}")
+        return []
+    finally:
+        await _release_conn(conn, from_pool)
+
+
+async def search_by_page_and_part(
+    catalog_ids: list,
+    page_number: str,
+    part_name: str,
+    limit: int = 5,
+    brand_filter: str = None,
+    machine_group_filter: str = None,
+):
+    """
+    Belirli CatalogId + PageNumber içinde parça adına göre arama yapar.
+    context_part tabanlı iki adımlı arama akışında kullanılır.
+    """
+    conn, from_pool = await _get_conn()
+    if not conn:
+        return []
+
+    try:
+        normalized_page = str(page_number or "").strip()
+        normalized_part = str(part_name or "").strip()
+        if not normalized_page or not normalized_part:
+            return []
+
+        if not catalog_ids:
+            return []
+
+        sql = """
+            SELECT
+                "Id",
+                "CatalogId",
+                "PageNumber",
+                COALESCE("VisualPageNumber"::text, NULLIF("PageNumber", '')) AS "ViewerPageNumber",
+                "RefNumber",
+                "PartCode",
+                "PartName",
+                "MachineBrand",
+                "MachineModel",
+                "MachineGroup",
+                "Mechanism",
+                "Description",
+                "Dimensions",
+                "VisualImageUrl"
+            FROM "CatalogItems"
+            WHERE
+                "CatalogId" = ANY($1)
+                AND ("PageNumber" = $2 OR COALESCE("VisualPageNumber"::text, '') = $2)
+                AND (
+                    "PartName" ILIKE $3
+                    OR "Description" ILIKE $3
+                    OR "PartCode" ILIKE $3
+                    OR "RefNumber" ILIKE $3
+                )
+        """
+
+        params = [catalog_ids, normalized_page, f"%{normalized_part}%"]
+        param_idx = 4
+
+        if brand_filter:
+            sql += f" AND \"MachineBrand\" ILIKE ${param_idx}"
+            params.append(f"%{brand_filter}%")
+            param_idx += 1
+
+        if machine_group_filter:
+            sql += f" AND \"MachineGroup\" ILIKE ${param_idx}"
+            params.append(f"%{machine_group_filter}%")
+            param_idx += 1
+
+        sql += (
+            f" ORDER BY "
+            f"CASE WHEN \"PartName\" ILIKE $3 THEN 0 ELSE 1 END, "
+            f"\"PartCode\" ASC "
+            f"LIMIT ${param_idx}"
+        )
+        params.append(limit)
+
+        results = await conn.fetch(sql, *params)
+        return [dict(row) for row in results]
+    except Exception as e:
+        logger.error(f"❌ Sayfa+Parça arama hatası: {e}")
+        return []
+    finally:
+        await _release_conn(conn, from_pool)
+
+
+async def get_catalog_brands(catalog_ids: list) -> list[str]:
+    """
+    Verilen kataloglar içindeki farklı MachineBrand değerlerini döndürür.
+    """
+    conn, from_pool = await _get_conn()
+    if not conn:
+        return []
+
+    try:
+        if not catalog_ids:
+            return []
+
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT "MachineBrand"
+            FROM "CatalogItems"
+            WHERE "CatalogId" = ANY($1)
+              AND "MachineBrand" IS NOT NULL
+              AND TRIM("MachineBrand") <> ''
+            ORDER BY "MachineBrand" ASC
+            """,
+            catalog_ids,
+        )
+        brands: list[str] = []
+        for row in rows:
+            value = row["MachineBrand"]
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                brands.append(text)
+        return brands
+    except Exception as e:
+        logger.error(f"❌ Katalog marka listesi alma hatası: {e}")
         return []
     finally:
         await _release_conn(conn, from_pool)

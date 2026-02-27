@@ -270,6 +270,9 @@ namespace Katalogcu.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool?>("IsTechnicalDrawing")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("PageNumber")
                         .HasColumnType("integer");
 

@@ -27,6 +27,12 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
         {
             _logger.LogWarning("Low intent confidence: {Confidence} | Intent: {Intent} | Text: {Text}",
                 confidence.Value, intent ?? "n/a", request.UserText);
+
+            var clarification = BuildLowConfidenceClarificationMessage(request.DebugIntentJson, request.UserText);
+            return Success(
+                replySuggestion: clarification,
+                products: [],
+                debugInfo: $"Intent: {intent ?? "Yok"} | LowConfidence: {confidence.Value:0.00}");
         }
 
         if (string.Equals(intent, "CHAT", StringComparison.OrdinalIgnoreCase))
@@ -43,6 +49,29 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
                 replySuggestion: "Ustam, hangi bilgiyi istersin? (fiyat, stok, uyumluluk, parça kodu) diye sor.",
                 products: [],
                 debugInfo: $"Intent: HELP | Confidence: {confidence?.ToString("0.00") ?? "n/a"}");
+        }
+
+        if (string.Equals(intent, "DIAGNOSE", StringComparison.OrdinalIgnoreCase))
+        {
+            var products = await ResolveDiagnoseProductsAsync(
+                request,
+                partCode,
+                searchTerm,
+                multiTerms,
+                cancellationToken);
+
+            var baseDiagnosis = string.IsNullOrWhiteSpace(request.AiAnswer)
+                ? "Belirtiye göre olası nedenleri sıraladım. Net marka-model veya parça kodu verirsen nokta atışı yaparım."
+                : request.AiAnswer!;
+
+            var reply = products.Count > 0
+                ? $"{baseDiagnosis}\n\nOlası ilgili parçaları da aşağıya ekledim."
+                : baseDiagnosis;
+
+            return Success(
+                replySuggestion: reply,
+                products: products,
+                debugInfo: $"Intent: DIAGNOSE | Search: {searchTerm ?? "Yok"} | Code: {partCode ?? "Yok"} | Confidence: {confidence?.ToString("0.00") ?? "n/a"}");
         }
 
         if (string.Equals(intent, "SEARCH", StringComparison.OrdinalIgnoreCase) && multiTerms.Count > 1)
@@ -287,5 +316,132 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
     private static bool IsPartNumber(string? term)
     {
         return !string.IsNullOrWhiteSpace(term) && term.Length > 2 && term.Any(char.IsDigit);
+    }
+
+    private async Task<IReadOnlyList<EnrichedPartDto>> ResolveDiagnoseProductsAsync(
+        AskChatCommand request,
+        string? partCode,
+        string? searchTerm,
+        IReadOnlyCollection<string> multiTerms,
+        CancellationToken cancellationToken)
+    {
+        if (request.Sources.Count > 0)
+        {
+            var sourced = await _chatQueryService.EnrichPythonSourcesAsync(request.Sources, request.CatalogIds, cancellationToken);
+            var dedupSourced = DeduplicateProducts(sourced);
+            if (dedupSourced.Count > 0)
+            {
+                return dedupSourced;
+            }
+        }
+
+        var candidateCodeTerms = new List<string>();
+        if (IsPartNumber(partCode))
+        {
+            candidateCodeTerms.Add(partCode!);
+        }
+
+        if (IsPartNumber(searchTerm))
+        {
+            candidateCodeTerms.Add(searchTerm!);
+        }
+
+        candidateCodeTerms.AddRange(multiTerms.Where(IsPartNumber));
+
+        var distinctCodeTerms = candidateCodeTerms
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctCodeTerms.Count > 0)
+        {
+            var allItems = new List<Katalogcu.Domain.Entities.CatalogItem>();
+            foreach (var term in distinctCodeTerms)
+            {
+                var results = await _chatQueryService.SearchByCodeAsync(term, request.CatalogIds, cancellationToken);
+                allItems.AddRange(results);
+            }
+
+            var enrichedFromCode = await _chatQueryService.EnrichResultsAsync(allItems, request.CatalogIds, cancellationToken);
+            var dedupFromCode = DeduplicateProducts(enrichedFromCode);
+            if (dedupFromCode.Count > 0)
+            {
+                return dedupFromCode;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchTerm) && request.Sources.Count > 0)
+        {
+            var sourceMatchesByName = request.Sources
+                .Where(s => !string.IsNullOrWhiteSpace(s.Code))
+                .Where(s =>
+                    (!string.IsNullOrWhiteSpace(s.Name) && s.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(s.Query) && s.Query.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            if (sourceMatchesByName.Count > 0)
+            {
+                var enrichedByNameMatch = await _chatQueryService.EnrichPythonSourcesAsync(sourceMatchesByName, request.CatalogIds, cancellationToken);
+                return DeduplicateProducts(enrichedByNameMatch);
+            }
+        }
+
+        return [];
+    }
+
+    private static IReadOnlyList<EnrichedPartDto> DeduplicateProducts(IReadOnlyCollection<EnrichedPartDto> products)
+    {
+        return products
+            .Where(p => !string.IsNullOrWhiteSpace(p.Code) || p.Id != Guid.Empty)
+            .GroupBy(
+                p => !string.IsNullOrWhiteSpace(p.Code)
+                    ? p.Code.Trim().ToUpperInvariant()
+                    : p.Id.ToString(),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Take(8)
+            .ToList();
+    }
+
+    private static string BuildLowConfidenceClarificationMessage(string? debugIntentJson, string? userText)
+    {
+        string? brand = null;
+        string? machineModel = null;
+        string? machineGroup = null;
+        string? partCode = null;
+
+        if (!string.IsNullOrWhiteSpace(debugIntentJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(debugIntentJson);
+                var root = doc.RootElement;
+                brand = root.TryGetProperty("brand", out var b) ? b.GetString() : null;
+                machineModel = root.TryGetProperty("machine_model", out var mm) ? mm.GetString() : null;
+                machineGroup = root.TryGetProperty("machine_group", out var mg) ? mg.GetString() : null;
+                partCode = root.TryGetProperty("part_code", out var pc) ? pc.GetString() : null;
+            }
+            catch
+            {
+                // no-op
+            }
+        }
+
+        var questions = new List<string>();
+        if (string.IsNullOrWhiteSpace(brand))
+            questions.Add("Makine markası nedir? (örn: Yamato/Juki)");
+        if (string.IsNullOrWhiteSpace(machineModel))
+            questions.Add("Makine modeli nedir? (örn: MO-3704, VG2500-8F)");
+        if (string.IsNullOrWhiteSpace(machineGroup))
+            questions.Add("Makine tipi nedir? (Düz dikiş / Overlok / Reçme)");
+        if (string.IsNullOrWhiteSpace(partCode))
+            questions.Add("Parça kodu veya net ölçü var mı? (örn: M3-0.5x3)");
+
+        if (questions.Count == 0)
+            questions.Add("Parçanın fotoğrafını veya eski kodunu paylaşır mısın?");
+
+        return
+            "Ustam, mesajını büyük ölçüde anladım ama yanlış parça önermemek için netleştirelim:\n- "
+            + string.Join("\n- ", questions.Take(3));
     }
 }

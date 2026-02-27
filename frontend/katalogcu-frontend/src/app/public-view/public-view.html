@@ -35,7 +35,8 @@
 
     <section class="bg-white border-b border-[#D2D2D7] py-12 px-6 relative overflow-hidden transition-all duration-500"
              [class.py-8]="aiState.isActive"> 
-        <div class="max-w-4xl mx-auto relative z-10 transition-all duration-500">
+        <div class="max-w-4xl mx-auto relative z-10 transition-all duration-500 chat-main"
+             [class.chat-main-active]="aiState.isActive">
             
             @if(!aiState.isActive) {
                 <div class="text-center mb-8 fade-in">
@@ -48,66 +49,8 @@
                 </div>
             }
 
-            <div class="relative group bg-white rounded-[24px] shadow-xl shadow-black/5 border border-[#d2d2d7] transition-all duration-300 hover:shadow-2xl hover:shadow-blue-900/5 focus-within:border-[#0066CC] focus-within:ring-4 focus-within:ring-[#0066CC]/10 overflow-hidden"
-                 [class.ring-4]="aiState.isActive"
-                 [class.ring-[#0066CC]/10]="aiState.isActive">
-
-                @if(selectedImage) {
-                    <div class="p-4 border-b border-gray-100 flex items-center gap-4 bg-[#F5F5F7]">
-                        <div class="relative size-16 rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-                            <img [src]="selectedImagePreview" class="w-full h-full object-cover">
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-xs font-bold text-[#0066CC]">Görsel Analizi</p>
-                            <p class="text-sm text-gray-600">Parça taranıyor...</p>
-                        </div>
-                        <button (click)="clearImage()" class="p-2 hover:bg-white rounded-full transition-colors text-gray-500">
-                            <span class="material-symbols-outlined">close</span>
-                        </button>
-                    </div>
-                }
-
-                <div class="flex items-center p-2">
-                    <div class="pl-4 pr-3 text-[#86868B]">
-                        @if(aiState.isLoading) {
-                            <span class="material-symbols-outlined animate-spin text-[#0066CC]">sparkles</span>
-                        } @else {
-                            <span class="material-symbols-outlined text-[#0066CC]">auto_awesome</span>
-                        }
-                    </div>
-
-                    <input 
-                        [(ngModel)]="searchText" 
-                        (input)="onSearchInput()"
-                        (keyup.enter)="startAiSearch()"
-                        type="text" 
-                        placeholder="Örn: 'Juki çağanoz', '3101801' veya fotoğraf yükle..." 
-                        class="flex-1 h-14 bg-transparent border-none text-lg text-[#1D1D1F] placeholder-[#86868B] outline-none"
-                    >
-
-                    <div class="flex items-center gap-2 pr-2">
-                        <label class="cursor-pointer p-2 rounded-full hover:bg-[#F5F5F7] text-[#86868B] hover:text-[#0066CC] transition-colors" title="Fotoğraf Yükle">
-                            <input type="file" class="hidden" (change)="onFileSelected($event)" accept="image/*" capture="environment">
-                            <span class="material-symbols-outlined">add_photo_alternate</span>
-                        </label>
-
-                        <button (click)="startAiSearch()" 
-                                [disabled]="!searchText && !selectedImage"
-                                class="p-2.5 rounded-xl bg-[#0066CC] text-white disabled:bg-[#E5E5EA] disabled:text-[#86868B] transition-all hover:scale-105 active:scale-95 shadow-md disabled:shadow-none">
-                            <span class="material-symbols-outlined">arrow_upward</span>
-                        </button>
-                    </div>
-                </div>
-                
-                @if(aiState.isLoading && messages.length === 0) {
-                    <div class="h-1 w-full bg-[#E5E5EA] overflow-hidden">
-                        <div class="h-full bg-gradient-to-r from-[#0066CC] via-[#34C759] to-[#0066CC] animate-shimmer w-[200%]"></div>
-                    </div>
-                }
-            </div>
-
             @if(messages.length > 0) {
-                <div class="mt-6 messages-container animate-slide-up">
+                <div #messagesContainer class="mt-6 messages-container animate-slide-up">
                     @for(msg of messages; track $index) {
                         @if(msg.role === 'user') {
                             <div class="flex justify-end">
@@ -168,18 +111,33 @@
                                                     @if(part.query) {
                                                         <div class="source-query">Kaynak sorgu: {{ part.query }}</div>
                                                     }
+                                                    @if(part.catalogId || part.pageNumber) {
+                                                        <div class="part-location-text">
+                                                            @if(part.pageNumber) {
+                                                                <span class="source-chip source-chip-page">Sayfa: {{ part.pageNumber }}</span>
+                                                            }
+                                                        </div>
+                                                    }
                                                 </div>
-                                                @if(part.catalogId) {
-                                                    <button (click)="openCatalog(part.catalogId)"
-                                                            class="opacity-0 group-hover:opacity-100 text-[#0066CC] text-xs font-bold bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100 hover:bg-[#0066CC] hover:text-white transition-all whitespace-nowrap">
-                                                        Git
+                                                <div class="part-action-buttons">
+                                                    @if(part.catalogId) {
+                                                        <button (click)="openPartInCatalog(part)"
+                                                                [title]="'Katalog sayfasına git' + (part.pageNumber ? ' (Sf. ' + part.pageNumber + ')' : '')"
+                                                                class="part-open-button">
+                                                            <span class="material-symbols-outlined">menu_book</span>
+                                                            @if(part.pageNumber) {
+                                                                <span>Sf {{ part.pageNumber }}</span>
+                                                            } @else {
+                                                                <span>Aç</span>
+                                                            }
+                                                        </button>
+                                                    }
+                                                    <button
+                                                        (click)="addAiPartToCart(part)"
+                                                        class="part-cart-button">
+                                                        Sepete
                                                     </button>
-                                                }
-                                                <button
-                                                    (click)="addAiPartToCart(part)"
-                                                    class="text-[#1D1D1F] text-xs font-bold bg-[#F5F5F7] px-3 py-1.5 rounded-lg border border-[#E5E5EA] hover:bg-[#1D1D1F] hover:text-white transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
-                                                    Sepete Ekle
-                                                </button>
+                                                </div>
                                             </div>
                                         }
                                     </div>
@@ -259,6 +217,65 @@
                     </div>
                 </div>
             }
+
+            <div class="chat-composer-shell relative group bg-white rounded-[24px] shadow-xl shadow-black/5 border border-[#d2d2d7] transition-all duration-300 hover:shadow-2xl hover:shadow-blue-900/5 focus-within:border-[#0066CC] focus-within:ring-4 focus-within:ring-[#0066CC]/10 overflow-hidden"
+                 [class.chat-composer-sticky]="aiState.isActive"
+                 [class.ring-4]="aiState.isActive"
+                 [class.ring-[#0066CC]/10]="aiState.isActive">
+
+                @if(selectedImage) {
+                    <div class="p-4 border-b border-gray-100 flex items-center gap-4 bg-[#F5F5F7]">
+                        <div class="relative size-16 rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                            <img [src]="selectedImagePreview" class="w-full h-full object-cover">
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-xs font-bold text-[#0066CC]">Görsel Analizi</p>
+                            <p class="text-sm text-gray-600">Parça taranıyor...</p>
+                        </div>
+                        <button (click)="clearImage()" class="p-2 hover:bg-white rounded-full transition-colors text-gray-500">
+                            <span class="material-symbols-outlined">close</span>
+                        </button>
+                    </div>
+                }
+
+                <div class="flex items-center p-2">
+                    <div class="pl-4 pr-3 text-[#86868B]">
+                        @if(aiState.isLoading) {
+                            <span class="material-symbols-outlined animate-spin text-[#0066CC]">sparkles</span>
+                        } @else {
+                            <span class="material-symbols-outlined text-[#0066CC]">auto_awesome</span>
+                        }
+                    </div>
+
+                    <input 
+                        [(ngModel)]="searchText" 
+                        (input)="onSearchInput()"
+                        (keyup.enter)="startAiSearch()"
+                        type="text" 
+                        placeholder="Örn: 'Juki çağanoz', '3101801' veya fotoğraf yükle..." 
+                        class="flex-1 h-14 bg-transparent border-none text-lg text-[#1D1D1F] placeholder-[#86868B] outline-none"
+                    >
+
+                    <div class="flex items-center gap-2 pr-2">
+                        <label class="cursor-pointer p-2 rounded-full hover:bg-[#F5F5F7] text-[#86868B] hover:text-[#0066CC] transition-colors" title="Fotoğraf Yükle">
+                            <input type="file" class="hidden" (change)="onFileSelected($event)" accept="image/*" capture="environment">
+                            <span class="material-symbols-outlined">add_photo_alternate</span>
+                        </label>
+
+                        <button (click)="startAiSearch()" 
+                                [disabled]="!searchText && !selectedImage"
+                                class="p-2.5 rounded-xl bg-[#0066CC] text-white disabled:bg-[#E5E5EA] disabled:text-[#86868B] transition-all hover:scale-105 active:scale-95 shadow-md disabled:shadow-none">
+                            <span class="material-symbols-outlined">arrow_upward</span>
+                        </button>
+                    </div>
+                </div>
+                
+                @if(aiState.isLoading && messages.length === 0) {
+                    <div class="h-1 w-full bg-[#E5E5EA] overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-[#0066CC] via-[#34C759] to-[#0066CC] animate-shimmer w-[200%]"></div>
+                    </div>
+                }
+            </div>
 
             @if(!aiState.isActive) {
                 <div class="mt-6 flex flex-wrap justify-center gap-2 text-xs font-medium text-[#86868B]">

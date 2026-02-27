@@ -51,7 +51,7 @@
             </button>
         </div>
 
-        <div class="viewport" 
+        <div #viewport class="viewport" 
              (mousedown)="startDrag($event)" 
              (mousemove)="onDrag($event)" 
              (mouseup)="endDrag()" 
@@ -60,7 +60,7 @@
              
              @if (activePage) {
                 <div class="transform-layer" [style.transform]="'translate(' + transform.x + 'px, ' + transform.y + 'px) scale(' + transform.scale + ')'">
-                    <img [src]="activePage.imageUrl" class="technical-drawing" draggable="false">
+                    <img #technicalImage [src]="activePage.imageUrl" class="technical-drawing" draggable="false">
                     
                     @for (spot of activePage.hotspots; track $index) {
                         <div class="hotspot" (click)="$event.stopPropagation(); onHotspotClick(spot.label)"

@@ -52,6 +52,18 @@ public sealed class ChatSourceDto
     [JsonPropertyName("query")]
     public string? Query { get; set; }
 
+    [JsonPropertyName("catalogId")]
+    public Guid? CatalogId { get; set; }
+
+    [JsonPropertyName("catalog_id")]
+    public Guid? LegacyCatalogId { get; set; }
+
+    [JsonPropertyName("pageNumber")]
+    public string? PageNumber { get; set; }
+
+    [JsonPropertyName("page_number")]
+    public string? LegacyPageNumber { get; set; }
+
     [JsonPropertyName("similarity")]
     public double Similarity { get; set; }
 }
