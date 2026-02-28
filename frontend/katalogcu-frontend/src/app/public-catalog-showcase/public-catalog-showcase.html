@@ -33,14 +33,16 @@
             </div>
 
             <div class="flex items-center gap-3">
-                <button (click)="goCheckout()" class="relative text-xs font-medium text-white bg-[#0066CC] hover:bg-[#004499] px-3 py-1.5 rounded-md transition-colors">
-                    Siparişe Git
-                    @if ((cartService.totalCount$ | async) || 0 > 0) {
-                        <span class="absolute -top-1 -right-1 size-4 bg-[#FF3B30] text-white text-[10px] font-bold flex items-center justify-center rounded-full">
-                            {{ cartService.totalCount$ | async }}
-                        </span>
-                    }
-                </button>
+                @if (canUseEcommerce) {
+                    <button (click)="goCheckout()" class="relative text-xs font-medium text-white bg-[#0066CC] hover:bg-[#004499] px-3 py-1.5 rounded-md transition-colors">
+                        Siparişe Git
+                        @if ((cartService.totalCount$ | async) || 0 > 0) {
+                            <span class="absolute -top-1 -right-1 size-4 bg-[#FF3B30] text-white text-[10px] font-bold flex items-center justify-center rounded-full">
+                                {{ cartService.totalCount$ | async }}
+                            </span>
+                        }
+                    </button>
+                }
                 <button class="text-xs font-medium text-[#1D1D1F] bg-[#E5E5EA] hover:bg-[#D2D2D7] px-3 py-1.5 rounded-md transition-colors">
                     TR
                 </button>

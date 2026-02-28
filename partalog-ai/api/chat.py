@@ -1454,6 +1454,23 @@ KURALLAR:
 # =========================================================
 # 🧠 ANA CHAT ENDPOINT (HİBRİT ARAMA EKLENDİ)
 # =========================================================
+def _plan_limit_message(
+    user_plan: str | None,
+    ai_limit_per_month: int | None,
+    ai_used_this_month: int | None,
+) -> str | None:
+    plan_text = (user_plan or "").strip().lower()
+    if plan_text in {"catalogonly", "catalog", "1"}:
+        return "AI sorgu limitinize ulaştınız, planınızı yükseltin"
+
+    if ai_limit_per_month is not None and ai_limit_per_month >= 0:
+        used = ai_used_this_month or 0
+        if used >= ai_limit_per_month:
+            return "AI sorgu limitinize ulaştınız, planınızı yükseltin"
+
+    return None
+
+
 @router.post("/send")
 @router.post("/expert-chat")
 @limiter.limit(CHAT_RATE_LIMIT)
@@ -1464,8 +1481,20 @@ async def chat_endpoint(
     history: str = Form("[]"),
     catalog_ids: str = Form("[]"),
     file: UploadFile = File(None),
+    user_plan: str = Form(None),
+    ai_limit_per_month: int = Form(None),
+    ai_used_this_month: int = Form(None),
 ):
     try:
+        limit_msg = _plan_limit_message(user_plan, ai_limit_per_month, ai_used_this_month)
+        if limit_msg:
+            return {
+                "answer": limit_msg,
+                "reply": limit_msg,
+                "sources": [],
+                "debug_intent": None,
+            }
+
         ctx = await _prepare_chat_context(text, message, history, catalog_ids, file)
         if ctx["early"]:
             return ctx["response"]
@@ -1519,9 +1548,19 @@ async def chat_stream_endpoint(
     history: str = Form("[]"),
     catalog_ids: str = Form("[]"),
     file: UploadFile = File(None),
+    user_plan: str = Form(None),
+    ai_limit_per_month: int = Form(None),
+    ai_used_this_month: int = Form(None),
 ):
     async def event_generator():
         try:
+            limit_msg = _plan_limit_message(user_plan, ai_limit_per_month, ai_used_this_month)
+            if limit_msg:
+                yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'token': limit_msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+
             ctx = await _prepare_chat_context(text, message, history, catalog_ids, file)
             if ctx["early"]:
                 resp = ctx["response"]

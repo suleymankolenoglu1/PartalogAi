@@ -38,8 +38,12 @@ export class LoginComponent {
     this.errorMessage = '';
 
     this.authService.login({ email: this.email, password: this.password }).subscribe({
-      next: () => {
-        // Başarılı! Dashboard'a git
+      next: (response: any) => {
+        const planSelected = response?.planSelected ?? response?.user?.planSelected ?? this.authService.isPlanSelected();
+        if (!planSelected) {
+          this.router.navigate(['/upgrade']);
+          return;
+        }
         this.router.navigate(['/dashboard']);
       },
       error: (err) => {

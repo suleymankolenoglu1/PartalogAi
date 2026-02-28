@@ -7,6 +7,7 @@ import {
   CatalogService,
   DashboardStats
 } from '../core/services/catalog.service';
+import { AuthService } from '../core/services/auth.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -18,6 +19,7 @@ import {
 export class DashboardComponent implements OnInit, OnDestroy {
   
   private catalogService = inject(CatalogService);
+  private authService = inject(AuthService);
   private router = inject(Router);
   private aiJobsPollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -33,11 +35,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
     failed: 0
   };
   aiJobs: CatalogAiJobItem[] = [];
+  publishingCatalogIds = new Set<string>();
 
   ngOnInit() {
     this.loadStats();
-    this.loadAiJobs();
-    this.startAiJobsPolling();
+    if (this.canUseAi) {
+      this.loadAiJobs();
+      this.startAiJobsPolling();
+    }
   }
 
   ngOnDestroy() {
@@ -62,6 +67,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   loadAiJobs(silent = false) {
+    if (!this.canUseAi) return;
     if (!silent) {
       this.aiJobsLoading = true;
     }
@@ -83,6 +89,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   startAiJobsPolling() {
+    if (!this.canUseAi) return;
     if (this.aiJobsPollTimer) {
       clearInterval(this.aiJobsPollTimer);
     }
@@ -142,6 +149,126 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   goToUpload() {
-    this.router.navigate(['/dashboard/catalogs']);
+    this.router.navigate(['/dashboard/catalogs/new']);
+  }
+
+  goToCatalog(catalogId: string) {
+    this.router.navigate(['/dashboard/catalog', catalogId]);
+  }
+
+  goToCatalogOptions(catalogId: string, event?: Event) {
+    event?.stopPropagation();
+    this.router.navigate(['/dashboard/catalogs'], {
+      queryParams: { catalogId }
+    });
+  }
+
+  publishCatalog(catalogId: string, event?: Event) {
+    event?.stopPropagation();
+    if (this.publishingCatalogIds.has(catalogId)) return;
+    this.publishingCatalogIds.add(catalogId);
+    this.catalogService.publishCatalog(catalogId).subscribe({
+      next: () => {
+        this.publishingCatalogIds.delete(catalogId);
+        this.loadStats();
+      },
+      error: (err) => {
+        console.error('Katalog yayınlanamadı:', err);
+        this.publishingCatalogIds.delete(catalogId);
+      }
+    });
+  }
+
+  isPublishing(catalogId: string): boolean {
+    return this.publishingCatalogIds.has(catalogId);
+  }
+
+  getCoverImageUrl(item: any): string {
+    return item?.imageUrl || item?.coverImageUrl || item?.thumbnailUrl || 'https://placehold.co/800x450?text=Catalog';
+  }
+
+  hasTechnicalDrawing(item: any): boolean {
+    return item?.isTechnicalDrawing === true || item?.hasTechnicalDrawing === true;
+  }
+
+  getPageCount(item: any): number {
+    const value = item?.pageCount ?? item?.totalPages ?? item?.pages ?? 0;
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+  }
+
+  getPartCount(item: any): number {
+    const value = item?.partCount ?? item?.totalParts ?? 0;
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+  }
+
+  getUpdatedDate(item: any): string {
+    return item?.updatedDate || item?.updatedAt || item?.createdDate || new Date().toISOString();
+  }
+
+  getCatalogErrorMessage(item: any): string {
+    return item?.errorMessage || item?.lastError || 'Katalog işleme sırasında hata oluştu.';
+  }
+
+  getRelativeUpdateText(item: any): string {
+    const raw = this.getUpdatedDate(item);
+    const date = new Date(raw);
+    if (!Number.isFinite(date.getTime())) return 'Güncelleme tarihi yok';
+
+    const diffMs = Date.now() - date.getTime();
+    const min = Math.floor(diffMs / 60000);
+    if (min < 60) return `${Math.max(min, 1)} dk önce güncellendi`;
+    const hour = Math.floor(min / 60);
+    if (hour < 24) return `${hour} saat önce güncellendi`;
+    const day = Math.floor(hour / 24);
+    if (day < 30) return `${day} gün önce güncellendi`;
+    const month = Math.floor(day / 30);
+    return `${month} ay önce güncellendi`;
+  }
+
+  isProcessingStatus(status: string): boolean {
+    const normalized = String(status || '').toLowerCase();
+    return normalized === 'processing' || normalized === 'pending';
+  }
+
+  isErrorStatus(status: string): boolean {
+    const normalized = String(status || '').toLowerCase();
+    return normalized === 'failed' || normalized === 'error';
+  }
+
+  isDraftStatus(status: string): boolean {
+    return String(status || '').toLowerCase() === 'draft';
+  }
+
+  goUpgrade() {
+    this.router.navigate(['/upgrade']);
+  }
+
+  get currentPlan(): number {
+    return this.authService.getCurrentPlan();
+  }
+
+  get isPlan1(): boolean {
+    return this.currentPlan === 1;
+  }
+
+  get isPlan2(): boolean {
+    return this.currentPlan === 2;
+  }
+
+  get isPlan3(): boolean {
+    return this.currentPlan >= 3;
+  }
+
+  get canUseAi(): boolean {
+    return this.currentPlan >= 2;
+  }
+
+  get canUseEcommerce(): boolean {
+    return this.currentPlan >= 3;
+  }
+
+  get monthlyAiQueryCount(): number {
+    if (!this.canUseAi) return 0;
+    return this.aiJobsSummary.total || 0;
   }
 }

@@ -8,6 +8,15 @@
   </header>
 
   <main class="checkout-main">
+    @if(!canUseEcommerce) {
+      <section class="cart-card">
+        <h2>E-Ticaret Kapalı</h2>
+        <p class="hint">
+          Bu vitrinde sipariş alma özelliği aktif değil. Lütfen işletme ile doğrudan iletişime geçin.
+        </p>
+        <button (click)="goBackToPublic()" class="primary" style="max-width: 240px;">Kataloğa Dön</button>
+      </section>
+    } @else {
     <section class="cart-card">
       <h2>Sepetiniz</h2>
 
@@ -261,5 +270,6 @@
       @if (orderMessage) { <p class="ok mt">{{ orderMessage }}</p> }
       @if (orderError) { <p class="err mt">{{ orderError }}</p> }
     </section>
+    }
   </main>
 </div>

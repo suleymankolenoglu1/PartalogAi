@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CartService } from '../../core/services/cart.service';
 import { CustomerService, PublicCustomerOrder, PublicCustomerOrderDetail } from '../../core/services/customer.service';
+import { CatalogService, PublicStorefront } from '../../core/services/catalog.service';
 
 type AuthTab = 'login' | 'register';
 type PaymentMethod = 'KapidaOdeme' | 'HavaleEFT';
@@ -28,8 +29,13 @@ export class PublicCheckoutComponent implements OnInit {
   private router = inject(Router);
   public cartService = inject(CartService);
   private customerService = inject(CustomerService);
+  private catalogService = inject(CatalogService);
 
   publicToken = this.route.snapshot.paramMap.get('publicToken');
+  storefront: PublicStorefront = {
+    businessName: 'Katalog Magazasi',
+    ecommerceEnabled: true
+  };
   authTab: AuthTab = 'login';
 
   loginForm = { phone: '', email: '', password: '' };
@@ -86,9 +92,14 @@ export class PublicCheckoutComponent implements OnInit {
     return `public_customer_session_${this.publicToken ?? 'anonymous'}`;
   }
 
+  get canUseEcommerce(): boolean {
+    return this.storefront.ecommerceEnabled !== false;
+  }
+
   ngOnInit(): void {
     if (!this.publicToken) return;
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.loadStorefront();
     const stored = localStorage.getItem(this.getSessionKey());
     if (!stored) return;
     this.customerSessionToken = stored;
@@ -110,6 +121,19 @@ export class PublicCheckoutComponent implements OnInit {
       error: () => {
         this.logout();
       }
+    });
+  }
+
+  private loadStorefront() {
+    if (!this.publicToken) return;
+    this.catalogService.getPublicStorefront(this.publicToken).subscribe({
+      next: (res) => {
+        this.storefront = {
+          businessName: res.businessName?.trim() || 'Katalog Magazasi',
+          ecommerceEnabled: res.ecommerceEnabled ?? true
+        };
+      },
+      error: () => { }
     });
   }
 
@@ -373,6 +397,11 @@ export class PublicCheckoutComponent implements OnInit {
     asMember: boolean,
     details: CheckoutDetails
   ) {
+    if (!this.canUseEcommerce) {
+      this.orderError = 'Bu vitrinde e-ticaret özelliği aktif değil.';
+      this.orderMessage = null;
+      return;
+    }
     if (!customer.name || !customer.phone) {
       this.orderError = 'Ad soyad ve telefon zorunlu.';
       this.orderMessage = null;

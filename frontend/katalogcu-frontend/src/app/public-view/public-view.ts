@@ -85,7 +85,10 @@ export class PublicViewComponent implements OnInit {
   publicToken: string | null = null;
   publicLoadError: string | null = null;
   storefront: PublicStorefront = {
-    businessName: 'Katalog Magazasi'
+    businessName: 'Katalog Magazasi',
+    aiChatEnabled: false,
+    ecommerceEnabled: false,
+    subscriptionPlan: 1
   };
 
   private getHistoryStorageKey(): string {
@@ -95,6 +98,21 @@ export class PublicViewComponent implements OnInit {
   get storefrontInitial(): string {
     const source = this.storefront.businessName || 'K';
     return source.trim().charAt(0).toUpperCase() || 'K';
+  }
+
+  get canUseAiChat(): boolean {
+    return this.storefront.aiChatEnabled !== false;
+  }
+
+  get canUseEcommerce(): boolean {
+    return this.storefront.ecommerceEnabled !== false;
+  }
+
+  get storefrontPlanLabel(): string {
+    const plan = Number(this.storefront.subscriptionPlan ?? 1);
+    if (plan >= 3) return 'Tam Paket';
+    if (plan >= 2) return 'AI Aktif';
+    return 'Katalog';
   }
 
   ngOnInit() {
@@ -143,8 +161,19 @@ export class PublicViewComponent implements OnInit {
           businessName: res.businessName?.trim() || 'Katalog Magazasi',
           ownerName: res.ownerName?.trim() || undefined,
           email: res.email,
-          phoneNumber: res.phoneNumber
+          phoneNumber: res.phoneNumber,
+          subscriptionPlan: res.subscriptionPlan ?? 1,
+          aiChatEnabled: res.aiChatEnabled ?? false,
+          ecommerceEnabled: res.ecommerceEnabled ?? false
         };
+
+        if (!this.canUseAiChat) {
+          this.aiState.isActive = false;
+          this.aiState.isLoading = false;
+          this.aiState.response = null;
+          this.searchText = '';
+          this.clearImage();
+        }
       },
       error: (err) => {
         console.warn('Public storefront yüklenemedi:', err);
@@ -218,6 +247,7 @@ export class PublicViewComponent implements OnInit {
 
   // 1. Dosya Seçimi
   onFileSelected(event: any) {
+    if (!this.canUseAiChat) return;
     const file = event.target.files[0];
     if (file) {
       this.selectedImage = file;
@@ -257,6 +287,7 @@ export class PublicViewComponent implements OnInit {
 
   // 4. 🔥 AI ARAMASINI BAŞLAT
   startAiSearch() {
+    if (!this.canUseAiChat) return;
     if (!this.searchText && !this.selectedImage) return;
 
     this.aiState.isActive = true;
@@ -510,6 +541,7 @@ export class PublicViewComponent implements OnInit {
   }
 
   goCheckout() {
+    if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
     this.router.navigate(['/public-view', this.publicToken, 'checkout']);
   }
@@ -536,6 +568,7 @@ export class PublicViewComponent implements OnInit {
   }
 
   addAiPartToCart(part: any) {
+    if (!this.canUseEcommerce) return;
     const item: CatalogPageItem = {
       catalogItemId: this.buildAiCartItemId(part),
       refNo: String(part?.refNo || part?.ref_no || ''),

@@ -12,10 +12,9 @@
         </div>
 
         <nav class="sidebar-nav">
-            
-            <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}" class="nav-item">
+            <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-item">
                 <span class="material-symbols-outlined icon">dashboard</span>
-                <span class="label">Genel Bakış</span>
+                <span class="label">Dashboard</span>
             </a>
 
             <a routerLink="/dashboard/catalogs" routerLinkActive="active" class="nav-item">
@@ -23,33 +22,109 @@
                 <span class="label">Kataloglarım</span>
             </a>
 
-             <a routerLink="/dashboard/parts" routerLinkActive="active" class="nav-item">
-                <span class="material-symbols-outlined icon">settings_suggest</span>
-                <span class="label">Parça Yönetimi</span>
-            </a>
-
-            <a routerLink="/dashboard/visual-feedback" routerLinkActive="active" class="nav-item">
-                <span class="material-symbols-outlined icon">image_search</span>
-                <span class="label">Görsel Feedback</span>
-            </a>
-
-            <a routerLink="/dashboard/chat-quality" routerLinkActive="active" class="nav-item">
-                <span class="material-symbols-outlined icon">analytics</span>
-                <span class="label">Chat Kalitesi</span>
-            </a>
-
-            <a routerLink="/dashboard/customers" routerLinkActive="active" class="nav-item">
-                <span class="material-symbols-outlined icon">group</span>
-                <span class="label">Müşteriler</span>
-            </a>
-
-            <a routerLink="/dashboard/orders" routerLinkActive="active" class="nav-item">
-                <span class="material-symbols-outlined icon">receipt_long</span>
-                <span class="label">Siparişler</span>
-                @if (pendingOrderCount > 0) {
-                    <span class="nav-badge">{{ pendingOrderCount }}</span>
+            <div class="nav-row">
+                <a [routerLink]="hasPlan(2) ? '/dashboard/ai' : '/upgrade'"
+                   [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai' }"
+                   routerLinkActive="active"
+                   class="nav-item"
+                   [class.nav-item-locked]="!hasPlan(2)">
+                    <span class="material-symbols-outlined icon">auto_awesome</span>
+                    <span class="label">AI Ayarları</span>
+                    @if (!hasPlan(2)) {
+                        <span class="nav-badge">PRO</span>
+                    }
+                </a>
+                @if (!hasPlan(2)) {
+                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(2, 'ai')">Upgrade</button>
                 }
-            </a>
+            </div>
+
+            <div class="nav-row">
+                <a [routerLink]="hasPlan(2) ? '/dashboard/chat-quality' : '/upgrade'"
+                   [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai-quality' }"
+                   routerLinkActive="active"
+                   class="nav-item"
+                   [class.nav-item-locked]="!hasPlan(2)">
+                    <span class="material-symbols-outlined icon">monitoring</span>
+                    <span class="label">AI Kalite</span>
+                    @if (!hasPlan(2)) {
+                        <span class="nav-badge">PRO</span>
+                    }
+                </a>
+                @if (!hasPlan(2)) {
+                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(2, 'ai-quality')">Upgrade</button>
+                }
+            </div>
+
+            <div class="nav-row">
+                <a [routerLink]="hasPlan(2) ? '/dashboard/visual-feedback' : '/upgrade'"
+                   [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'visual-feedback' }"
+                   routerLinkActive="active"
+                   class="nav-item"
+                   [class.nav-item-locked]="!hasPlan(2)">
+                    <span class="material-symbols-outlined icon">image_search</span>
+                    <span class="label">Görsel Feedback</span>
+                    @if (!hasPlan(2)) {
+                        <span class="nav-badge">PRO</span>
+                    }
+                </a>
+                @if (!hasPlan(2)) {
+                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(2, 'visual-feedback')">Upgrade</button>
+                }
+            </div>
+
+            <div class="nav-row">
+                <a [routerLink]="hasPlan(3) ? '/dashboard/ecommerce' : '/upgrade'"
+                   [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'ecommerce' }"
+                   routerLinkActive="active"
+                   class="nav-item"
+                   [class.nav-item-locked]="!hasPlan(3)">
+                    <span class="material-symbols-outlined icon">inventory_2</span>
+                    <span class="label">Ürünler</span>
+                    @if (!hasPlan(3)) {
+                        <span class="nav-badge">ENT</span>
+                    }
+                </a>
+                @if (!hasPlan(3)) {
+                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(3, 'ecommerce')">Upgrade</button>
+                }
+            </div>
+
+            <div class="nav-row">
+                <a [routerLink]="hasPlan(3) ? '/dashboard/orders' : '/upgrade'"
+                   [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'orders' }"
+                   routerLinkActive="active"
+                   class="nav-item"
+                   [class.nav-item-locked]="!hasPlan(3)">
+                    <span class="material-symbols-outlined icon">receipt_long</span>
+                    <span class="label">Siparişler</span>
+                    @if (!hasPlan(3)) {
+                        <span class="nav-badge">ENT</span>
+                    } @else if (unreadOrderCount > 0) {
+                        <span class="nav-badge">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
+                    }
+                </a>
+                @if (!hasPlan(3)) {
+                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(3, 'orders')">Upgrade</button>
+                }
+            </div>
+
+            <div class="nav-row">
+                <a [routerLink]="hasPlan(3) ? '/dashboard/customers' : '/upgrade'"
+                   [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'customers' }"
+                   routerLinkActive="active"
+                   class="nav-item"
+                   [class.nav-item-locked]="!hasPlan(3)">
+                    <span class="material-symbols-outlined icon">groups</span>
+                    <span class="label">Müşteriler</span>
+                    @if (!hasPlan(3)) {
+                        <span class="nav-badge">ENT</span>
+                    }
+                </a>
+                @if (!hasPlan(3)) {
+                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(3, 'customers')">Upgrade</button>
+                }
+            </div>
 
             <div class="nav-divider"></div>
 
@@ -57,6 +132,22 @@
                 <span class="material-symbols-outlined icon">settings</span>
                 <span class="label">Ayarlar</span>
             </a>
+
+            @if (currentPlan < 3) {
+                <div class="upgrade-promo-box">
+                    <div class="upgrade-promo-title">Planını Yükselt</div>
+                    <div class="upgrade-promo-text">
+                        @if (currentPlan < 2) {
+                            AI modülleri ve gelişmiş sohbet için Pro planına geç.
+                        } @else {
+                            Sipariş, ürün ve müşteri akışı için Enterprise planına geç.
+                        }
+                    </div>
+                    <button type="button" class="upgrade-promo-btn" (click)="goUpgrade(currentPlan < 2 ? 2 : 3, currentPlan < 2 ? 'ai' : 'ecommerce')">
+                        Upgrade Et
+                    </button>
+                </div>
+            }
 
             <div class="store-card-wrapper">
                 <div class="store-card">
@@ -120,6 +211,11 @@
             </div>
 
             <div class="header-right">
+                @if (currentPlan < 3) {
+                    <button type="button" class="header-upgrade-btn" (click)="goUpgrade(currentPlan < 2 ? 2 : 3, currentPlan < 2 ? 'ai' : 'ecommerce')">
+                        Upgrade Et
+                    </button>
+                }
                 <button class="notif-btn" (click)="openOrdersFromNotification()">
                     <span class="material-symbols-outlined">notifications</span>
                     @if (unreadOrderCount > 0) {
@@ -132,6 +228,7 @@
                     <div class="user-info">
                         <p class="user-name">{{ userDisplayName }}</p>
                         <p class="user-role">{{ userRoleLabel }}</p>
+                        <p class="user-plan">{{ currentPlanLabel }}</p>
                     </div>
                     <img [src]="userAvatarUrl" class="user-avatar">
                 </div>

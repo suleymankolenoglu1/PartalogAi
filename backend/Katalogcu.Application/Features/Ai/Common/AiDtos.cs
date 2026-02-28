@@ -9,6 +9,9 @@ public sealed class AiChatRequestDto
     public List<ChatMessageDto> History { get; set; } = [];
     public IFormFile? Image { get; set; }
     public List<string>? CatalogIds { get; set; }
+    public string? UserPlan { get; set; }
+    public int? AiLimitPerMonth { get; set; }
+    public int? AiUsedThisMonth { get; set; }
 }
 
 public sealed class ChatMessageDto

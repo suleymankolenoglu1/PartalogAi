@@ -12,6 +12,91 @@
     display: block;
 }
 
+.feature-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid #d2d2d7;
+    background: #f5f5f7;
+    color: #4b5563;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.feature-pill .material-symbols-outlined {
+    font-size: 14px;
+}
+
+.feature-pill-on {
+    background: #ecfdf3;
+    border-color: #9ae6b4;
+    color: #065f46;
+}
+
+.feature-pill-plan {
+    background: #eef4ff;
+    border-color: #c7dcff;
+    color: #1d4ed8;
+}
+
+.feature-locked-box {
+    border: 1px solid #dbeafe;
+    background: linear-gradient(135deg, #f8fbff 0%, #eff6ff 100%);
+    border-radius: 24px;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.feature-locked-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    border: 1px solid #bfdbfe;
+    background: #ffffff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.feature-locked-title {
+    margin: 0 0 6px;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.feature-locked-text {
+    margin: 0;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.feature-locked-link {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.feature-locked-link:hover {
+    text-decoration: underline;
+}
+
 /* =========================================
    1. AI CHAT & ARAMA ANİMASYONLARI
    ========================================= */
@@ -524,4 +609,19 @@ input::placeholder {
 @keyframes dot-pulse {
     0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
     40% { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 1024px) {
+    .feature-pill {
+        display: none;
+    }
+
+    .feature-locked-box {
+        grid-template-columns: 1fr;
+    }
+
+    .feature-locked-icon {
+        width: 40px;
+        height: 40px;
+    }
 }

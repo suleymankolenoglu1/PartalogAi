@@ -27,6 +27,8 @@ import { PartsImportComponent } from './dashboard/parts/parts-import/parts-impor
 import { VisualFeedbackComponent } from './dashboard/visual-feedback/visual-feedback';
 import { ChatQualityComponent } from './dashboard/chat-quality/chat-quality';
 import { OrdersComponent } from './dashboard/orders/orders';
+import { planGuard } from './core/guards/plan.guard';
+import { planSelectionGuard } from './core/guards/plan-selection.guard';
 
 export const routes: Routes = [
   { path: '', component: HomeComponent },
@@ -38,24 +40,28 @@ export const routes: Routes = [
   { path: 'blog', component: BlogComponent },
   { path: 'services', component: ServislerComponent },
   { path: 'prices', component: PricesComponent },
+  { path: 'upgrade', component: PricesComponent },
   { path: 'login', component: LoginComponent },
   { path: 'register', component: RegisterComponent },
   {
     path: 'dashboard',
     component: AdminLayoutComponent,
+    canActivate: [planSelectionGuard],
     children: [
       { path: '', component: DashboardComponent },
       { path: 'catalogs', component: CatalogsComponent },
       { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
-      { path: 'customers', component: CustomersComponent },
+      { path: 'customers', component: CustomersComponent, canActivate: [planGuard], data: { minPlan: 3 } },
       { path: 'settings', component: SettingsComponent },
-      { path: 'parts', component: PartsComponent },
+      { path: 'parts', component: PartsComponent, canActivate: [planGuard], data: { minPlan: 3 } },
+      { path: 'ecommerce', component: PartsComponent, canActivate: [planGuard], data: { minPlan: 3 } },
       { path: 'parts/new', component: PartsAddComponent },
       { path: 'parts/import', component: PartsImportComponent },
-      { path: 'visual-feedback', component: VisualFeedbackComponent },
-      { path: 'chat-quality', component: ChatQualityComponent },
-      { path: 'orders', component: OrdersComponent }
+      { path: 'visual-feedback', component: VisualFeedbackComponent, canActivate: [planGuard], data: { minPlan: 2 } },
+      { path: 'chat-quality', component: ChatQualityComponent, canActivate: [planGuard], data: { minPlan: 2 } },
+      { path: 'ai', component: ChatQualityComponent, canActivate: [planGuard], data: { minPlan: 2 } },
+      { path: 'orders', component: OrdersComponent, canActivate: [planGuard], data: { minPlan: 3 } }
     ]
   }
 ];

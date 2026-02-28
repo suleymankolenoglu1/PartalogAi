@@ -1,6 +1,7 @@
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Common.Models;
 using Katalogcu.Application.Features.Catalogs.Common;
+using Katalogcu.Domain.Enums;
 using MediatR;
 
 namespace Katalogcu.Application.Features.Catalogs.Queries.GetPublicStorefront;
@@ -26,13 +27,17 @@ public sealed class GetPublicStorefrontQueryHandler : IRequestHandler<GetPublicS
         var businessName = !string.IsNullOrWhiteSpace(user.CompanyName)
             ? user.CompanyName.Trim()
             : (!string.IsNullOrWhiteSpace(ownerName) ? ownerName : "Katalog Magazasi");
+        var plan = user.SubscriptionPlan;
 
         return OperationResult<PublicStorefrontDto>.Success(new PublicStorefrontDto
         {
             BusinessName = businessName,
             OwnerName = ownerName,
             Email = user.Email,
-            PhoneNumber = user.PhoneNumber
+            PhoneNumber = user.PhoneNumber,
+            SubscriptionPlan = (int)plan,
+            AiChatEnabled = plan is SubscriptionPlan.CatalogWithAI or SubscriptionPlan.CatalogWithAIAndEcommerce,
+            EcommerceEnabled = plan == SubscriptionPlan.CatalogWithAIAndEcommerce
         });
     }
 }

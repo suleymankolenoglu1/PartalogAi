@@ -26,17 +26,20 @@ namespace Katalogcu.API.Controllers
         private readonly ISender _sender;
         private readonly ILogger<ChatController> _logger;
         private readonly IChatStreamProxyService _chatStreamProxyService;
+        private readonly IAiUsageQuotaService _aiUsageQuotaService;
 
         public ChatController(
             IPartalogAiService aiService,
             ISender sender,
             ILogger<ChatController> logger,
-            IChatStreamProxyService chatStreamProxyService)
+            IChatStreamProxyService chatStreamProxyService,
+            IAiUsageQuotaService aiUsageQuotaService)
         {
             _aiService = aiService;
             _sender = sender;
             _logger = logger;
             _chatStreamProxyService = chatStreamProxyService;
+            _aiUsageQuotaService = aiUsageQuotaService;
         }
 
         private Guid GetCurrentUserId()
@@ -100,6 +103,18 @@ namespace Katalogcu.API.Controllers
                 var catalogIds = accessResult.Value!.CatalogIds.ToList();
                 _logger.LogInformation("Chat request catalogs: {CatalogCount}", catalogIds.Count);
 
+                var userResult = await _sender.Send(new ResolveChatUserQuery(tokenUserId, request.PublicToken));
+                if (!userResult.IsSuccess)
+                {
+                    return BadRequest(userResult.ErrorMessage ?? "Geçerli kullanıcı veya public token gerekli.");
+                }
+
+                var aiQuota = await _aiUsageQuotaService.ConsumeAsync(userResult.Value!.UserId, HttpContext.RequestAborted);
+                if (!aiQuota.Allowed)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = aiQuota.Message });
+                }
+
                 // 1. History Parse
                 var chatHistory = new List<ChatMessageDto>();
                 if (!string.IsNullOrEmpty(request.History))
@@ -119,7 +134,10 @@ namespace Katalogcu.API.Controllers
                     Text = request.Text,
                     Image = request.Image,
                     History = chatHistory,
-                    CatalogIds = catalogIdStrings
+                    CatalogIds = catalogIdStrings,
+                    UserPlan = aiQuota.Plan.ToString(),
+                    AiLimitPerMonth = aiQuota.MonthlyLimit,
+                    AiUsedThisMonth = aiQuota.UsedBeforeConsume
                 };
 
                 // 3. AI Analizi (Python)
@@ -200,6 +218,23 @@ namespace Katalogcu.API.Controllers
 
             var catalogIds = accessResult.Value!.CatalogIds.ToList();
             var catalogIdStrings = catalogIds.Select(c => c.ToString()).ToList();
+
+            var userResult = await _sender.Send(new ResolveChatUserQuery(tokenUserId, request.PublicToken));
+            if (!userResult.IsSuccess)
+            {
+                Response.StatusCode = 400;
+                await WriteStreamMessageAsync(userResult.ErrorMessage ?? "Geçerli kullanıcı veya public token gerekli.");
+                return;
+            }
+
+            var aiQuota = await _aiUsageQuotaService.ConsumeAsync(userResult.Value!.UserId, HttpContext.RequestAborted);
+            if (!aiQuota.Allowed)
+            {
+                Response.StatusCode = 200;
+                await WriteStreamMessageAsync(aiQuota.Message);
+                return;
+            }
+
             try
             {
                 await _chatStreamProxyService.ProxyAskStreamAsync(
@@ -208,12 +243,26 @@ namespace Katalogcu.API.Controllers
                     request.History,
                     catalogIdStrings,
                     request.Image,
+                    aiQuota.Plan.ToString(),
+                    aiQuota.MonthlyLimit,
+                    aiQuota.UsedBeforeConsume,
                     HttpContext.RequestAborted);
             }
             catch
             {
                 // Hata logu servis tarafında tutuluyor.
             }
+        }
+
+        private async Task WriteStreamMessageAsync(string message)
+        {
+            Response.Headers["Content-Type"] = "text/event-stream";
+            Response.Headers["Cache-Control"] = "no-cache";
+            Response.Headers["Connection"] = "keep-alive";
+            await Response.WriteAsync($"data: {System.Text.Json.JsonSerializer.Serialize(new { type = "sources", sources = Array.Empty<object>() })}\n\n");
+            await Response.WriteAsync($"data: {System.Text.Json.JsonSerializer.Serialize(new { type = "token", token = message })}\n\n");
+            await Response.WriteAsync($"data: {System.Text.Json.JsonSerializer.Serialize(new { type = "done" })}\n\n");
+            await Response.Body.FlushAsync();
         }
 
         [HttpPost("visual-feedback")]

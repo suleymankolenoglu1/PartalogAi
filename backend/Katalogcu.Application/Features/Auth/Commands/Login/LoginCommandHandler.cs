@@ -63,7 +63,13 @@ public sealed class LoginCommandHandler : IRequestHandler<LoginCommand, Operatio
                 Email = user.Email,
                 CompanyName = user.CompanyName,
                 PhoneNumber = user.PhoneNumber,
-                Role = user.Role
+                Role = user.Role,
+                SubscriptionPlan = (int)user.SubscriptionPlan,
+                PlanActivatedAt = user.PlanActivatedAt,
+                PlanExpiresAt = user.PlanExpiresAt,
+                PlanSelected = user.PlanActivatedAt.HasValue,
+                MaxCatalogCount = user.MaxCatalogCount,
+                MaxPagePerCatalog = user.MaxPagePerCatalog
             }
         });
     }

@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -19,6 +19,9 @@ interface RequestedPartSelection {
   partCode: string | null;
 }
 
+type StockFilter = 'all' | 'in' | 'out';
+type SortMode = 'ref' | 'name' | 'stock';
+
 @Component({
   selector: 'app-public-catalog-viewer',
   standalone: true,
@@ -26,7 +29,7 @@ interface RequestedPartSelection {
   templateUrl: './public-catalog-viewer.html',
   styleUrls: ['./public-catalog-viewer.css']
 })
-export class PublicCatalogViewerComponent implements OnInit {
+export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -40,6 +43,7 @@ export class PublicCatalogViewerComponent implements OnInit {
   catalogId: string | null = null;
   publicToken: string | null = null;
   publicQueryParams: any = {};
+  canUseEcommerce = false;
 
   catalog: Catalog | null = null;
   groups: ViewerGroup[] = [];
@@ -50,14 +54,20 @@ export class PublicCatalogViewerComponent implements OnInit {
   // Kütüphane Verileri (Stoklu + Stoksuz)
   pageItems: CatalogPageItem[] = [];
   filteredItems: CatalogPageItem[] = [];
+  searchInput: string = '';
   searchQuery: string = '';
+  stockFilter: StockFilter = 'all';
+  sortMode: SortMode = 'ref';
   
   // Seçim Durumları
   selectedPartLabel: string | null = null;
   selectedItem: CatalogPageItem | null = null;
   selectedProductId: string | null = null;
 
-  isSidebarOpen = true;
+  isMobileSidebarOpen = false;
+  isSidebarCollapsed = false;
+  isPageListExpanded = true;
+  isMobilePartsExpanded = false;
   isCartOpen = false; 
   isLoading = true;
   private requestedPageNumber: number | null = null;
@@ -65,12 +75,32 @@ export class PublicCatalogViewerComponent implements OnInit {
   private requestedPart: RequestedPartSelection = { itemId: null, refNo: null, partCode: null };
   private pendingAutoSelect = false;
   private attemptedHotspotRedirect = false;
+  private readonly minSelectionQty = 1;
+  private readonly maxSelectionQty = 99;
+  private itemSelectionQty: Record<string, number> = {};
+  private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private touchMode: 'none' | 'pan' | 'pinch' = 'none';
+  private touchStartX = 0;
+  private touchStartY = 0;
+  private touchStartTransformX = 0;
+  private touchStartTransformY = 0;
+  private swipeCandidate = false;
+  private pinchStartDistance = 0;
+  private pinchStartScale = 1;
+  private partsSheetTouchStartY = 0;
 
   // Zoom & Pan
   transform = { x: 0, y: 0, scale: 1 };
   isDragging = false;
   startX = 0;
   startY = 0;
+
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+  }
 
   ngOnInit() {
     // 🔥 DÜZELTME: ID'yi URL'den alıp hemen değişkene atıyoruz.
@@ -99,12 +129,29 @@ export class PublicCatalogViewerComponent implements OnInit {
     this.publicToken = tokenParam;
     this.publicQueryParams = { token: this.publicToken };
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.loadStorefrontFeatures();
     
     // Eğer ID varsa yüklemeyi başlat
     if (this.catalogId) {
       this.activeGroupIndex = pageIndexStr ? parseInt(pageIndexStr, 10) : 0;
       this.loadCatalog(this.catalogId);
     }
+  }
+
+  private loadStorefrontFeatures() {
+    if (!this.publicToken) return;
+    this.catalogService.getPublicStorefront(this.publicToken).subscribe({
+      next: (res) => {
+        this.canUseEcommerce = res?.ecommerceEnabled === true;
+        if (!this.canUseEcommerce) {
+          this.isCartOpen = false;
+        }
+      },
+      error: () => {
+        this.canUseEcommerce = false;
+        this.isCartOpen = false;
+      }
+    });
   }
 
   // --- 1. KATALOG VE GRUPLARI YÜKLE ---
@@ -153,13 +200,20 @@ export class PublicCatalogViewerComponent implements OnInit {
     
     this.activeGroupIndex = group.pageIndex;
     this.activePage = this.catalog.pages[group.pageIndex];
+    if (this.isMobileViewport()) {
+      this.isMobileSidebarOpen = false;
+      this.isMobilePartsExpanded = false;
+    }
     
     // UI Sıfırla
     this.resetZoom();
     this.selectedPartLabel = null;
     this.selectedItem = null;
     this.selectedProductId = null;
-    this.searchQuery = ''; 
+    this.searchInput = '';
+    this.searchQuery = '';
+    this.stockFilter = 'all';
+    this.sortMode = 'ref';
     this.isLoading = true;
 
     // Backend'den Sayfa İçeriğini Çek
@@ -169,7 +223,7 @@ export class PublicCatalogViewerComponent implements OnInit {
           ...item,
           catalogItemId: this.buildCartItemId(item)
         }));
-        this.filteredItems = [...this.pageItems];
+        this.applyFiltersAndSort();
         
         // Hotspotları eşleştir
         this.matchHotspotsLocally();
@@ -216,6 +270,7 @@ export class PublicCatalogViewerComponent implements OnInit {
 
   // --- SEPET & SİPARİŞ ---
   addToCart(item: CatalogPageItem) {
+    if (!this.canUseEcommerce) return;
     const productToAdd: CatalogPageItem = {
       catalogItemId: this.buildCartItemId(item),
       refNo: item.refNo,
@@ -232,25 +287,215 @@ export class PublicCatalogViewerComponent implements OnInit {
     this.isCartOpen = true; 
   }
 
+  addItemWithQty(item: CatalogPageItem) {
+    if (!this.canUseEcommerce) return;
+    const qty = this.getSelectionQty(item);
+    for (let i = 0; i < qty; i += 1) {
+      this.addToCart(item);
+    }
+    this.itemSelectionQty[this.buildCartItemId(item)] = this.minSelectionQty;
+  }
+
+  getSelectionQty(item: CatalogPageItem): number {
+    const key = this.buildCartItemId(item);
+    return this.itemSelectionQty[key] ?? this.minSelectionQty;
+  }
+
+  increaseSelectionQty(item: CatalogPageItem) {
+    const key = this.buildCartItemId(item);
+    const current = this.getSelectionQty(item);
+    this.itemSelectionQty[key] = Math.min(current + 1, this.maxSelectionQty);
+  }
+
+  decreaseSelectionQty(item: CatalogPageItem) {
+    const key = this.buildCartItemId(item);
+    const current = this.getSelectionQty(item);
+    this.itemSelectionQty[key] = Math.max(current - 1, this.minSelectionQty);
+  }
+
+  getStockLabel(item: CatalogPageItem): string {
+    if (item?.isStocked === true) return 'Stokta Var';
+    if (item?.isStocked === false) return 'Stokta Yok';
+    return 'Belirsiz';
+  }
+
+  getStockBadgeClass(item: CatalogPageItem): string {
+    if (item?.isStocked === true) return 'stock-pill stock-pill-ok';
+    if (item?.isStocked === false) return 'stock-pill stock-pill-no';
+    return 'stock-pill stock-pill-unknown';
+  }
+
+  isSelectedFromHotspot(item: CatalogPageItem): boolean {
+    const selected = this.normalizeValue(this.selectedPartLabel);
+    if (!selected) return false;
+    return selected === this.normalizeValue(item.refNo) || selected === this.normalizeValue(item.partCode);
+  }
+
+  getHotspotPartName(label: string): string {
+    const norm = this.normalizeValue(label);
+    if (!norm) return 'Parça';
+
+    const matched = this.pageItems.find((item) => {
+      const refNo = this.normalizeValue(item.refNo);
+      const code = this.normalizeValue(item.partCode);
+      return refNo === norm || code === norm;
+    });
+
+    return matched?.localName || matched?.partName || matched?.partCode || 'Parça';
+  }
+
   goCheckout() {
+    if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
     this.router.navigate(['/public-view', this.publicToken, 'checkout']);
   }
 
+  get currentPagePositionText(): string {
+    const pageNo = this.activePage?.pageNumber ?? (this.activeGroupIndex + 1);
+    const total = this.groups.length || 0;
+    return `${pageNo}/${total}`;
+  }
+
+  goToPreviousPage() {
+    if (!this.groups.length) return;
+    const prevIndex = Math.max(this.activeGroupIndex - 1, 0);
+    if (prevIndex === this.activeGroupIndex) return;
+    this.selectGroup(this.groups[prevIndex]);
+  }
+
+  goToNextPage() {
+    if (!this.groups.length) return;
+    const nextIndex = Math.min(this.activeGroupIndex + 1, this.groups.length - 1);
+    if (nextIndex === this.activeGroupIndex) return;
+    this.selectGroup(this.groups[nextIndex]);
+  }
+
+  onPartsHandleTouchStart(event: TouchEvent) {
+    if (!this.isMobileViewport() || event.touches.length !== 1) return;
+    this.partsSheetTouchStartY = event.touches[0].clientY;
+  }
+
+  onPartsHandleTouchEnd(event: TouchEvent) {
+    if (!this.isMobileViewport() || !this.partsSheetTouchStartY) return;
+    const endY = event.changedTouches[0]?.clientY ?? this.partsSheetTouchStartY;
+    const deltaY = endY - this.partsSheetTouchStartY;
+    if (deltaY < -45) this.isMobilePartsExpanded = true;
+    if (deltaY > 45) this.isMobilePartsExpanded = false;
+    this.partsSheetTouchStartY = 0;
+  }
+
   // --- ARAMA & FİLTRELEME ---
-  onSearch(query: string) {
-    this.searchQuery = query;
-    if (!query) {
-      this.filteredItems = [...this.pageItems];
-      return;
+  onSearchInputChange(query: string) {
+    this.searchInput = query;
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
     }
-    const lowerQuery = query.toLowerCase();
-    this.filteredItems = this.pageItems.filter(p => 
-      (p.partCode?.toLowerCase().includes(lowerQuery)) || 
-      (p.refNo?.includes(lowerQuery)) ||
-      (p.partName?.toLowerCase().includes(lowerQuery)) ||
-      (p.localName?.toLowerCase().includes(lowerQuery))
-    );
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery = this.searchInput.trim();
+      this.applyFiltersAndSort();
+    }, 200);
+  }
+
+  clearSearch() {
+    this.searchInput = '';
+    this.searchQuery = '';
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+    this.applyFiltersAndSort();
+  }
+
+  setStockFilter(filter: StockFilter) {
+    this.stockFilter = filter;
+    this.applyFiltersAndSort();
+  }
+
+  setSortMode(mode: SortMode) {
+    this.sortMode = mode;
+    this.applyFiltersAndSort();
+  }
+
+  private applyFiltersAndSort() {
+    const query = this.searchQuery.toLowerCase();
+    let items = [...this.pageItems];
+
+    if (query) {
+      items = items.filter((p) =>
+        (p.partCode?.toLowerCase().includes(query)) ||
+        (p.refNo?.toLowerCase().includes(query)) ||
+        (p.partName?.toLowerCase().includes(query)) ||
+        (p.localName?.toLowerCase().includes(query))
+      );
+    }
+
+    if (this.stockFilter === 'in') {
+      items = items.filter((p) => p.isStocked === true);
+    } else if (this.stockFilter === 'out') {
+      items = items.filter((p) => p.isStocked === false);
+    }
+
+    const stockRank = (item: CatalogPageItem): number => {
+      if (item.isStocked === true) return 0;
+      if (item.isStocked === false) return 2;
+      return 1;
+    };
+
+    items.sort((a, b) => {
+      if (this.sortMode === 'name') {
+        return (a.localName || a.partName || '').localeCompare((b.localName || b.partName || ''), 'tr', { sensitivity: 'base' });
+      }
+      if (this.sortMode === 'stock') {
+        const rankDiff = stockRank(a) - stockRank(b);
+        if (rankDiff !== 0) return rankDiff;
+      }
+      const refA = Number.parseInt(String(a.refNo || ''), 10);
+      const refB = Number.parseInt(String(b.refNo || ''), 10);
+      if (Number.isFinite(refA) && Number.isFinite(refB)) return refA - refB;
+      return String(a.refNo || '').localeCompare(String(b.refNo || ''), 'tr', { numeric: true, sensitivity: 'base' });
+    });
+
+    this.filteredItems = items;
+  }
+
+  get searchResultText(): string {
+    return `${this.filteredItems.length} sonuç bulundu`;
+  }
+
+  highlightMatch(value: string | null | undefined): string {
+    const input = String(value || '');
+    if (!this.searchQuery.trim()) return this.escapeHtml(input);
+
+    const escaped = this.escapeHtml(input);
+    const terms = this.searchQuery
+      .trim()
+      .split(/\s+/)
+      .filter((term) => term.length > 0)
+      .map((term) => this.escapeRegExp(this.escapeHtml(term)));
+
+    if (terms.length === 0) return escaped;
+    const pattern = new RegExp(`(${terms.join('|')})`, 'gi');
+    return escaped.replace(pattern, '<mark class="search-mark">$1</mark>');
+  }
+
+  askAiFromSearch() {
+    if (!this.publicToken) return;
+    this.router.navigate(['/public-view', this.publicToken], {
+      queryParams: this.searchInput.trim() ? { q: this.searchInput.trim() } : undefined
+    });
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   // --- ETKİLEŞİM ---
@@ -271,17 +516,15 @@ export class PublicCatalogViewerComponent implements OnInit {
     if (this.selectedItem) {
       // Arama filtresini temizle ki highlight görünsün
       if (this.searchQuery) {
-        this.searchQuery = '';
-        this.filteredItems = [...this.pageItems];
+        this.clearSearch();
       }
 
       setTimeout(() => {
         const row = document.getElementById('row-' + this.selectedItem?.catalogItemId);
         if (row) {
           row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          // Kısa bir "flash" efekti için geçici class ekle
-          row.classList.add('hotspot-flash');
-          setTimeout(() => row.classList.remove('hotspot-flash'), 1200);
+          row.classList.add('row-flash-run');
+          setTimeout(() => row.classList.remove('row-flash-run'), 1000);
         }
       }, 50);
     }
@@ -313,6 +556,78 @@ export class PublicCatalogViewerComponent implements OnInit {
 
   endDrag() { this.isDragging = false; }
   resetZoom() { this.transform = { x: 0, y: 0, scale: 1 }; }
+
+  onTouchStart(event: TouchEvent) {
+    if (!this.isMobileViewport()) return;
+
+    if (event.touches.length === 2) {
+      this.touchMode = 'pinch';
+      this.pinchStartDistance = this.getDistance(event.touches[0], event.touches[1]);
+      this.pinchStartScale = this.transform.scale;
+      this.swipeCandidate = false;
+      return;
+    }
+
+    if (event.touches.length === 1) {
+      const t = event.touches[0];
+      this.touchMode = 'pan';
+      this.touchStartX = t.clientX;
+      this.touchStartY = t.clientY;
+      this.touchStartTransformX = this.transform.x;
+      this.touchStartTransformY = this.transform.y;
+      this.swipeCandidate = this.transform.scale <= 1.05;
+    }
+  }
+
+  onTouchMove(event: TouchEvent) {
+    if (!this.isMobileViewport()) return;
+
+    if (this.touchMode === 'pinch' && event.touches.length === 2) {
+      event.preventDefault();
+      const distance = this.getDistance(event.touches[0], event.touches[1]);
+      if (this.pinchStartDistance <= 0) return;
+      const nextScale = this.pinchStartScale * (distance / this.pinchStartDistance);
+      this.transform.scale = Math.min(Math.max(0.5, nextScale), 5);
+      return;
+    }
+
+    if (this.touchMode === 'pan' && event.touches.length === 1) {
+      event.preventDefault();
+      const t = event.touches[0];
+      const dx = t.clientX - this.touchStartX;
+      const dy = t.clientY - this.touchStartY;
+
+      if (this.transform.scale > 1.05) {
+        this.transform.x = this.touchStartTransformX + dx;
+        this.transform.y = this.touchStartTransformY + dy;
+        this.swipeCandidate = false;
+        return;
+      }
+
+      if (Math.abs(dy) > 18 && Math.abs(dy) > Math.abs(dx)) {
+        this.swipeCandidate = false;
+      }
+    }
+  }
+
+  onTouchEnd(event: TouchEvent) {
+    if (!this.isMobileViewport()) return;
+
+    if (this.touchMode === 'pan' && this.swipeCandidate && this.transform.scale <= 1.05) {
+      const changed = event.changedTouches[0];
+      if (changed) {
+        const dx = changed.clientX - this.touchStartX;
+        const dy = changed.clientY - this.touchStartY;
+        if (Math.abs(dx) >= 60 && Math.abs(dy) <= 50) {
+          if (dx < 0) this.goToNextPage();
+          else this.goToPreviousPage();
+        }
+      }
+    }
+
+    this.touchMode = 'none';
+    this.swipeCandidate = false;
+  }
 
   private isEmptyGuid(value: any): boolean {
     const raw = String(value ?? '').trim();
@@ -448,8 +763,8 @@ export class PublicCatalogViewerComponent implements OnInit {
       const row = document.getElementById('row-' + item.catalogItemId);
       if (!row) return;
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      row.classList.add('hotspot-flash');
-      setTimeout(() => row.classList.remove('hotspot-flash'), 1200);
+      row.classList.add('row-flash-run');
+      setTimeout(() => row.classList.remove('row-flash-run'), 1000);
     }, 50);
   }
 
@@ -462,7 +777,7 @@ export class PublicCatalogViewerComponent implements OnInit {
     if (!hotspot) return;
 
     // Teknik resimde parçayı merkeze almak için hafif zoom + center offset uygula.
-    this.transform = { x: 0, y: 0, scale: 1.25 };
+    this.transform = { x: 0, y: 0, scale: 1.3 };
     setTimeout(() => {
       const viewport = this.viewportRef?.nativeElement;
       const image = this.technicalImageRef?.nativeElement;
@@ -483,5 +798,33 @@ export class PublicCatalogViewerComponent implements OnInit {
         y: this.transform.y + (viewportCenterY - hotspotCenterY),
       };
     }, 30);
+  }
+
+  toggleMobileSidebar() {
+    this.isMobilePartsExpanded = false;
+    this.isMobileSidebarOpen = !this.isMobileSidebarOpen;
+  }
+
+  closeMobileSidebar() {
+    this.isMobileSidebarOpen = false;
+  }
+
+  toggleSidebarCollapsed() {
+    this.isSidebarCollapsed = !this.isSidebarCollapsed;
+  }
+
+  togglePageListExpanded() {
+    this.isPageListExpanded = !this.isPageListExpanded;
+  }
+
+  private isMobileViewport(): boolean {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  private getDistance(t1: Touch, t2: Touch): number {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
   }
 }

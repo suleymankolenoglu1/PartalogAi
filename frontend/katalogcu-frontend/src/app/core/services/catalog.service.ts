@@ -35,6 +35,9 @@ export interface PublicStorefront {
   ownerName?: string;
   email?: string;
   phoneNumber?: string;
+  subscriptionPlan?: number;
+  aiChatEnabled?: boolean;
+  ecommerceEnabled?: boolean;
 }
 
 export interface CatalogAiJobSummary {

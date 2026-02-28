@@ -134,6 +134,19 @@ public class PartalogAiService : IPartalogAiService
                 content.Add(new StringContent(idsJson), "catalog_ids");
             }
 
+            if (!string.IsNullOrWhiteSpace(request.UserPlan))
+            {
+                content.Add(new StringContent(request.UserPlan), "user_plan");
+            }
+            if (request.AiLimitPerMonth.HasValue)
+            {
+                content.Add(new StringContent(request.AiLimitPerMonth.Value.ToString()), "ai_limit_per_month");
+            }
+            if (request.AiUsedThisMonth.HasValue)
+            {
+                content.Add(new StringContent(request.AiUsedThisMonth.Value.ToString()), "ai_used_this_month");
+            }
+
             if (request.Image != null)
             {
                 var fileStream = request.Image.OpenReadStream();

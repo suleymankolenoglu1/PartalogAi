@@ -10,4 +10,10 @@ public sealed class AuthUserDto
     public string? CompanyName { get; init; }
     public string? PhoneNumber { get; init; }
     public string Role { get; init; } = "Customer";
+    public int SubscriptionPlan { get; init; }
+    public DateTime? PlanActivatedAt { get; init; }
+    public DateTime? PlanExpiresAt { get; init; }
+    public bool PlanSelected { get; init; }
+    public int MaxCatalogCount { get; init; }
+    public int MaxPagePerCatalog { get; init; }
 }

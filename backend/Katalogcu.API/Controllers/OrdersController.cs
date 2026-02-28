@@ -7,6 +7,7 @@ using Katalogcu.Application.Features.Orders.Commands.CreateOrder;
 using Katalogcu.Application.Features.Orders.Commands.UpdateOrderStatus;
 using Katalogcu.Application.Features.Orders.Queries.GetIncomingOrders;
 using Katalogcu.Application.Features.Orders.Queries.GetOrderDetails;
+using Katalogcu.Application.Features.Catalogs.Queries.GetPublicStorefront;
 using FluentValidation;
 using MediatR;
 using System.Security.Claims;
@@ -62,6 +63,32 @@ namespace Katalogcu.API.Controllers
                 publicPayload.UserId != authenticatedUserId)
             {
                 return Forbid();
+            }
+
+            var orderOwnerUserId = publicPayload?.UserId ?? authenticatedUserId;
+            if (orderOwnerUserId != Guid.Empty)
+            {
+                var storefrontResult = await _sender.Send(
+                    new GetPublicStorefrontQuery(orderOwnerUserId),
+                    HttpContext.RequestAborted);
+
+                if (!storefrontResult.IsSuccess)
+                {
+                    return storefrontResult.ErrorCode switch
+                    {
+                        "not_found" => NotFound(storefrontResult.ErrorMessage),
+                        "validation" => BadRequest(storefrontResult.ErrorMessage),
+                        _ => StatusCode(500, storefrontResult.ErrorMessage ?? "Plan bilgisi alınamadı.")
+                    };
+                }
+
+                if (storefrontResult.Value?.EcommerceEnabled != true)
+                {
+                    return StatusCode(403, new
+                    {
+                        message = "Bu işletmede e-ticaret özelliği aktif değil."
+                    });
+                }
             }
 
             try

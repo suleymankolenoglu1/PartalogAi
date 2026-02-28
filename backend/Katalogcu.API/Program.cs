@@ -65,6 +65,7 @@ builder.Services.AddScoped<ICatalogPageFileService, CatalogPageFileService>();
 builder.Services.AddScoped<ICatalogCoverMetadataService, CatalogCoverMetadataService>();
 builder.Services.AddScoped<IChatFeedbackStore, ChatFeedbackJsonlStore>();
 builder.Services.AddScoped<ICatalogAiBackgroundProcessor, CatalogAiBackgroundProcessor>();
+builder.Services.AddScoped<IAiUsageQuotaService, AiUsageQuotaService>();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructureServices();
 
@@ -341,6 +342,7 @@ app.UseStaticFiles();
 app.UseCors("AllowAngularApp");
 app.UseRateLimiter();
 app.UseAuthentication(); 
+app.UseMiddleware<CatalogPlanLimitMiddleware>();
 app.UseAuthorization();  
 
 app.MapControllers();

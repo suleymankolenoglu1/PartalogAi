@@ -37,6 +37,7 @@ export class PublicCatalogShowcaseComponent implements OnInit {
 
   publicToken: string | null = null;
   publicQueryParams: any = {};
+  canUseEcommerce = false;
   
   isLoading = true;
   searchQuery = '';
@@ -51,6 +52,7 @@ export class PublicCatalogShowcaseComponent implements OnInit {
     this.publicToken = tokenParam;
     this.publicQueryParams = { token: this.publicToken };
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.loadStorefrontFeatures();
 
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
@@ -119,7 +121,20 @@ export class PublicCatalogShowcaseComponent implements OnInit {
   }
 
   goCheckout() {
+    if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
     this.router.navigate(['/public-view', this.publicToken, 'checkout']);
+  }
+
+  private loadStorefrontFeatures() {
+    if (!this.publicToken) return;
+    this.catalogService.getPublicStorefront(this.publicToken).subscribe({
+      next: (res) => {
+        this.canUseEcommerce = res?.ecommerceEnabled === true;
+      },
+      error: () => {
+        this.canUseEcommerce = false;
+      }
+    });
   }
 }

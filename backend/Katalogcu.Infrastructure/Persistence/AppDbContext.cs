@@ -1,4 +1,5 @@
 using Katalogcu.Domain.Entities;
+using Katalogcu.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Katalogcu.Infrastructure.Persistence
@@ -94,6 +95,19 @@ namespace Katalogcu.Infrastructure.Persistence
             modelBuilder.Entity<OrderItem>()
                 .Property(i => i.UnitPrice)
                 .HasPrecision(18, 2);
+
+            modelBuilder.Entity<AppUser>()
+                .Property(u => u.SubscriptionPlan)
+                .HasConversion<int>()
+                .HasDefaultValue(SubscriptionPlan.CatalogOnly);
+
+            modelBuilder.Entity<AppUser>()
+                .Property(u => u.MaxCatalogCount)
+                .HasDefaultValue(3);
+
+            modelBuilder.Entity<AppUser>()
+                .Property(u => u.MaxPagePerCatalog)
+                .HasDefaultValue(100);
 
             modelBuilder.Entity<Customer>()
                 .Property(c => c.TotalSpent)

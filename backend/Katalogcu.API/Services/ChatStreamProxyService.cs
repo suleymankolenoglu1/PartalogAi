@@ -8,6 +8,9 @@ public interface IChatStreamProxyService
         string? history,
         IReadOnlyCollection<string> catalogIds,
         IFormFile? image,
+        string? userPlan,
+        int? aiLimitPerMonth,
+        int? aiUsedThisMonth,
         CancellationToken cancellationToken);
 }
 
@@ -29,6 +32,9 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         string? history,
         IReadOnlyCollection<string> catalogIds,
         IFormFile? image,
+        string? userPlan,
+        int? aiLimitPerMonth,
+        int? aiUsedThisMonth,
         CancellationToken cancellationToken)
     {
         response.Headers["Content-Type"] = "text/event-stream";
@@ -41,6 +47,18 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         formContent.Add(new StringContent(text ?? string.Empty), "text");
         formContent.Add(new StringContent(history ?? "[]"), "history");
         formContent.Add(new StringContent(System.Text.Json.JsonSerializer.Serialize(catalogIds)), "catalog_ids");
+        if (!string.IsNullOrWhiteSpace(userPlan))
+        {
+            formContent.Add(new StringContent(userPlan), "user_plan");
+        }
+        if (aiLimitPerMonth.HasValue)
+        {
+            formContent.Add(new StringContent(aiLimitPerMonth.Value.ToString()), "ai_limit_per_month");
+        }
+        if (aiUsedThisMonth.HasValue)
+        {
+            formContent.Add(new StringContent(aiUsedThisMonth.Value.ToString()), "ai_used_this_month");
+        }
 
         if (image != null)
         {

@@ -163,7 +163,10 @@ namespace Katalogcu.API.Controllers
                 businessName = storefront.BusinessName,
                 ownerName = storefront.OwnerName,
                 email = storefront.Email,
-                phoneNumber = storefront.PhoneNumber
+                phoneNumber = storefront.PhoneNumber,
+                subscriptionPlan = storefront.SubscriptionPlan,
+                aiChatEnabled = storefront.AiChatEnabled,
+                ecommerceEnabled = storefront.EcommerceEnabled
             });
         }
 

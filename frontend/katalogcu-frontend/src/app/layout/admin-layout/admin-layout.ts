@@ -60,6 +60,35 @@ export class AdminLayoutComponent implements OnDestroy {
     return `https://ui-avatars.com/api/?name=${encoded}&background=0F172A&color=ffffff`;
   }
 
+  get currentPlan(): number {
+    return this.authService.getCurrentPlan();
+  }
+
+  get canUseAi(): boolean {
+    return this.currentPlan >= 2;
+  }
+
+  get canUseEcommerce(): boolean {
+    return this.currentPlan >= 3;
+  }
+
+  hasPlan(minPlan: number): boolean {
+    return this.currentPlan >= minPlan;
+  }
+
+  goUpgrade(requiredPlan?: number, feature?: string) {
+    this.router.navigate(['/upgrade'], {
+      queryParams: {
+        ...(requiredPlan ? { requiredPlan } : {}),
+        ...(feature ? { feature } : {})
+      }
+    });
+  }
+
+  get currentPlanLabel(): string {
+    return this.authService.getCurrentPlanDisplayName();
+  }
+
   private loadCurrentUser() {
     const cached = this.authService.getStoredUserInfo();
     if (cached) this.currentUser = cached;
@@ -68,6 +97,20 @@ export class AdminLayoutComponent implements OnDestroy {
       next: (me) => {
         this.currentUser = me;
         this.authService.setStoredUserInfo(me);
+        const session = this.authService.getSession();
+        const token = this.authService.getToken();
+        if (session && token) {
+          this.authService.setSession({
+            ...session,
+            token,
+            userId: me.userId || me.id || session.userId,
+            plan: this.authService.getCurrentPlan(),
+            planName: this.authService.getCurrentPlanDisplayName(),
+            planSelected: !!me.planSelected,
+            maxCatalogs: me.maxCatalogCount ?? session.maxCatalogs,
+            expiresAt: me.planExpiresAt ?? session.expiresAt
+          });
+        }
       },
       error: () => {
         // cache varsa onunla devam
