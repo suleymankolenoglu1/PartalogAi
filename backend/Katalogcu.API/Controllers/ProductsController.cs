@@ -25,12 +25,18 @@ namespace Katalogcu.API.Controllers
         private readonly ExcelService _excelService;
         private readonly IPublicAccessTokenService _publicAccessTokenService;
         private readonly ISender _sender;
+        private readonly ILogger<ProductsController> _logger;
 
-        public ProductsController(ExcelService excelService, IPublicAccessTokenService publicAccessTokenService, ISender sender)
+        public ProductsController(
+            ExcelService excelService,
+            IPublicAccessTokenService publicAccessTokenService,
+            ISender sender,
+            ILogger<ProductsController> logger)
         {
             _excelService = excelService;
             _publicAccessTokenService = publicAccessTokenService;
             _sender = sender;
+            _logger = logger;
         }
 
         // 🛠️ Yardımcı Metod: Token'dan UserID'yi (Guid) okur
@@ -176,7 +182,8 @@ namespace Katalogcu.API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Silme hatası: {ex.Message}");
+                _logger.LogError(ex, "Product delete failed. productId={ProductId}", id);
+                return StatusCode(500, "Ürün silinirken beklenmeyen bir hata oluştu.");
             }
         }
 
@@ -228,7 +235,8 @@ namespace Katalogcu.API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Yükleme hatası: {ex.Message}");
+                _logger.LogError(ex, "Product import failed");
+                return StatusCode(500, "Ürün içe aktarma sırasında beklenmeyen bir hata oluştu.");
             }
         }
 
@@ -299,7 +307,8 @@ namespace Katalogcu.API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Stok aktarım hatası: {ex.Message}");
+                _logger.LogError(ex, "Stock import failed");
+                return StatusCode(500, "Stok içe aktarma sırasında beklenmeyen bir hata oluştu.");
             }
         }
 

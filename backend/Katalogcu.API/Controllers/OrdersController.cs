@@ -23,11 +23,16 @@ namespace Katalogcu.API.Controllers
     {
         private readonly IPublicAccessTokenService _publicAccessTokenService;
         private readonly ISender _sender;
+        private readonly ILogger<OrdersController> _logger;
 
-        public OrdersController(IPublicAccessTokenService publicAccessTokenService, ISender sender)
+        public OrdersController(
+            IPublicAccessTokenService publicAccessTokenService,
+            ISender sender,
+            ILogger<OrdersController> logger)
         {
             _publicAccessTokenService = publicAccessTokenService;
             _sender = sender;
+            _logger = logger;
         }
 
         private Guid GetCurrentUserId()
@@ -141,7 +146,8 @@ namespace Katalogcu.API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Hata: {ex.Message}");
+                _logger.LogError(ex, "Public order create failed");
+                return StatusCode(500, "Sipariş oluşturma sırasında beklenmeyen bir hata oluştu.");
             }
         }
 

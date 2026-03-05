@@ -1,8 +1,11 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms'; // 🔥 HTML'de ngModel kullandığımız için şart
 import { Catalog, CatalogService, PublicTokenStatus, ShowcaseMedia } from '../../core/services/catalog.service'; // Interface'i import ettik
 import { AuthService } from '../../core/services/auth.service';
+import { ActivatedRoute } from '@angular/router';
+import { Subscription } from 'rxjs';
+import { PlanId } from '../../core/models/plan.model';
 
 @Component({
   selector: 'app-settings',
@@ -11,12 +14,14 @@ import { AuthService } from '../../core/services/auth.service';
   templateUrl: './settings.html',
   styleUrl: './settings.css'
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   private catalogService = inject(CatalogService);
   private authService = inject(AuthService);
+  private route = inject(ActivatedRoute);
+  private queryParamSub?: Subscription;
 
   // Aktif sekme (Type güvenliği için string literal kullandık)
-  activeTab: 'general' | 'security' | 'notifications' | 'showcase' | 'public' = 'general';
+  activeTab: 'general' | 'security' | 'notifications' | 'showcase' | 'public' | 'plan' = 'general';
 
   // --- PUBLIC LINK VERİLERİ ---
   publicToken: string | null = null;
@@ -39,6 +44,9 @@ export class SettingsComponent implements OnInit {
   isProfileSaving = false;
   profileSuccess: string | null = null;
   profileError: string | null = null;
+  isPlanSubmitting = false;
+  planSuccess: string | null = null;
+  planError: string | null = null;
 
   // --- VITRIN (SHOWCASE) VERİLERİ ---
 
@@ -57,9 +65,14 @@ export class SettingsComponent implements OnInit {
 
   // Sekme Değiştirme
   ngOnInit(): void {
+    this.bindRouteTabParams();
     this.loadProfile();
     this.loadPublishedCatalogs();
     this.loadPublicLinkState();
+  }
+
+  ngOnDestroy(): void {
+    this.queryParamSub?.unsubscribe();
   }
 
   get profileAvatarUrl(): string {
@@ -90,8 +103,108 @@ export class SettingsComponent implements OnInit {
     });
   }
 
-  setActiveTab(tabName: 'general' | 'security' | 'notifications' | 'showcase' | 'public') {
+  get currentPlan(): PlanId {
+    return this.authService.getCurrentPlan();
+  }
+
+  get currentPlanLabel(): string {
+    return this.authService.getCurrentPlanDisplayName();
+  }
+
+  setActiveTab(tabName: 'general' | 'security' | 'notifications' | 'showcase' | 'public' | 'plan') {
     this.activeTab = tabName;
+    this.planSuccess = null;
+    this.planError = null;
+  }
+
+  private bindRouteTabParams() {
+    this.queryParamSub = this.route.queryParamMap.subscribe((query) => {
+      const requestedTab = query.get('tab');
+      if (requestedTab && this.isSettingsTab(requestedTab)) {
+        this.activeTab = requestedTab;
+      }
+
+      if (this.activeTab !== 'public') return;
+      if (query.get('section') !== 'link-management') return;
+
+      setTimeout(() => {
+        document.getElementById('link-management')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }, 0);
+    });
+  }
+
+  private isSettingsTab(tab: string): tab is 'general' | 'security' | 'notifications' | 'showcase' | 'public' | 'plan' {
+    return tab === 'general'
+      || tab === 'security'
+      || tab === 'notifications'
+      || tab === 'showcase'
+      || tab === 'public'
+      || tab === 'plan';
+  }
+
+  isCurrentPlan(plan: PlanId): boolean {
+    return this.currentPlan === plan;
+  }
+
+  getPlanActionLabel(plan: PlanId): string {
+    if (this.isCurrentPlan(plan)) return 'Mevcut Plan';
+    if (plan < this.currentPlan) return 'Bu Plana Düşür';
+    return 'Bu Plana Yükselt';
+  }
+
+  changePlan(plan: PlanId) {
+    if (this.isPlanSubmitting || this.isCurrentPlan(plan)) return;
+
+    if (plan < this.currentPlan) {
+      const approve = confirm('Planı düşürmek istediğine emin misin? Plan dışında kalan modüller kapanacak.');
+      if (!approve) return;
+    }
+
+    this.isPlanSubmitting = true;
+    this.planSuccess = null;
+    this.planError = null;
+
+    this.authService.selectPlan(plan).subscribe({
+      next: () => {
+        this.isPlanSubmitting = false;
+        this.planSuccess = 'Plan başarıyla güncellendi.';
+        this.loadProfile();
+      },
+      error: (err) => {
+        this.isPlanSubmitting = false;
+        this.planError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Plan güncellenemedi.');
+      }
+    });
+  }
+
+  cancelPaidPlan() {
+    if (this.isPlanSubmitting || this.currentPlan === 1) return;
+
+    const approve = confirm('Ücretli planı iptal edip Katalog paketine dönmek istiyor musun?');
+    if (!approve) return;
+
+    this.isPlanSubmitting = true;
+    this.planSuccess = null;
+    this.planError = null;
+
+    this.authService.cancelPlan().subscribe({
+      next: () => {
+        this.isPlanSubmitting = false;
+        this.planSuccess = 'Ücretli plan iptal edildi. Katalog paketine geçildi.';
+        this.loadProfile();
+      },
+      error: (err) => {
+        this.isPlanSubmitting = false;
+        this.planError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Plan iptal edilemedi.');
+      }
+    });
   }
 
   loadPublishedCatalogs() {
@@ -224,7 +337,7 @@ export class SettingsComponent implements OnInit {
 
   async copyPublicLink() {
     if (!this.publicToken) return;
-    const url = `${window.location.origin}/public-view/${this.publicToken}`;
+    const url = `${window.location.origin}/p/${this.publicToken}`;
     try {
       await navigator.clipboard.writeText(url);
       this.publicActionMessage = 'Public link panoya kopyalandı.';
@@ -275,6 +388,11 @@ export class SettingsComponent implements OnInit {
   saveSettings() {
     if (this.activeTab === 'general') {
       this.saveProfile();
+      return;
+    }
+
+    if (this.activeTab === 'plan') {
+      this.planSuccess = this.planSuccess ?? 'Plan değişiklikleri anlık uygulanır.';
       return;
     }
 

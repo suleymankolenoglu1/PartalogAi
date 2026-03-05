@@ -294,7 +294,10 @@ public class PartalogAiService : IPartalogAiService
         using var content = new MultipartFormDataContent();
         using var stream = file.OpenReadStream();
         var fileContent = new StreamContent(stream);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType)
+            ? ResolveImageContentType(file.FileName)
+            : file.ContentType;
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         content.Add(fileContent, "file", file.FileName);
 
         var response = await _httpClient.PostAsync(relativeUrl, content);
@@ -303,6 +306,19 @@ public class PartalogAiService : IPartalogAiService
             throw new HttpRequestException($"API Hatası: {response.StatusCode}");
         }
         return await response.Content.ReadAsStringAsync();
+    }
+
+    private static string ResolveImageContentType(string? fileName)
+    {
+        var extension = Path.GetExtension(fileName ?? string.Empty)?.ToLowerInvariant();
+        return extension switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".jpeg" => "image/jpeg",
+            ".jpg" => "image/jpeg",
+            _ => "image/png"
+        };
     }
 
     // --- DAHİLİ DTO SINIFLARI (Internal) ---

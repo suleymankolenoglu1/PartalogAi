@@ -27,12 +27,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="google-key.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\Katalogcu.Application\Katalogcu.Application.csproj" />
     <ProjectReference Include="..\Katalogcu.Infrastructure\Katalogcu.Infrastructure.csproj" />
   </ItemGroup>

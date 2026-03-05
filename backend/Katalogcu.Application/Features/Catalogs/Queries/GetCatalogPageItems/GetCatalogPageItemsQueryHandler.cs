@@ -28,8 +28,11 @@ public sealed class GetCatalogPageItemsQueryHandler : IRequestHandler<GetCatalog
         }
 
         var catalogItems = await FetchForPageAsync(request.PageNumber);
-        if (!catalogItems.Any()) catalogItems = await FetchForPageAsync(request.PageNumber + 1);
-        if (!catalogItems.Any() && request.PageNumber > 1) catalogItems = await FetchForPageAsync(request.PageNumber - 1);
+        if (!request.StrictPage)
+        {
+            if (!catalogItems.Any()) catalogItems = await FetchForPageAsync(request.PageNumber + 1);
+            if (!catalogItems.Any() && request.PageNumber > 1) catalogItems = await FetchForPageAsync(request.PageNumber - 1);
+        }
 
         if (!catalogItems.Any())
         {

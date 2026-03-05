@@ -25,9 +25,9 @@
       </ul>
       <button
         class="mt-6 h-11 w-full rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary hover:bg-primary/20 disabled:opacity-60"
-        [disabled]="isSubmitting"
+        [disabled]="isSubmitting || isCurrentPlan(1)"
         (click)="selectPlan(1)">
-        {{ isLoggedIn ? 'Bu Planı Seç' : 'Giriş Yap ve Seç' }}
+        {{ getPlanActionLabel(1) }}
       </button>
     </article>
 
@@ -42,9 +42,9 @@
       </ul>
       <button
         class="mt-6 h-11 w-full rounded-lg bg-primary text-sm font-bold text-background-dark hover:opacity-90 disabled:opacity-60"
-        [disabled]="isSubmitting"
+        [disabled]="isSubmitting || isCurrentPlan(2)"
         (click)="selectPlan(2)">
-        {{ isLoggedIn ? 'Bu Planı Seç' : 'Giriş Yap ve Seç' }}
+        {{ getPlanActionLabel(2) }}
       </button>
     </article>
 
@@ -59,12 +59,27 @@
       </ul>
       <button
         class="mt-6 h-11 w-full rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary hover:bg-primary/20 disabled:opacity-60"
-        [disabled]="isSubmitting"
+        [disabled]="isSubmitting || isCurrentPlan(3)"
         (click)="selectPlan(3)">
-        {{ isLoggedIn ? 'Bu Planı Seç' : 'Giriş Yap ve Seç' }}
+        {{ getPlanActionLabel(3) }}
       </button>
     </article>
   </section>
+
+  @if (isLoggedIn && currentPlan > 1) {
+    <section class="mt-8 rounded-xl border border-red-200 bg-red-50 p-5">
+      <h3 class="text-base font-extrabold text-red-700">Plan İptali</h3>
+      <p class="mt-2 text-sm text-red-700/90">
+        Ücretli planı iptal edersen hesabın Katalog paketine düşer. AI ve E-Ticaret modülleri kapanır.
+      </p>
+      <button
+        class="mt-4 h-10 rounded-lg border border-red-300 bg-white px-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-60"
+        [disabled]="isSubmitting"
+        (click)="cancelPaidPlan()">
+        Ücretli Planı İptal Et
+      </button>
+    </section>
+  }
 
   @if (submitSuccess) {
     <div class="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">

@@ -1,4 +1,4 @@
-import { Component, OnDestroy, inject } from '@angular/core';
+import { Component, HostListener, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService, AuthUserInfo } from '../../core/services/auth.service';
@@ -6,6 +6,7 @@ import { CatalogService, PublicTokenStatus } from '../../core/services/catalog.s
 import { OrderService } from '../../core/services/order.service';
 import { Subscription } from 'rxjs';
 import { filter } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-admin-layout',
@@ -33,6 +34,7 @@ export class AdminLayoutComponent implements OnDestroy {
   pendingOrderCount = 0;
   unreadOrderCount = 0;
   currentUser: AuthUserInfo | null = null;
+  openLockedMenuKey: string | null = null;
 
   constructor() {
     this.loadCurrentUser();
@@ -65,18 +67,56 @@ export class AdminLayoutComponent implements OnDestroy {
   }
 
   get canUseAi(): boolean {
-    return this.currentPlan >= 2;
+    return this.supportsAiFeature && this.currentPlan >= 2;
   }
 
   get canUseEcommerce(): boolean {
-    return this.currentPlan >= 3;
+    return this.supportsEcommerceFeature && this.currentPlan >= 3;
   }
 
   hasPlan(minPlan: number): boolean {
+    if (minPlan >= 2 && !this.supportsAiFeature) return false;
+    if (minPlan >= 3 && !this.supportsEcommerceFeature) return false;
     return this.currentPlan >= minPlan;
   }
 
+  get supportsAiFeature(): boolean {
+    return environment.features.enableAi;
+  }
+
+  get supportsEcommerceFeature(): boolean {
+    return environment.features.enableEcommerce;
+  }
+
+  get showUpgradePrompts(): boolean {
+    return environment.features.enableUpgradePrompts;
+  }
+
+  get shouldShowHeaderUpgradeButton(): boolean {
+    if (!this.showUpgradePrompts) return false;
+    if (this.supportsAiFeature && this.currentPlan < 2) return true;
+    if (this.supportsEcommerceFeature && this.currentPlan < 3) return true;
+    return false;
+  }
+
+  get shouldShowSidebarUpgradePromo(): boolean {
+    return this.shouldShowHeaderUpgradeButton;
+  }
+
+  get nextUpgradePlan(): number {
+    if (this.supportsAiFeature && this.currentPlan < 2) return 2;
+    if (this.supportsEcommerceFeature && this.currentPlan < 3) return 3;
+    return this.currentPlan;
+  }
+
+  get nextUpgradeFeature(): string {
+    if (this.supportsAiFeature && this.currentPlan < 2) return 'ai';
+    if (this.supportsEcommerceFeature && this.currentPlan < 3) return 'ecommerce';
+    return 'catalog';
+  }
+
   goUpgrade(requiredPlan?: number, feature?: string) {
+    this.openLockedMenuKey = null;
     this.router.navigate(['/upgrade'], {
       queryParams: {
         ...(requiredPlan ? { requiredPlan } : {}),
@@ -120,6 +160,32 @@ export class AdminLayoutComponent implements OnDestroy {
 
   logout() {
     this.authService.logout();
+  }
+
+  toggleLockedMenu(key: string, event: MouseEvent) {
+    event.stopPropagation();
+    this.openLockedMenuKey = this.openLockedMenuKey === key ? null : key;
+  }
+
+  closeLockedMenu() {
+    this.openLockedMenuKey = null;
+  }
+
+  goToLinkManagement() {
+    this.router.navigate(['/dashboard/settings'], {
+      queryParams: {
+        tab: 'public',
+        section: 'link-management'
+      }
+    });
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: Event) {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('.nav-item-menu-wrap')) {
+      this.closeLockedMenu();
+    }
   }
 
   loadPublicLinkState() {
@@ -187,7 +253,7 @@ export class AdminLayoutComponent implements OnDestroy {
 
   async copyPublicLink() {
     if (!this.publicToken) return;
-    const url = `${window.location.origin}/public-view/${this.publicToken}`;
+    const url = `${window.location.origin}/p/${this.publicToken}`;
     try {
       await navigator.clipboard.writeText(url);
       this.publicActionMessage = 'Public link panoya kopyalandı.';
@@ -199,6 +265,8 @@ export class AdminLayoutComponent implements OnDestroy {
   }
 
   private initializeOrderNotifications() {
+    if (!this.supportsEcommerceFeature) return;
+
     this.routeSub = this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
       .subscribe((event) => {
@@ -250,6 +318,7 @@ export class AdminLayoutComponent implements OnDestroy {
   }
 
   openOrdersFromNotification() {
+    if (!this.supportsEcommerceFeature) return;
     this.markOrdersAsSeen();
     this.router.navigate(['/dashboard/orders']);
   }

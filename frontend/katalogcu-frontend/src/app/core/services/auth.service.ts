@@ -63,22 +63,13 @@ export class AuthService {
   // Giriş Yap
   login(credentials: { email: string; password: string }) {
     return this.http.post<LoginResponse>(`${this.apiUrl}/auth/login`, credentials).pipe(
-      tap(response => {
-        if (response.token) {
-          const plan = normalizePlan(response.plan);
-          localStorage.setItem('auth_token', response.token);
-          this.setStoredUserInfo(response.user);
-          this.setSession({
-            userId: response.userId || response.user?.userId || response.user?.id || '',
-            token: response.token,
-            plan,
-            planName: getPlanDisplayName(plan),
-            planSelected: response.planSelected ?? response.user?.planSelected ?? false,
-            maxCatalogs: response.maxCatalogs ?? response.user?.maxCatalogCount ?? 3,
-            expiresAt: response.expiresAt ?? response.user?.planExpiresAt ?? null
-          });
-        }
-      })
+      tap(response => this.persistLoginResponse(response))
+    );
+  }
+
+  platformLogin(credentials: { email: string; password: string }) {
+    return this.http.post<LoginResponse>(`${this.apiUrl}/platform-auth/login`, credentials).pipe(
+      tap(response => this.persistLoginResponse(response))
     );
   }
 
@@ -191,6 +182,14 @@ export class AuthService {
     return getPlanDisplayName(this.getCurrentPlan());
   }
 
+  getCurrentRole(): string {
+    return (this.getStoredUserInfo()?.role ?? '').toLowerCase();
+  }
+
+  isPlatformAdmin(): boolean {
+    return this.getCurrentRole() === 'platformadmin';
+  }
+
   isPlanSelected(): boolean {
     const session = this.getSession();
     if (session) return !!session.planSelected;
@@ -211,18 +210,15 @@ export class AuthService {
   selectPlan(plan: PlanId) {
     return this.http.post<AuthUserInfo>(`${this.apiUrl}/auth/select-plan`, { plan }).pipe(
       tap((user) => {
-        this.setStoredUserInfo(user);
-        const token = this.getToken();
-        if (!token) return;
-        this.setSession({
-          userId: user.userId || user.id,
-          token,
-          plan: normalizePlan(user.subscriptionPlan ?? plan),
-          planName: getPlanDisplayName(normalizePlan(user.subscriptionPlan ?? plan)),
-          planSelected: !!user.planSelected,
-          maxCatalogs: Number(user.maxCatalogCount || 0) > 0 ? Number(user.maxCatalogCount) : 3,
-          expiresAt: user.planExpiresAt ?? null
-        });
+        this.applyUserSessionFromUser(user, plan);
+      })
+    );
+  }
+
+  cancelPlan() {
+    return this.http.post<AuthUserInfo>(`${this.apiUrl}/auth/cancel-plan`, {}).pipe(
+      tap((user) => {
+        this.applyUserSessionFromUser(user, 1);
       })
     );
   }
@@ -236,5 +232,39 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  private persistLoginResponse(response: LoginResponse) {
+    if (!response?.token) return;
+
+    const plan = normalizePlan(response.plan);
+    localStorage.setItem('auth_token', response.token);
+    this.setStoredUserInfo(response.user);
+    this.setSession({
+      userId: response.userId || response.user?.userId || response.user?.id || '',
+      token: response.token,
+      plan,
+      planName: getPlanDisplayName(plan),
+      planSelected: response.planSelected ?? response.user?.planSelected ?? false,
+      maxCatalogs: response.maxCatalogs ?? response.user?.maxCatalogCount ?? 3,
+      expiresAt: response.expiresAt ?? response.user?.planExpiresAt ?? null
+    });
+  }
+
+  private applyUserSessionFromUser(user: AuthUserInfo, fallbackPlan: PlanId) {
+    this.setStoredUserInfo(user);
+    const token = this.getToken();
+    if (!token) return;
+
+    const plan = normalizePlan(user.subscriptionPlan ?? fallbackPlan);
+    this.setSession({
+      userId: user.userId || user.id,
+      token,
+      plan,
+      planName: getPlanDisplayName(plan),
+      planSelected: !!user.planSelected,
+      maxCatalogs: Number(user.maxCatalogCount || 0) > 0 ? Number(user.maxCatalogCount) : 3,
+      expiresAt: user.planExpiresAt ?? null
+    });
   }
 }

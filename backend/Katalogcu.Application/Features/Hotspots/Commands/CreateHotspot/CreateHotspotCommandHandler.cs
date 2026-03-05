@@ -16,10 +16,10 @@ public sealed class CreateHotspotCommandHandler : IRequestHandler<CreateHotspotC
 
     public async Task<OperationResult<Hotspot>> Handle(CreateHotspotCommand request, CancellationToken cancellationToken)
     {
-        var page = await _hotspotRepository.GetCatalogPageByIdAsync(request.PageId, cancellationToken);
+        var page = await _hotspotRepository.GetCatalogPageByIdForUserAsync(request.PageId, request.UserId, cancellationToken);
         if (page == null)
         {
-            return OperationResult<Hotspot>.Failure("not_found", "Sayfa bulunamadı.");
+            return OperationResult<Hotspot>.Failure("not_found", "Sayfa bulunamadı veya yetkiniz yok.");
         }
 
         var hotspot = new Hotspot

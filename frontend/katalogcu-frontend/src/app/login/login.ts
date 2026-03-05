@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms'; // 👈 Form işlemleri için gerekli
 import { AuthService } from '../core/services/auth.service';
+import { environment } from '../../environments/environment';
  // Servisi çağırdık
 
 @Component({
@@ -39,6 +40,11 @@ export class LoginComponent {
 
     this.authService.login({ email: this.email, password: this.password }).subscribe({
       next: (response: any) => {
+        if (!environment.features.enableUpgradePrompts) {
+          this.router.navigate(['/dashboard']);
+          return;
+        }
+
         const planSelected = response?.planSelected ?? response?.user?.planSelected ?? this.authService.isPlanSelected();
         if (!planSelected) {
           this.router.navigate(['/upgrade']);

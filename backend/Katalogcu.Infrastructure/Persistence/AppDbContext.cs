@@ -24,6 +24,7 @@ namespace Katalogcu.Infrastructure.Persistence
         public DbSet<Customer> Customers { get; set; }
         public DbSet<StockMovement> StockMovements { get; set; }
         public DbSet<CatalogAiJob> CatalogAiJobs { get; set; }
+        public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
 
         // İlişki ve Davranış Ayarları
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -185,6 +186,35 @@ namespace Katalogcu.Infrastructure.Persistence
                 .WithMany()
                 .HasForeignKey(j => j.CatalogId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .Property(x => x.Action)
+                .HasMaxLength(128);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .Property(x => x.ActorEmail)
+                .HasMaxLength(256);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .Property(x => x.ActorRole)
+                .HasMaxLength(64);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .Property(x => x.IpAddress)
+                .HasMaxLength(64);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .Property(x => x.UserAgent)
+                .HasMaxLength(512);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .HasIndex(x => x.TargetOwnerUserId);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .HasIndex(x => x.ActorUserId);
+
+            modelBuilder.Entity<PlatformAuditLog>()
+                .HasIndex(x => x.CreatedDate);
         }
     }
 }

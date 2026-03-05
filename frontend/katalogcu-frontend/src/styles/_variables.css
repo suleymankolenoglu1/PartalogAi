@@ -1,0 +1,88 @@
+:root {
+  /* ── Brand Colors ── */
+  --pt-navy: #314b6d;
+  --pt-navy-deep: #253a56;
+  --pt-navy-mid: #3f5f87;
+  --pt-navy-soft: #e5eaf1;
+
+  --pt-blue: #6f88ad;
+  --pt-blue-hover: #5a7398;
+  --pt-blue-light: #eef3fb;
+  --pt-blue-border: #cfd9e8;
+  --pt-gear: #b3b8c0;
+
+  /* ── Backgrounds ── */
+  --pt-bg-page: #edf1f6;
+  --pt-bg-card: #FFFFFF;
+  --pt-bg-dark: #1E2D3D;
+  --pt-bg-dark-2: #15202D;
+  --pt-bg-subtle: #F7F9FB;
+
+  /* ── Text ── */
+  --pt-text-heading: #1f324b;
+  --pt-text-body: #3c526f;
+  --pt-text-muted: #6f8197;
+  --pt-text-faint: #9cabbc;
+  --pt-text-inverse: #FFFFFF;
+  --pt-text-accent: #2E6BE6;
+
+  /* ── Border ── */
+  --pt-border: #d8e0ea;
+  --pt-border-hover: #c3cfdd;
+  --pt-border-focus: #5a7398;
+
+  /* ── Status ── */
+  --pt-success: #16A34A;
+  --pt-success-bg: #DCFCE7;
+  --pt-success-border: #BBF7D0;
+  --pt-danger: #DC2626;
+  --pt-danger-bg: #FEE2E2;
+  --pt-danger-border: #FECACA;
+  --pt-warning: #D97706;
+  --pt-warning-bg: #FEF3C7;
+
+  /* ── Spacing ── */
+  --pt-space-1: 4px;
+  --pt-space-2: 8px;
+  --pt-space-3: 12px;
+  --pt-space-4: 16px;
+  --pt-space-5: 20px;
+  --pt-space-6: 24px;
+  --pt-space-8: 32px;
+  --pt-space-10: 40px;
+
+  /* ── Border Radius ── */
+  --pt-radius-sm: 2px;
+  --pt-radius-md: 6px;
+  --pt-radius-lg: 8px;
+  --pt-radius-xl: 10px;
+  --pt-radius-pill: 999px;
+
+  /* ── Shadows ── */
+  --pt-shadow-sm:
+    0 1px 3px color-mix(in srgb, var(--pt-navy) 6%, transparent),
+    0 1px 2px color-mix(in srgb, var(--pt-navy) 4%, transparent);
+
+  --pt-shadow-md:
+    0 4px 12px color-mix(in srgb, var(--pt-navy) 8%, transparent),
+    0 2px 4px color-mix(in srgb, var(--pt-navy) 4%, transparent);
+
+  --pt-shadow-lg:
+    0 10px 30px color-mix(in srgb, var(--pt-navy) 10%, transparent),
+    0 4px 8px color-mix(in srgb, var(--pt-navy) 4%, transparent);
+
+  --pt-shadow-dark: 0 4px 16px color-mix(in srgb, var(--pt-bg-dark-2) 70%, transparent);
+
+  /* ── Typography ── */
+  --pt-font: 'Manrope', 'Inter', -apple-system, sans-serif;
+  --pt-font-size-xs: 11px;
+  --pt-font-size-sm: 12px;
+  --pt-font-size-md: 13px;
+  --pt-font-size-base: 14px;
+  --pt-font-size-lg: 16px;
+  --pt-font-size-xl: 18px;
+
+  /* ── Transitions ── */
+  --pt-transition: 0.18s ease;
+  --pt-transition-slow: 0.28s ease;
+}

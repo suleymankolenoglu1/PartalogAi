@@ -17,7 +17,7 @@ public sealed class RegisterCommandHandler : IRequestHandler<RegisterCommand, Op
 
     public async Task<OperationResult<RegisterResponse>> Handle(RegisterCommand request, CancellationToken cancellationToken)
     {
-        var email = request.Email.Trim();
+        var email = request.Email.Trim().ToLowerInvariant();
         if (await _authRepository.EmailExistsAsync(email, cancellationToken))
         {
             return OperationResult<RegisterResponse>.Failure("duplicate", "Bu e-posta adresi zaten kayıtlı!");

@@ -19,6 +19,17 @@ public sealed class HotspotRepository : IHotspotRepository
         return _context.CatalogPages.FirstOrDefaultAsync(p => p.Id == pageId, cancellationToken);
     }
 
+    public Task<CatalogPage?> GetCatalogPageByIdForUserAsync(Guid pageId, Guid userId, CancellationToken cancellationToken)
+    {
+        return _context.CatalogPages
+            .Include(p => p.Catalog)
+            .FirstOrDefaultAsync(
+                p => p.Id == pageId &&
+                     p.Catalog != null &&
+                     p.Catalog.UserId == userId,
+                cancellationToken);
+    }
+
     public Task AddHotspotsAsync(IEnumerable<Hotspot> hotspots, CancellationToken cancellationToken)
     {
         return _context.Hotspots.AddRangeAsync(hotspots, cancellationToken);
@@ -32,6 +43,19 @@ public sealed class HotspotRepository : IHotspotRepository
     public Task<Hotspot?> GetHotspotByIdAsync(Guid hotspotId, CancellationToken cancellationToken)
     {
         return _context.Hotspots.FirstOrDefaultAsync(h => h.Id == hotspotId, cancellationToken);
+    }
+
+    public Task<Hotspot?> GetHotspotByIdForUserAsync(Guid hotspotId, Guid userId, CancellationToken cancellationToken)
+    {
+        return _context.Hotspots
+            .Include(h => h.Page)
+            .ThenInclude(p => p!.Catalog)
+            .FirstOrDefaultAsync(
+                h => h.Id == hotspotId &&
+                     h.Page != null &&
+                     h.Page.Catalog != null &&
+                     h.Page.Catalog.UserId == userId,
+                cancellationToken);
     }
 
     public void RemoveHotspot(Hotspot hotspot)

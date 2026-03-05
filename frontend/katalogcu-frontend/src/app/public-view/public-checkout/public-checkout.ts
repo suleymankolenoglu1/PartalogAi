@@ -5,6 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { CartService } from '../../core/services/cart.service';
 import { CustomerService, PublicCustomerOrder, PublicCustomerOrderDetail } from '../../core/services/customer.service';
 import { CatalogService, PublicStorefront } from '../../core/services/catalog.service';
+import { environment } from '../../../environments/environment';
 
 type AuthTab = 'login' | 'register';
 type PaymentMethod = 'KapidaOdeme' | 'HavaleEFT';
@@ -93,11 +94,15 @@ export class PublicCheckoutComponent implements OnInit {
   }
 
   get canUseEcommerce(): boolean {
-    return this.storefront.ecommerceEnabled !== false;
+    return environment.features.enableEcommerce && this.storefront.ecommerceEnabled !== false;
   }
 
   ngOnInit(): void {
     if (!this.publicToken) return;
+    if (!environment.features.enableEcommerce) {
+      this.router.navigate(['/p', this.publicToken]);
+      return;
+    }
     this.cartService.setScope(`public:${this.publicToken}`);
     this.loadStorefront();
     const stored = localStorage.getItem(this.getSessionKey());
@@ -139,7 +144,7 @@ export class PublicCheckoutComponent implements OnInit {
 
   goBackToPublic() {
     if (!this.publicToken) return;
-    this.router.navigate(['/public-view', this.publicToken]);
+    this.router.navigate(['/p', this.publicToken]);
   }
 
   setAuthTab(tab: AuthTab) {

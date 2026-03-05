@@ -1,3 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import './_variables.css';
+@import './styles/_admin-panel-overrides.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,4 +9,5 @@
 /* HTML'deki body classlarını buraya global kural olarak ekliyoruz */
 body {
     @apply font-display bg-background-light dark:bg-background-dark text-text-dark dark:text-text-light antialiased;
+    font-family: var(--pt-font);
 }

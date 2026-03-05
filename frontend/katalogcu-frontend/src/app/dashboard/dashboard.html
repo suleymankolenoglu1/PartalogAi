@@ -1,6 +1,9 @@
 <div class="plan-dashboard">
   <header class="plan-header">
     <div>
+      <div class="plan-brand">
+        <img src="assets/brand/partalog-logo-light.svg" alt="partalog.tech" class="plan-brand-logo">
+      </div>
       <h1>Dashboard</h1>
       <p>Planına göre açılan özellikler burada görünür.</p>
     </div>
@@ -9,6 +12,68 @@
       + Yeni Ekle
     </button>
   </header>
+
+  <section class="traffic-panel">
+    <div class="panel-head">
+      <h2>Vitrin Ziyaretleri</h2>
+      <span class="traffic-badge">Canlı Takip</span>
+    </div>
+
+    @if (isLoading) {
+      <div class="state-box">Ziyaret metrikleri yükleniyor...</div>
+    } @else {
+      <div class="traffic-grid">
+        <article class="traffic-card">
+          <span class="traffic-label">Toplam Ziyaret</span>
+          <strong class="traffic-value">{{ storefrontVisitsTotal | number:'1.0-0' }}</strong>
+          <span class="traffic-hint">Vitrin açılışları (tekilleştirilmiş)</span>
+        </article>
+
+        <article class="traffic-card">
+          <span class="traffic-label">Bugün</span>
+          <strong class="traffic-value">{{ storefrontVisitsToday | number:'1.0-0' }}</strong>
+          <span class="traffic-hint">Güncel gün içi ziyaret</span>
+        </article>
+
+        <article class="traffic-card">
+          <span class="traffic-label">Son 7 Gün</span>
+          <strong class="traffic-value">{{ storefrontVisitsLast7Days | number:'1.0-0' }}</strong>
+          <span class="traffic-hint">Haftalık toplam trafik</span>
+        </article>
+
+        <article class="traffic-card">
+          <span class="traffic-label">Tekil Ziyaretçi (30g)</span>
+          <strong class="traffic-value">{{ storefrontUniqueVisitorsLast30Days | number:'1.0-0' }}</strong>
+          <span class="traffic-hint">30 gün içinde benzersiz kişi</span>
+        </article>
+      </div>
+
+      <div class="traffic-bottom-row">
+        <div class="traffic-health">
+          <span>Bugün / 7 gün oranı</span>
+          <strong>%{{ storefrontVisitGrowthRatio }}</strong>
+        </div>
+        <div class="traffic-top-catalogs">
+          <h3>En Çok Görüntülenen Kataloglar</h3>
+          @if (stats?.topViewedCatalogs?.length) {
+            <ul>
+              @for (item of stats?.topViewedCatalogs; track item.id) {
+                <li>
+                  <button type="button" (click)="goToCatalog(item.id)" class="top-catalog-link">
+                    <span class="name">{{ item.name }}</span>
+                    <span class="meta">{{ item.viewCount }} görüntüleme</span>
+                    <span class="time">{{ item.lastViewedAtUtc | date:'dd MMM HH:mm' }}</span>
+                  </button>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="traffic-empty">Henüz katalog görüntüleme verisi oluşmadı.</p>
+          }
+        </div>
+      </div>
+    }
+  </section>
 
   <section class="catalog-panel">
     <div class="panel-head">
@@ -87,7 +152,7 @@
     }
   </section>
 
-  @if (isPlan1) {
+  @if (supportsAiFeature && isPlan1) {
     <section class="locked-panel">
       <div class="locked-icon">🔒</div>
       <div class="locked-content">
@@ -98,32 +163,58 @@
     </section>
   }
 
-  @if (isPlan2) {
+  @if (supportsAiFeature && isPlan2) {
     <section class="active-panel">
       <div class="active-title">AI Chatbot: AKTİF ✅</div>
-      <div class="active-subtitle">Bu ay: {{ monthlyAiQueryCount | number:'1.0-0' }} AI sorgu</div>
+      <div class="active-subtitle">Bu ay: {{ aiUsedThisMonth | number:'1.0-0' }} AI sorgu</div>
+      <div class="usage-row">
+        <div class="usage-chip">
+          <span>Kullanılan</span>
+          <strong>{{ aiUsedThisMonth | number:'1.0-0' }}</strong>
+        </div>
+        <div class="usage-chip">
+          <span>Limit</span>
+          <strong>{{ aiMonthlyLimitText }}</strong>
+        </div>
+        <div class="usage-chip">
+          <span>Kalan</span>
+          <strong>{{ aiRemainingThisMonthText }}</strong>
+        </div>
+      </div>
+      @if (aiMonthlyLimit !== null) {
+        <div class="usage-progress">
+          <div class="usage-progress-bar" [style.width.%]="aiUsagePercent"></div>
+          <span>{{ aiUsagePercent }}%</span>
+        </div>
+      }
     </section>
 
-    <section class="locked-panel">
-      <div class="locked-icon">🔒</div>
-      <div class="locked-content">
-        <h3>E-Ticaret Entegrasyonu</h3>
-        <p>Ürün yönetimi ve sipariş akışı için e-ticaret modülü açılır.</p>
-      </div>
-      <button class="upgrade-btn" (click)="goUpgrade()">Enterprise'a Geç</button>
-    </section>
+    @if (supportsEcommerceFeature) {
+      <section class="locked-panel">
+        <div class="locked-icon">🔒</div>
+        <div class="locked-content">
+          <h3>E-Ticaret Entegrasyonu</h3>
+          <p>Ürün yönetimi ve sipariş akışı için e-ticaret modülü açılır.</p>
+        </div>
+        <button class="upgrade-btn" (click)="goUpgrade()">Enterprise'a Geç</button>
+      </section>
+    }
   }
 
-  @if (isPlan3) {
+  @if ((supportsAiFeature || supportsEcommerceFeature) && isPlan3) {
     <section class="active-grid">
-      <div class="active-box">
-        <h3>AI Chatbot</h3>
-        <p>Aktif ve kullanılabilir.</p>
-      </div>
-      <div class="active-box">
-        <h3>E-Ticaret</h3>
-        <p>Ürün ve sipariş yönetimi aktif.</p>
-      </div>
+      @if (supportsAiFeature) {
+        <div class="active-box">
+          <h3>AI Chatbot</h3>
+          <p>Aktif. Bu ay {{ aiUsedThisMonth | number:'1.0-0' }} sorgu.</p>
+        </div>
+      }
+      @if (supportsEcommerceFeature) {
+        <div class="active-box">
+          <h3>E-Ticaret</h3>
+          <p>Ürün ve sipariş yönetimi aktif.</p>
+        </div>
+      }
     </section>
   }
 </div>

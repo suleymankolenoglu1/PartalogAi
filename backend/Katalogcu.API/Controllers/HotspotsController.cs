@@ -2,9 +2,11 @@ using FluentValidation;
 using Katalogcu.Application.Features.Hotspots.Commands.CreateHotspot;
 using Katalogcu.Application.Features.Hotspots.Commands.DeleteHotspot;
 using Katalogcu.Application.Features.Hotspots.Commands.DetectHotspots;
+using Katalogcu.Application.Features.Hotspots.Commands.UpdateHotspot;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Katalogcu.API.Controllers
 {
@@ -56,7 +58,7 @@ namespace Katalogcu.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Hotspot tespit hatası");
-                return StatusCode(500, new { error = "Hotspot tespiti sırasında hata oluştu", details = ex.Message });
+                return StatusCode(500, new { error = "Hotspot tespiti sırasında beklenmeyen bir hata oluştu." });
             }
         }
 
@@ -68,9 +70,16 @@ namespace Katalogcu.API.Controllers
                 return BadRequest("Geçersiz veri.");
             }
 
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+            {
+                return Unauthorized();
+            }
+
             try
             {
                 var result = await _sender.Send(new CreateHotspotCommand(
+                    userId,
                     request.PageId,
                     request.Left,
                     request.Top,
@@ -99,12 +108,57 @@ namespace Katalogcu.API.Controllers
             }
         }
 
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Update(Guid id, [FromBody] UpdateHotspotRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+            {
+                return Unauthorized();
+            }
+
+            try
+            {
+                var result = await _sender.Send(new UpdateHotspotCommand(
+                    id,
+                    userId,
+                    request.Left,
+                    request.Top,
+                    request.Width,
+                    request.Height,
+                    request.Label,
+                    request.ProductId));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Hotspot güncellenemedi.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+            {
+                return Unauthorized();
+            }
+
             try
             {
-                var result = await _sender.Send(new DeleteHotspotCommand(id));
+                var result = await _sender.Send(new DeleteHotspotCommand(id, userId));
                 if (!result.IsSuccess)
                 {
                     return result.ErrorCode switch
@@ -134,6 +188,27 @@ namespace Katalogcu.API.Controllers
             public bool IsAiDetected { get; set; }
             public double AiConfidence { get; set; }
             public Guid? ProductId { get; set; }
+        }
+
+        public sealed class UpdateHotspotRequest
+        {
+            public double Left { get; set; }
+            public double Top { get; set; }
+            public double Width { get; set; }
+            public double Height { get; set; }
+            public string? Label { get; set; }
+            public Guid? ProductId { get; set; }
+        }
+
+        private Guid GetCurrentUserId()
+        {
+            var idString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (Guid.TryParse(idString, out var guid))
+            {
+                return guid;
+            }
+
+            return Guid.Empty;
         }
     }
 }

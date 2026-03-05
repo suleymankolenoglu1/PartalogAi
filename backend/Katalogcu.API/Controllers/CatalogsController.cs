@@ -12,6 +12,7 @@ using Katalogcu.Application.Features.Catalogs.Commands.RevokePublicToken;
 using Katalogcu.Application.Features.Catalogs.Commands.RotatePublicToken;
 using Katalogcu.Application.Features.Catalogs.Commands.StartCatalogAiProcess;
 using Katalogcu.Application.Features.Catalogs.Commands.TrackCatalogView;
+using Katalogcu.Application.Features.Catalogs.Commands.TrackStorefrontView;
 using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogById;
 using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogPageItems;
 using Katalogcu.Application.Features.Catalogs.Queries.GetCatalogAiJobs;
@@ -22,6 +23,7 @@ using Katalogcu.Application.Features.Catalogs.Queries.GetPublicCatalogsByUser;
 using Katalogcu.Application.Features.Catalogs.Queries.GetPublicStorefront;
 using Katalogcu.Application.Features.Catalogs.Queries.GetPublicToken;
 using Katalogcu.Application.Features.Catalogs.Queries.GetPublicTokenStatus;
+using Katalogcu.Application.Features.Folders.Queries.GetPublicFoldersByUser;
 using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -40,15 +42,21 @@ namespace Katalogcu.API.Controllers
     {
         private readonly ILogger<CatalogsController> _logger;
         private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly IAiUsageQuotaService _aiUsageQuotaService;
+        private readonly IProductFeaturePolicy _productFeaturePolicy;
         private readonly ISender _sender;
 
         public CatalogsController(
             ILogger<CatalogsController> logger,
             IPublicAccessTokenService publicAccessTokenService,
+            IAiUsageQuotaService aiUsageQuotaService,
+            IProductFeaturePolicy productFeaturePolicy,
             ISender sender)
         {
             _logger = logger;
             _publicAccessTokenService = publicAccessTokenService;
+            _aiUsageQuotaService = aiUsageQuotaService;
+            _productFeaturePolicy = productFeaturePolicy;
             _sender = sender;
         }
 
@@ -146,6 +154,20 @@ namespace Katalogcu.API.Controllers
             var payload = _publicAccessTokenService.Validate(token);
             if (payload == null) return BadRequest("Geçersiz token.");
 
+            var trackStorefrontResult = await _sender.Send(new TrackStorefrontViewCommand(
+                payload.UserId,
+                BuildPublicViewFingerprint(),
+                DateTime.UtcNow,
+                "public-storefront"));
+
+            if (!trackStorefrontResult.IsSuccess)
+            {
+                _logger.LogWarning(
+                    "Storefront view track failed. ownerUserId={OwnerUserId} error={ErrorCode}",
+                    payload.UserId,
+                    trackStorefrontResult.ErrorCode);
+            }
+
             var result = await _sender.Send(new GetPublicStorefrontQuery(payload.UserId));
             if (!result.IsSuccess)
             {
@@ -165,9 +187,29 @@ namespace Katalogcu.API.Controllers
                 email = storefront.Email,
                 phoneNumber = storefront.PhoneNumber,
                 subscriptionPlan = storefront.SubscriptionPlan,
-                aiChatEnabled = storefront.AiChatEnabled,
-                ecommerceEnabled = storefront.EcommerceEnabled
+                aiChatEnabled = storefront.AiChatEnabled && _productFeaturePolicy.AiEnabled,
+                ecommerceEnabled = storefront.EcommerceEnabled && _productFeaturePolicy.EcommerceEnabled
             });
+        }
+
+        [AllowAnonymous]
+        [HttpGet("public-folders-by-token")]
+        public async Task<IActionResult> GetPublicFoldersByToken([FromQuery] string token)
+        {
+            var payload = _publicAccessTokenService.Validate(token);
+            if (payload == null) return BadRequest("Geçersiz token.");
+
+            var result = await _sender.Send(new GetPublicFoldersByUserQuery(payload.UserId, payload.CatalogIds));
+            if (!result.IsSuccess)
+            {
+                return result.ErrorCode switch
+                {
+                    "validation" => BadRequest(result.ErrorMessage),
+                    _ => StatusCode(500, result.ErrorMessage ?? "Public klasörler alınamadı.")
+                };
+            }
+
+            return Ok(result.Value);
         }
 
         [HttpGet("public-token")]
@@ -313,7 +355,7 @@ namespace Katalogcu.API.Controllers
         // ==========================================
         [AllowAnonymous]
         [HttpGet("{id}/pages/{pageNumber}/items")]
-        public async Task<IActionResult> GetPageItems(Guid id, string pageNumber, [FromQuery] string? token)
+        public async Task<IActionResult> GetPageItems(Guid id, string pageNumber, [FromQuery] string? token, [FromQuery] bool strict = false)
         {
             var resolved = ResolveUserId(token);
             if (resolved.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
@@ -325,7 +367,8 @@ namespace Katalogcu.API.Controllers
                 currentPage,
                 resolved.userId,
                 resolved.isPublic,
-                resolved.publicPayload?.CatalogIds));
+                resolved.publicPayload?.CatalogIds,
+                strict));
 
             if (!result.IsSuccess)
             {
@@ -358,6 +401,7 @@ namespace Katalogcu.API.Controllers
             }
 
             var stats = result.Value!;
+            var aiUsage = await _aiUsageQuotaService.GetCurrentUsageAsync(userId, HttpContext.RequestAborted);
             return Ok(new
             {
                 TotalCatalogs = stats.TotalCatalogs,
@@ -365,10 +409,19 @@ namespace Katalogcu.API.Controllers
                 TotalViews = stats.TotalViews,
                 ViewsLast7Days = stats.ViewsLast7Days,
                 UniqueViewersLast30Days = stats.UniqueViewersLast30Days,
+                StorefrontVisitsTotal = stats.StorefrontVisitsTotal,
+                StorefrontVisitsToday = stats.StorefrontVisitsToday,
+                StorefrontVisitsLast7Days = stats.StorefrontVisitsLast7Days,
+                StorefrontUniqueVisitorsLast30Days = stats.StorefrontUniqueVisitorsLast30Days,
                 PendingCount = stats.PendingCount,
                 RecentCatalogs = stats.RecentCatalogs,
                 TopViewedCatalogs = stats.TopViewedCatalogs,
-                VisualEmbeddingCount = stats.VisualEmbeddingCount
+                VisualEmbeddingCount = stats.VisualEmbeddingCount,
+                AiUsedThisMonth = aiUsage.UsedThisMonth,
+                AiMonthlyLimit = aiUsage.MonthlyLimit,
+                AiRemainingThisMonth = aiUsage.RemainingThisMonth,
+                AiEnabled = aiUsage.AiEnabled,
+                AiUnlimited = aiUsage.Unlimited
             });
         }
 
@@ -564,7 +617,7 @@ namespace Katalogcu.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Silme işlemi hatası");
-                return StatusCode(500, "Silme işlemi sırasında hata oluştu: " + ex.Message);
+                return StatusCode(500, "Silme işlemi sırasında beklenmeyen bir hata oluştu.");
             }
         }
 

@@ -1,0 +1,164 @@
+.reason-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.reason-modal {
+  width: min(560px, 100%);
+  background: #fff;
+  border: 1px solid #dbe4f1;
+  border-radius: 12px;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.25);
+  padding: 16px;
+}
+
+.reason-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reason-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.required-badge {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.required-badge.optional {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.reason-modal-description {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #475569;
+}
+
+.reason-templates {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.template-chip {
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid #dbe7ff;
+  background: #f5f9ff;
+  color: #1e3a8a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.template-chip.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.template-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.reason-field {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.reason-field > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.reason-field textarea {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.reason-field textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.reason-meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.count {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.error {
+  font-size: 12px;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.reason-modal-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reason-modal-actions button {
+  height: 34px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reason-modal-actions .ghost {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.reason-modal-actions .primary {
+  border: 1px solid #1f3f67;
+  background: #1f3f67;
+  color: #fff;
+}
+
+.reason-modal-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

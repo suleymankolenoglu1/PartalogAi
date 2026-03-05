@@ -4,7 +4,7 @@ services:
     container_name: katalogcu_db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Password123!
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
       POSTGRES_DB: KatalogcuDb
     ports:
       - "5432:5432"
@@ -28,7 +28,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8000
-      DB_CONNECTION_STRING: postgresql://postgres:Password123!@db:5432/KatalogcuDb
+      DB_CONNECTION_STRING: postgresql://postgres:${POSTGRES_PASSWORD:-CHANGE_ME}@db:5432/KatalogcuDb
       STORAGE_PROVIDER: local
       STORAGE_LOCAL_DIR: /shared/visual-parts
     depends_on:
@@ -59,7 +59,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=KatalogcuDb;Username=postgres;Password=Password123!
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-CHANGE_ME}
       AiService__BaseUrl: http://partalog-ai:8000
     ports:
       - "5159:8080"

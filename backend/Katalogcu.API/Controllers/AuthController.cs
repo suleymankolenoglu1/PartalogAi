@@ -1,5 +1,6 @@
 using FluentValidation;
 using Katalogcu.API.Services;
+using Katalogcu.Application.Features.Auth.Commands.CancelPlan;
 using Katalogcu.Application.Features.Auth.Commands.Login;
 using Katalogcu.Application.Features.Auth.Commands.Register;
 using Katalogcu.Application.Features.Auth.Commands.SelectPlan;
@@ -9,6 +10,7 @@ using Katalogcu.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Katalogcu.API.Controllers
 {
@@ -38,6 +40,7 @@ namespace Katalogcu.API.Controllers
         }
 
         [HttpPost("login")]
+        [EnableRateLimiting("auth-login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
             try
@@ -48,6 +51,7 @@ namespace Katalogcu.API.Controllers
                     return result.ErrorCode switch
                     {
                         "unauthorized" => Unauthorized(new { message = result.ErrorMessage }),
+                        "password_upgrade_required" => StatusCode(403, new { message = result.ErrorMessage }),
                         "validation" => BadRequest(result.ErrorMessage),
                         _ => StatusCode(500, result.ErrorMessage ?? "Giriş işlemi başarısız.")
                     };
@@ -219,6 +223,50 @@ namespace Katalogcu.API.Controllers
                         "validation" => BadRequest(result.ErrorMessage),
                         "not_found" => NotFound(result.ErrorMessage),
                         _ => StatusCode(500, result.ErrorMessage ?? "Plan güncellenemedi.")
+                    };
+                }
+
+                var user = result.Value!;
+                return Ok(new
+                {
+                    id = user.Id,
+                    userId = user.UserId,
+                    firstName = user.FirstName,
+                    lastName = user.LastName,
+                    email = user.Email,
+                    companyName = user.CompanyName,
+                    phoneNumber = user.PhoneNumber,
+                    role = user.Role,
+                    subscriptionPlan = user.SubscriptionPlan,
+                    planName = GetPlanName(user.SubscriptionPlan),
+                    planActivatedAt = user.PlanActivatedAt,
+                    planExpiresAt = user.PlanExpiresAt,
+                    planSelected = user.PlanSelected,
+                    maxCatalogCount = GetPlanMaxCatalogCount(user.SubscriptionPlan),
+                    maxPagePerCatalog = user.MaxPagePerCatalog
+                });
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [Authorize]
+        [HttpPost("cancel-plan")]
+        public async Task<IActionResult> CancelPlan()
+        {
+            try
+            {
+                var result = await _sender.Send(new CancelPlanCommand());
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "unauthorized" => Unauthorized(),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Plan iptali başarısız.")
                     };
                 }
 

@@ -8,6 +8,7 @@ import {
   DashboardStats
 } from '../core/services/catalog.service';
 import { AuthService } from '../core/services/auth.service';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-dashboard',
@@ -260,15 +261,83 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   get canUseAi(): boolean {
-    return this.currentPlan >= 2;
+    return this.supportsAiFeature && this.currentPlan >= 2;
   }
 
   get canUseEcommerce(): boolean {
-    return this.currentPlan >= 3;
+    return this.supportsEcommerceFeature && this.currentPlan >= 3;
+  }
+
+  get supportsAiFeature(): boolean {
+    return environment.features.enableAi;
+  }
+
+  get supportsEcommerceFeature(): boolean {
+    return environment.features.enableEcommerce;
   }
 
   get monthlyAiQueryCount(): number {
+    return this.aiUsedThisMonth;
+  }
+
+  get aiUsedThisMonth(): number {
     if (!this.canUseAi) return 0;
-    return this.aiJobsSummary.total || 0;
+    if (typeof this.stats?.aiUsedThisMonth === 'number') return this.stats.aiUsedThisMonth;
+    return 0;
+  }
+
+  get aiMonthlyLimit(): number | null {
+    if (!this.canUseAi) return 0;
+    if (this.stats?.aiUnlimited) return null;
+    if (this.stats?.aiMonthlyLimit === null) return null;
+    if (typeof this.stats?.aiMonthlyLimit === 'number') return this.stats.aiMonthlyLimit;
+    return this.currentPlan === 2 ? 500 : null;
+  }
+
+  get aiRemainingThisMonth(): number | null {
+    if (!this.canUseAi) return 0;
+    if (this.aiMonthlyLimit === null) return null;
+    if (typeof this.stats?.aiRemainingThisMonth === 'number') return this.stats.aiRemainingThisMonth;
+    return Math.max((this.aiMonthlyLimit ?? 0) - this.aiUsedThisMonth, 0);
+  }
+
+  get aiUsagePercent(): number {
+    const limit = this.aiMonthlyLimit;
+    if (limit === null || limit <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.round((this.aiUsedThisMonth / limit) * 100)));
+  }
+
+  get aiMonthlyLimitText(): string {
+    const limit = this.aiMonthlyLimit;
+    if (limit === null) return 'Sınırsız';
+    return limit.toLocaleString('tr-TR');
+  }
+
+  get aiRemainingThisMonthText(): string {
+    const remaining = this.aiRemainingThisMonth;
+    if (remaining === null) return 'Sınırsız';
+    return remaining.toLocaleString('tr-TR');
+  }
+
+  get storefrontVisitsTotal(): number {
+    return Number(this.stats?.storefrontVisitsTotal ?? 0);
+  }
+
+  get storefrontVisitsToday(): number {
+    return Number(this.stats?.storefrontVisitsToday ?? 0);
+  }
+
+  get storefrontVisitsLast7Days(): number {
+    return Number(this.stats?.storefrontVisitsLast7Days ?? 0);
+  }
+
+  get storefrontUniqueVisitorsLast30Days(): number {
+    return Number(this.stats?.storefrontUniqueVisitorsLast30Days ?? 0);
+  }
+
+  get storefrontVisitGrowthRatio(): number {
+    const week = this.storefrontVisitsLast7Days;
+    if (week <= 0) return 0;
+    return Math.round((this.storefrontVisitsToday / week) * 100);
   }
 }

@@ -16,9 +16,20 @@ public sealed class AiQuotaConsumeResult
     public int UsedBeforeConsume { get; init; }
 }
 
+public sealed class AiUsageSnapshot
+{
+    public SubscriptionPlan Plan { get; init; }
+    public bool AiEnabled { get; init; }
+    public bool Unlimited { get; init; }
+    public int? MonthlyLimit { get; init; }
+    public int UsedThisMonth { get; init; }
+    public int RemainingThisMonth { get; init; }
+}
+
 public interface IAiUsageQuotaService
 {
     Task<AiQuotaConsumeResult> ConsumeAsync(Guid userId, CancellationToken cancellationToken);
+    Task<AiUsageSnapshot> GetCurrentUsageAsync(Guid userId, CancellationToken cancellationToken);
 }
 
 public sealed class AiUsageQuotaService : IAiUsageQuotaService
@@ -144,6 +155,81 @@ public sealed class AiUsageQuotaService : IAiUsageQuotaService
         };
     }
 
+    public async Task<AiUsageSnapshot> GetCurrentUsageAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var userPlan = await _dbContext.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => (SubscriptionPlan?)u.SubscriptionPlan)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (userPlan is null)
+        {
+            return new AiUsageSnapshot
+            {
+                Plan = SubscriptionPlan.CatalogOnly,
+                AiEnabled = false,
+                Unlimited = false,
+                MonthlyLimit = 0,
+                UsedThisMonth = 0,
+                RemainingThisMonth = 0
+            };
+        }
+
+        var limits = PlanLimitRules.For(userPlan.Value);
+        var monthlyLimit = limits.MaxAiQueriesPerMonth;
+        if (!limits.AiEnabled || monthlyLimit == 0)
+        {
+            return new AiUsageSnapshot
+            {
+                Plan = userPlan.Value,
+                AiEnabled = false,
+                Unlimited = false,
+                MonthlyLimit = 0,
+                UsedThisMonth = 0,
+                RemainingThisMonth = 0
+            };
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        await using var connection = _dbContext.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        var usedThisMonth = await ReadCurrentUsageAsync(
+            connection,
+            transaction: null,
+            userId,
+            monthStartUtc,
+            cancellationToken);
+
+        if (monthlyLimit is null)
+        {
+            return new AiUsageSnapshot
+            {
+                Plan = userPlan.Value,
+                AiEnabled = true,
+                Unlimited = true,
+                MonthlyLimit = null,
+                UsedThisMonth = usedThisMonth,
+                RemainingThisMonth = int.MaxValue
+            };
+        }
+
+        return new AiUsageSnapshot
+        {
+            Plan = userPlan.Value,
+            AiEnabled = true,
+            Unlimited = false,
+            MonthlyLimit = monthlyLimit.Value,
+            UsedThisMonth = usedThisMonth,
+            RemainingThisMonth = Math.Max(monthlyLimit.Value - usedThisMonth, 0)
+        };
+    }
+
     private static async Task<bool> EnsureMonthlyRowAsync(
         DbConnection connection,
         DbTransaction transaction,
@@ -204,7 +290,7 @@ public sealed class AiUsageQuotaService : IAiUsageQuotaService
 
     private static async Task<int> ReadCurrentUsageAsync(
         DbConnection connection,
-        DbTransaction transaction,
+        DbTransaction? transaction,
         Guid userId,
         DateTime monthStartUtc,
         CancellationToken cancellationToken)

@@ -1,0 +1,60 @@
+@if (open) {
+  <div class="reason-modal-backdrop" (click)="close()">
+    <div class="reason-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="reason-modal-header">
+        <h3>{{ title }}</h3>
+        @if (required) {
+          <span class="required-badge">Zorunlu</span>
+        } @else {
+          <span class="required-badge optional">Opsiyonel</span>
+        }
+      </header>
+
+      @if (description) {
+        <p class="reason-modal-description">{{ description }}</p>
+      }
+
+      @if (templates.length) {
+        <div class="reason-templates">
+          @for (template of templates; track template) {
+            <button
+              type="button"
+              class="template-chip"
+              [class.active]="reasonText.trim() === template"
+              [disabled]="pending"
+              (click)="applyTemplate(template)">
+              {{ template }}
+            </button>
+          }
+        </div>
+      }
+
+      <label class="reason-field">
+        <span>İşlem Notu</span>
+        <textarea
+          [(ngModel)]="reasonText"
+          [attr.maxlength]="maxLength"
+          [placeholder]="placeholder"
+          [disabled]="pending"></textarea>
+      </label>
+
+      <div class="reason-meta">
+        <span class="count">{{ reasonText.trim().length }}/{{ maxLength }}</span>
+        @if (validationError) {
+          <span class="error">{{ validationError }}</span>
+        }
+      </div>
+
+      <footer class="reason-modal-actions">
+        <button type="button" class="ghost" [disabled]="pending" (click)="close()">{{ cancelText }}</button>
+        <button type="button" class="primary" [disabled]="pending" (click)="submit()">
+          @if (!pending) {
+            {{ confirmText }}
+          } @else {
+            İşleniyor...
+          }
+        </button>
+      </footer>
+    </div>
+  </div>
+}

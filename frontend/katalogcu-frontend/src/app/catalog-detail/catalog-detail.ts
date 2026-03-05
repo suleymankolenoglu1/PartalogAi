@@ -1,14 +1,14 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ElementRef, ViewChild, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CatalogService, Catalog, CatalogPage, RectSelection, Hotspot, CatalogPageItem } from '../core/services/catalog.service';
 import { ProductService } from '../core/services/product.service';
 
 @Component({
   selector: 'app-catalog-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './catalog-detail.html',
   styleUrl: './catalog-detail.css'
 })
@@ -16,6 +16,8 @@ export class CatalogDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private catalogService = inject(CatalogService);
   private productService = inject(ProductService); // Opsiyonel: Stok işlemleri için kalabilir
+  @ViewChild('pageCanvas') pageCanvasRef?: ElementRef<HTMLDivElement>;
+  @ViewChild('activePageImage') activePageImageRef?: ElementRef<HTMLImageElement>;
 
   catalog: Catalog | null = null;
   
@@ -46,19 +48,57 @@ export class CatalogDetailComponent implements OnInit {
 
   // --- MANUEL EKLEME STATE ---
   tempHotspot: { x: number, y: number } | null = null;
+  selectedHotspotId: string | null = null;
+  hotspotForm = {
+    id: '',
+    label: '',
+    left: 0,
+    top: 0,
+    width: 3,
+    height: 2,
+    productId: null as string | null
+  };
+
+  isItemFormVisible = false;
+  editingCatalogItemId: string | null = null;
+  itemForm = {
+    refNo: '',
+    partCode: '',
+    partName: '',
+    description: ''
+  };
   
   activePageIndex = 0;
+  imageFrame = { left: 0, top: 0, width: 0, height: 0 };
 
   get activePage(): CatalogPage | undefined {
     return this.catalog?.pages?.[this.activePageIndex];
+  }
+
+  get hasImageFrame(): boolean {
+    return this.imageFrame.width > 1 && this.imageFrame.height > 1;
   }
 
   get hasHotspots(): boolean {
     return (this.activePage?.hotspots?.length ?? 0) > 0;
   }
 
+  get selectedHotspot(): Hotspot | undefined {
+    return this.activePage?.hotspots?.find(h => h.id === this.selectedHotspotId);
+  }
+
   get isReadyToAnalyze(): boolean {
     return this.selectedTablePage !== null && this.selectedImagePage !== null;
+  }
+
+  toggleEditMode() {
+    this.isEditMode = !this.isEditMode;
+    if (!this.isEditMode) {
+      this.tempHotspot = null;
+      this.selectedHotspotId = null;
+      this.isItemFormVisible = false;
+      this.editingCatalogItemId = null;
+    }
   }
 
   ngOnInit() {
@@ -66,6 +106,11 @@ export class CatalogDetailComponent implements OnInit {
     if (id) {
       this.loadCatalogDetail(id);
     }
+  }
+
+  @HostListener('window:resize')
+  onWindowResize() {
+    this.syncImageFrame();
   }
 
   // --- 1. YÜKLEME İŞLEMLERİ ---
@@ -83,6 +128,7 @@ export class CatalogDetailComponent implements OnInit {
         // İlk sayfanın verilerini çek
         if (this.catalog.pages && this.catalog.pages.length > 0) {
             this.loadPageItems();
+            this.scheduleImageFrameSync();
         } else {
             this.isLoading = false;
         }
@@ -98,7 +144,7 @@ export class CatalogDetailComponent implements OnInit {
     this.isLoading = true;
     const pageNum = this.activePage.pageNumber.toString();
 
-    this.catalogService.getPageItems(this.catalog.id, pageNum).subscribe({
+    this.catalogService.getPageItems(this.catalog.id, pageNum, { strictPage: true }).subscribe({
       next: (items) => {
         this.pageItems = items || [];
         this.isLoading = false;
@@ -277,40 +323,68 @@ export class CatalogDetailComponent implements OnInit {
   }
 
   // --- NAVİGASYON ---
+  selectPage(index: number) {
+    if (!this.catalog?.pages || index < 0 || index >= this.catalog.pages.length) return;
+    this.activePageIndex = index;
+    this.tempHotspot = null;
+    this.selectedHotspotId = null;
+    this.selectedPartRef = null;
+    this.isItemFormVisible = false;
+    this.loadPageItems();
+    this.scheduleImageFrameSync();
+  }
+
   nextPage() {
     if (this.catalog?.pages && this.activePageIndex < this.catalog.pages.length - 1) {
-      this.activePageIndex++;
-      this.tempHotspot = null;
-      this.selectedPartRef = null;
-      this.loadPageItems(); // 🔥 Sayfa değişince veriyi yenile
+      this.selectPage(this.activePageIndex + 1);
     }
   }
 
   prevPage() {
     if (this.activePageIndex > 0) {
-      this.activePageIndex--;
-      this.tempHotspot = null;
-      this.selectedPartRef = null;
-      this.loadPageItems(); // 🔥 Sayfa değişince veriyi yenile
+      this.selectPage(this.activePageIndex - 1);
     }
   }
 
   // --- MANUEL HOTSPOT DÜZENLEME ---
+  onActiveImageLoad() {
+    this.syncImageFrame();
+  }
+
   onImageClick(event: MouseEvent) {
     if (!this.isEditMode || !this.activePage) return;
+    if (!this.hasImageFrame) return;
 
     const container = event.currentTarget as HTMLElement;
     const rect = container.getBoundingClientRect();
+    const frameX = event.clientX - rect.left - this.imageFrame.left;
+    const frameY = event.clientY - rect.top - this.imageFrame.top;
+    if (frameX < 0 || frameY < 0 || frameX > this.imageFrame.width || frameY > this.imageFrame.height) {
+      return;
+    }
 
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    const x = (frameX / this.imageFrame.width) * 100;
+    const y = (frameY / this.imageFrame.height) * 100;
 
     this.tempHotspot = { x, y };
+    this.selectedHotspotId = null;
   }
 
   // 🔥 GÜNCELLENDİ: Listeden seçip atama (CatalogPageItem kullanır)
   assignItemToHotspot(item: CatalogPageItem) {
-    if (!this.isEditMode || !this.tempHotspot || !this.activePage) return;
+    if (!this.isEditMode || !this.activePage) return;
+
+    if (this.selectedHotspotId) {
+      this.hotspotForm = {
+        ...this.hotspotForm,
+        label: item.refNo,
+        productId: item.isStocked ? item.productId ?? null : null
+      };
+      this.saveSelectedHotspot();
+      return;
+    }
+
+    if (!this.tempHotspot) return;
 
     const newHotspot = {
       pageId: this.activePage.id,
@@ -327,6 +401,7 @@ export class CatalogDetailComponent implements OnInit {
       next: (createdSpot) => {
         if (!this.activePage!.hotspots) this.activePage!.hotspots = [];
         this.activePage!.hotspots.push(createdSpot);
+        this.selectHotspotForEdit(createdSpot);
         this.tempHotspot = null;
       },
       error: () => alert('Hotspot eklenemedi!')
@@ -340,6 +415,9 @@ export class CatalogDetailComponent implements OnInit {
       if (this.activePage?.hotspots) {
         this.activePage.hotspots = this.activePage.hotspots.filter(h => h.id !== spotId);
       }
+      if (this.selectedHotspotId === spotId) {
+        this.selectedHotspotId = null;
+      }
     });
   }
 
@@ -349,7 +427,10 @@ export class CatalogDetailComponent implements OnInit {
 
   onHotspotClick(event: Event, hotspot: Hotspot) {
     event.stopPropagation();
-    if (this.isEditMode) return; 
+    if (this.isEditMode) {
+      this.selectHotspotForEdit(hotspot);
+      return;
+    }
 
     // RefNo ile listede bul
     if (hotspot.label) {
@@ -360,6 +441,127 @@ export class CatalogDetailComponent implements OnInit {
             if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 100);
     }
+  }
+
+  selectHotspotForEdit(hotspot: Hotspot) {
+    this.selectedHotspotId = hotspot.id;
+    this.hotspotForm = {
+      id: hotspot.id,
+      label: hotspot.label ?? '',
+      left: hotspot.left,
+      top: hotspot.top,
+      width: hotspot.width,
+      height: hotspot.height,
+      productId: hotspot.productId ?? null
+    };
+    this.selectedPartRef = hotspot.label ?? null;
+    this.tempHotspot = null;
+  }
+
+  saveSelectedHotspot() {
+    if (!this.selectedHotspotId) return;
+
+    const payload = {
+      label: this.hotspotForm.label,
+      left: this.hotspotForm.left,
+      top: this.hotspotForm.top,
+      width: this.hotspotForm.width,
+      height: this.hotspotForm.height,
+      productId: this.hotspotForm.productId
+    };
+
+    this.catalogService.updateHotspot(this.selectedHotspotId, payload).subscribe({
+      next: (updated) => {
+        const hotspot = this.activePage?.hotspots?.find(h => h.id === updated.id);
+        if (hotspot) {
+          hotspot.label = updated.label;
+          hotspot.left = updated.left;
+          hotspot.top = updated.top;
+          hotspot.width = updated.width;
+          hotspot.height = updated.height;
+          hotspot.productId = updated.productId;
+        }
+        this.selectedPartRef = updated.label ?? null;
+      },
+      error: () => alert('Hotspot güncellenemedi.')
+    });
+  }
+
+  openAddItemForm() {
+    this.isItemFormVisible = true;
+    this.editingCatalogItemId = null;
+    this.itemForm = { refNo: '', partCode: '', partName: '', description: '' };
+  }
+
+  openEditItemForm(item: CatalogPageItem, event?: Event) {
+    event?.stopPropagation();
+    this.isItemFormVisible = true;
+    this.editingCatalogItemId = item.catalogItemId;
+    this.itemForm = {
+      refNo: item.refNo ?? '',
+      partCode: item.partCode ?? '',
+      partName: item.partName ?? '',
+      description: item.description ?? ''
+    };
+  }
+
+  closeItemForm() {
+    this.isItemFormVisible = false;
+    this.editingCatalogItemId = null;
+  }
+
+  saveItemForm() {
+    if (!this.catalog || !this.activePage) return;
+    if (!this.itemForm.refNo.trim() || !this.itemForm.partCode.trim() || !this.itemForm.partName.trim()) {
+      alert('Ref No, Parça Kodu ve Parça Adı zorunludur.');
+      return;
+    }
+
+    if (this.editingCatalogItemId) {
+      this.catalogService.updateCatalogItem(this.editingCatalogItemId, {
+        refNo: this.itemForm.refNo.trim(),
+        partCode: this.itemForm.partCode.trim(),
+        partName: this.itemForm.partName.trim(),
+        description: this.itemForm.description.trim()
+      }).subscribe({
+        next: () => {
+          this.closeItemForm();
+          this.loadPageItems();
+        },
+        error: () => alert('Parça satırı güncellenemedi.')
+      });
+      return;
+    }
+
+    this.catalogService.createCatalogItem({
+      catalogId: this.catalog.id,
+      pageNumber: this.activePage.pageNumber,
+      refNo: this.itemForm.refNo.trim(),
+      partCode: this.itemForm.partCode.trim(),
+      partName: this.itemForm.partName.trim(),
+      description: this.itemForm.description.trim()
+    }).subscribe({
+      next: () => {
+        this.closeItemForm();
+        this.loadPageItems();
+      },
+      error: () => alert('Parça satırı eklenemedi.')
+    });
+  }
+
+  deleteItem(item: CatalogPageItem, event?: Event) {
+    event?.stopPropagation();
+    if (!confirm(`"${item.refNo}" satırını silmek istiyor musunuz?`)) return;
+
+    this.catalogService.deleteCatalogItem(item.catalogItemId).subscribe({
+      next: () => {
+        if (this.editingCatalogItemId === item.catalogItemId) {
+          this.closeItemForm();
+        }
+        this.loadPageItems();
+      },
+      error: () => alert('Parça satırı silinemedi.')
+    });
   }
 
   publishAndOpen() {
@@ -378,5 +580,44 @@ export class CatalogDetailComponent implements OnInit {
         alert('Hata oluştu.');
       }
     });
+  }
+
+  private scheduleImageFrameSync() {
+    setTimeout(() => this.syncImageFrame(), 0);
+  }
+
+  private syncImageFrame() {
+    const container = this.pageCanvasRef?.nativeElement;
+    const image = this.activePageImageRef?.nativeElement;
+    if (!container || !image) return;
+
+    const containerRect = container.getBoundingClientRect();
+    if (containerRect.width <= 0 || containerRect.height <= 0) return;
+
+    const naturalWidth = image.naturalWidth || image.clientWidth;
+    const naturalHeight = image.naturalHeight || image.clientHeight;
+    if (!naturalWidth || !naturalHeight) return;
+
+    const containerAspect = containerRect.width / containerRect.height;
+    const imageAspect = naturalWidth / naturalHeight;
+
+    let width = 0;
+    let height = 0;
+    let left = 0;
+    let top = 0;
+
+    if (imageAspect > containerAspect) {
+      width = containerRect.width;
+      height = width / imageAspect;
+      left = 0;
+      top = (containerRect.height - height) / 2;
+    } else {
+      height = containerRect.height;
+      width = height * imageAspect;
+      top = 0;
+      left = (containerRect.width - width) / 2;
+    }
+
+    this.imageFrame = { left, top, width, height };
   }
 }

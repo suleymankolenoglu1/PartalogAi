@@ -1,9 +1,12 @@
 import pandas as pd
 from sqlalchemy import create_engine
 import sys
+import os
 
-# Senin bağlantı adresin (Port 5435)
-DB_STRING = "postgresql://postgres:Password123!@localhost:5435/KatalogcuDb"
+DB_STRING = os.getenv("DB_CONNECTION_STRING", "").strip()
+if not DB_STRING:
+    print("💥 HATA: DB_CONNECTION_STRING environment variable bulunamadı.")
+    sys.exit(1)
 
 # 🛠️ PANDAS AYARLARI: "Sakın kısaltma yapma, hepsini göster" diyoruz
 pd.set_option('display.max_rows', None)      # Satır limiti yok

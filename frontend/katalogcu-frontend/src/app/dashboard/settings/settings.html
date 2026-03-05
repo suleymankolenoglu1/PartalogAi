@@ -30,6 +30,11 @@
                     [class.active]="activeTab === 'showcase'">
                 Vitrin Yönetimi
             </button>
+            <button (click)="setActiveTab('plan')" 
+                    class="tab-btn" 
+                    [class.active]="activeTab === 'plan'">
+                Plan Yönetimi
+            </button>
             <button (click)="setActiveTab('public')" 
                     class="tab-btn" 
                     [class.active]="activeTab === 'public'">
@@ -237,7 +242,7 @@
 
             @if (activeTab === 'public') {
                 <div class="tab-content fade-in">
-                    <div class="public-card">
+                    <div class="public-card" id="link-management">
                         <div class="public-header">
                             <h3 class="section-title">Public Link Yönetimi</h3>
                             <span class="public-badge" [class.off]="!publicTokenStatus?.enabled">
@@ -247,7 +252,7 @@
 
                         @if (publicToken) {
                             <div class="public-link-row">
-                                <input class="form-input" [value]="'/public-view/' + publicToken" readonly>
+                                <input class="form-input" [value]="'/p/' + publicToken" readonly>
                                 <button type="button" class="btn-secondary small" (click)="copyPublicLink()" [disabled]="publicActionLoading">
                                     Kopyala
                                 </button>
@@ -301,11 +306,85 @@
                 </div>
             }
 
-            <div class="card-footer">
-                <button (click)="saveSettings()" class="btn-primary" [disabled]="isProfileSaving || isProfileLoading">
-                    @if (activeTab === 'general' && isProfileSaving) { Kaydediliyor... } @else { Değişiklikleri Kaydet }
-                </button>
-            </div>
+            @if (activeTab === 'plan') {
+                <div class="tab-content fade-in">
+                    <div class="plan-card">
+                        <div class="plan-current">
+                            <h3>Mevcut Plan</h3>
+                            <span class="plan-current-badge">{{ currentPlanLabel }}</span>
+                        </div>
+
+                        <div class="plan-grid">
+                            <article class="plan-option" [class.active]="isCurrentPlan(1)">
+                                <h4>Katalog</h4>
+                                <p>Temel katalog yönetimi.</p>
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    [disabled]="isPlanSubmitting || isCurrentPlan(1)"
+                                    (click)="changePlan(1)">
+                                    {{ getPlanActionLabel(1) }}
+                                </button>
+                            </article>
+
+                            <article class="plan-option" [class.active]="isCurrentPlan(2)">
+                                <h4>Catalog + AI</h4>
+                                <p>AI sohbet ve kalite modülleri açık.</p>
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    [disabled]="isPlanSubmitting || isCurrentPlan(2)"
+                                    (click)="changePlan(2)">
+                                    {{ getPlanActionLabel(2) }}
+                                </button>
+                            </article>
+
+                            <article class="plan-option" [class.active]="isCurrentPlan(3)">
+                                <h4>Catalog + AI + E-Ticaret</h4>
+                                <p>Tüm modüller açık.</p>
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    [disabled]="isPlanSubmitting || isCurrentPlan(3)"
+                                    (click)="changePlan(3)">
+                                    {{ getPlanActionLabel(3) }}
+                                </button>
+                            </article>
+                        </div>
+
+                        @if (currentPlan > 1) {
+                            <div class="plan-cancel-box">
+                                <div>
+                                    <strong>Ücretli planı iptal et</strong>
+                                    <p>İptal sonrası hesabın Katalog planına döner.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="btn-secondary danger"
+                                    [disabled]="isPlanSubmitting"
+                                    (click)="cancelPaidPlan()">
+                                    Ücretli Planı İptal Et
+                                </button>
+                            </div>
+                        }
+
+                        @if (planSuccess) {
+                            <p class="public-feedback ok">{{ planSuccess }}</p>
+                        }
+                        @if (planError) {
+                            <p class="public-feedback err">{{ planError }}</p>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (activeTab !== 'plan') {
+                <div class="card-footer">
+                    <button (click)="saveSettings()" class="btn-primary" [disabled]="isProfileSaving || isProfileLoading">
+                        @if (activeTab === 'general' && isProfileSaving) { Kaydediliyor... } @else { Değişiklikleri Kaydet }
+                    </button>
+                </div>
+            }
 
         </div>
     </div>

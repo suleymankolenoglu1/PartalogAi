@@ -2,9 +2,10 @@ import { Component, OnInit, inject, ElementRef, ViewChild } from '@angular/core'
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
-import { CatalogService, Catalog, CatalogPageItem, PublicStorefront } from '../core/services/catalog.service';
+import { CatalogService, Catalog, CatalogPageItem, PublicFolderSummary, PublicStorefront } from '../core/services/catalog.service';
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
+import { environment } from '../../environments/environment';
 
 // 🔥 Yanıt Tipi Tanımı (HTML ile uyumlu olması için)
 interface AiResponse {
@@ -31,6 +32,11 @@ interface ChatMessage {
   isStreaming?: boolean;
   feedback?: 'up' | 'down';
   feedbackSubmitted?: boolean;
+}
+
+interface PublicBreadcrumb {
+  id: string | null;
+  name: string;
 }
 
 @Component({
@@ -81,7 +87,12 @@ export class PublicViewComponent implements OnInit {
   private pendingAutoScroll = false;
 
   // --- Veri Havuzu ---
+  allCatalogs: Catalog[] = [];
+  visiblePublicFolders: PublicFolderSummary[] = [];
   visibleCatalogs: Catalog[] = [];
+  publicFolders: PublicFolderSummary[] = [];
+  currentPublicFolderId: string | null = null;
+  publicBreadcrumbs: PublicBreadcrumb[] = [{ id: null, name: 'Ana Dizin' }];
   publicToken: string | null = null;
   publicLoadError: string | null = null;
   storefront: PublicStorefront = {
@@ -101,11 +112,11 @@ export class PublicViewComponent implements OnInit {
   }
 
   get canUseAiChat(): boolean {
-    return this.storefront.aiChatEnabled !== false;
+    return environment.features.enableAi && this.storefront.aiChatEnabled !== false;
   }
 
   get canUseEcommerce(): boolean {
-    return this.storefront.ecommerceEnabled !== false;
+    return environment.features.enableEcommerce && this.storefront.ecommerceEnabled !== false;
   }
 
   get storefrontPlanLabel(): string {
@@ -113,6 +124,10 @@ export class PublicViewComponent implements OnInit {
     if (plan >= 3) return 'Tam Paket';
     if (plan >= 2) return 'AI Aktif';
     return 'Katalog';
+  }
+
+  get isRootPublicFolderView(): boolean {
+    return this.currentPublicFolderId === null;
   }
 
   ngOnInit() {
@@ -150,6 +165,7 @@ export class PublicViewComponent implements OnInit {
 
     this.loadPublicData();
     this.loadStorefront();
+    this.loadPublicFolders();
   }
 
   loadStorefront() {
@@ -174,6 +190,10 @@ export class PublicViewComponent implements OnInit {
           this.searchText = '';
           this.clearImage();
         }
+
+        if (!this.canUseEcommerce) {
+          this.isCartOpen = false;
+        }
       },
       error: (err) => {
         console.warn('Public storefront yüklenemedi:', err);
@@ -187,20 +207,23 @@ export class PublicViewComponent implements OnInit {
 
     this.catalogService.getPublicCatalogsByToken(this.publicToken!).subscribe({
         next: (catalogs) => {
-            this.visibleCatalogs = catalogs; 
+            this.allCatalogs = catalogs;
             
             // Kapak resmi kontrolü
-            this.visibleCatalogs.forEach(c => {
+            this.allCatalogs.forEach(c => {
                 if (!c.imageUrl && c.pages && c.pages.length > 0) {
                     c.imageUrl = c.pages[0].imageUrl;
                 }
             });
 
+            this.refreshPublicBrowserView();
             this.isLoading = false;
-            console.log('Public Kataloglar:', this.visibleCatalogs);
+            console.log('Public Kataloglar:', this.allCatalogs);
         },
         error: (err) => { 
             console.error('Public Katalog Hatası:', err); 
+            this.allCatalogs = [];
+            this.visiblePublicFolders = [];
             this.visibleCatalogs = [];
             const backendMsg =
               typeof err?.error === 'string'
@@ -210,6 +233,54 @@ export class PublicViewComponent implements OnInit {
             this.isLoading = false; 
         }
     });
+  }
+
+  loadPublicFolders() {
+    if (!this.publicToken) return;
+
+    this.catalogService.getPublicFoldersByToken(this.publicToken).subscribe({
+      next: (folders) => {
+        this.publicFolders = (folders || []).filter(x => !!x?.id);
+        this.refreshPublicBrowserView();
+      },
+      error: (err) => {
+        console.warn('Public klasörler yüklenemedi:', err);
+        this.publicFolders = [];
+        this.refreshPublicBrowserView();
+      }
+    });
+  }
+
+  enterPublicFolder(folder: PublicFolderSummary) {
+    this.currentPublicFolderId = folder.id;
+    this.publicBreadcrumbs = [
+      { id: null, name: 'Ana Dizin' },
+      { id: folder.id, name: folder.name }
+    ];
+    this.refreshPublicBrowserView();
+  }
+
+  navigatePublicBreadcrumb(index: number) {
+    this.publicBreadcrumbs = this.publicBreadcrumbs.slice(0, index + 1);
+    const target = this.publicBreadcrumbs[this.publicBreadcrumbs.length - 1];
+    this.currentPublicFolderId = target?.id ?? null;
+    this.refreshPublicBrowserView();
+  }
+
+  private refreshPublicBrowserView() {
+    if (this.currentPublicFolderId && !this.publicFolders.some(f => f.id === this.currentPublicFolderId)) {
+      this.currentPublicFolderId = null;
+      this.publicBreadcrumbs = [{ id: null, name: 'Ana Dizin' }];
+    }
+
+    if (this.currentPublicFolderId === null) {
+      this.visiblePublicFolders = [...this.publicFolders];
+      this.visibleCatalogs = this.allCatalogs.filter(c => !c.folderId);
+      return;
+    }
+
+    this.visiblePublicFolders = [];
+    this.visibleCatalogs = this.allCatalogs.filter(c => c.folderId === this.currentPublicFolderId);
   }
 
   // --- 🔥 GERÇEK AI ENTEGRASYONU ---
@@ -318,7 +389,7 @@ export class PublicViewComponent implements OnInit {
       this.searchText,
       this.selectedImage,
       this.chatHistory,
-      this.visibleCatalogs.map(c => c.id),
+      this.allCatalogs.map(c => c.id),
       this.publicToken || undefined
     ).subscribe({
       next: (event) => {
@@ -543,7 +614,7 @@ export class PublicViewComponent implements OnInit {
   goCheckout() {
     if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
-    this.router.navigate(['/public-view', this.publicToken, 'checkout']);
+    this.router.navigate(['/p', this.publicToken, 'checkout']);
   }
 
   private isEmptyGuid(value: any): boolean {

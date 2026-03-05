@@ -118,11 +118,15 @@ async def detect_hotspots(
         # OCR ile numara oku
         if ocr is not None:
             try:
+                det_w = max(1, int(det.width))
+                det_h = max(1, int(det.height))
+                dynamic_padding = min(16, max(padding, int(max(det_w, det_h) * 0.08)))
+
                 # Hotspot'u kırp
-                x1 = max(0, int(det.x1) - padding)
-                y1 = max(0, int(det.y1) - padding)
-                x2 = min(img_w, int(det.x2) + padding)
-                y2 = min(img_h, int(det.y2) + padding)
+                x1 = max(0, int(det.x1) - dynamic_padding)
+                y1 = max(0, int(det.y1) - dynamic_padding)
+                x2 = min(img_w, int(det.x2) + dynamic_padding)
+                y2 = min(img_h, int(det.y2) + dynamic_padding)
                 
                 crop = image[y1:y2, x1:x2]. copy()
                 

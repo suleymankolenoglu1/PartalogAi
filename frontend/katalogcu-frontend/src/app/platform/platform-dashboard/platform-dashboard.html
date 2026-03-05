@@ -1,0 +1,299 @@
+<div class="platform-page">
+  <header class="platform-topbar">
+    <div>
+      <p class="kicker">Platform Yönetimi</p>
+      <h1>İşletmeler</h1>
+    </div>
+    <button type="button" class="logout-btn" (click)="logout()">Çıkış</button>
+  </header>
+
+  <section class="filters">
+    <input
+      type="text"
+      [(ngModel)]="query"
+      placeholder="Firma, ad soyad veya e-posta ara..."
+      (keyup.enter)="onSearch()">
+    <select [(ngModel)]="selectedPlan" (change)="onFilterChange()">
+      <option [ngValue]="null">Tüm Planlar</option>
+      <option [ngValue]="1">CatalogOnly</option>
+      <option [ngValue]="2">CatalogWithAI</option>
+      <option [ngValue]="3">CatalogWithAIAndEcommerce</option>
+    </select>
+    <select [(ngModel)]="selectedStatus" (change)="onFilterChange()">
+      <option value="all">Tüm Durumlar</option>
+      <option value="active">Aktif</option>
+      <option value="suspended">Askıda</option>
+    </select>
+    <button type="button" (click)="onSearch()">Ara</button>
+    <button type="button" class="ghost" (click)="clearSearch()">Temizle</button>
+  </section>
+
+  <section class="metric-grid">
+    <article
+      class="metric-card metric-action"
+      [class.active]="activeQuickFilter === 'all'"
+      (click)="applyAllQuickFilter()">
+      <p>Toplam İşletme</p>
+      <h3>{{ metrics.tenants }}</h3>
+      <small>Aktif {{ metrics.activeTenants }} • Askıda {{ metrics.suspendedTenants }}</small>
+    </article>
+    <article
+      class="metric-card metric-action"
+      [class.active]="isQuickFilterActive('active')"
+      (click)="applyStatusQuickFilter('active')">
+      <p>Aktif İşletmeler</p>
+      <h3>{{ metrics.activeTenants }}</h3>
+      <small>Filtre uygula</small>
+    </article>
+    <article
+      class="metric-card metric-action"
+      [class.active]="isQuickFilterActive('suspended')"
+      (click)="applyStatusQuickFilter('suspended')">
+      <p>Askıda İşletmeler</p>
+      <h3>{{ metrics.suspendedTenants }}</h3>
+      <small>Filtre uygula</small>
+    </article>
+    <article
+      class="metric-card metric-action"
+      [class.active]="isQuickFilterActive('expiry-warning')"
+      (click)="applyExpiryQuickFilter('warning')">
+      <p>7 Gün İçinde Bitecek</p>
+      <h3>{{ expiringSoonCount }}</h3>
+      <small>Filtre uygula</small>
+    </article>
+    <article
+      class="metric-card metric-action"
+      [class.active]="isQuickFilterActive('expiry-expired')"
+      (click)="applyExpiryQuickFilter('expired')">
+      <p>Süresi Dolan</p>
+      <h3>{{ expiredCount }}</h3>
+      <small>Filtre uygula</small>
+    </article>
+    <article
+      class="metric-card metric-action"
+      [class.active]="isQuickFilterActive('usage-warning')"
+      (click)="applyUsageQuickFilter('warning')">
+      <p>Limit %80+</p>
+      <h3>{{ usageWarningCount }}</h3>
+      <small>Filtre uygula</small>
+    </article>
+    <article
+      class="metric-card metric-action"
+      [class.active]="isQuickFilterActive('usage-critical')"
+      (click)="applyUsageQuickFilter('critical')">
+      <p>Limit Aşan</p>
+      <h3>{{ usageCriticalCount }}</h3>
+      <small>Filtre uygula</small>
+    </article>
+    <article class="metric-card">
+      <p>Kataloglar</p>
+      <h3>{{ metrics.catalogs }}</h3>
+      <small>Toplam parça: {{ metrics.parts }}</small>
+    </article>
+    <article class="metric-card">
+      <p>Siparişler</p>
+      <h3>{{ metrics.orders }}</h3>
+      <small>AI job: {{ metrics.aiJobs }}</small>
+    </article>
+    <article class="metric-card">
+      <p>Plan Dağılımı</p>
+      <h3>{{ planDistribution.length }}</h3>
+      <small class="plan-list">
+        @for (plan of planDistribution; track plan.plan) {
+          <button
+            type="button"
+            [class.active]="isQuickFilterActiveDynamic('plan-' + plan.plan)"
+            (click)="applyPlanQuickFilter($any(plan.plan)); $event.stopPropagation()">
+            {{ plan.planName }}: {{ plan.count }}
+          </button>
+        }
+      </small>
+    </article>
+  </section>
+
+  <div class="meta-row">
+    <div class="meta-info">
+      <span>{{ tenants.length }} işletme gösteriliyor</span>
+      @if (selectedExpiry !== 'all') {
+        <span>• toplam {{ total }} kayıt içinden</span>
+      }
+    </div>
+    <div class="bulk-actions">
+      <button
+        type="button"
+        class="bulk-export"
+        [disabled]="bulkPending || pendingOwnerId !== null || !tenants.length"
+        (click)="exportVisibleTenantsCsv()">
+        CSV İndir
+      </button>
+      <div class="kebab-menu" (click)="onMenuContainerClick($event)">
+        <button
+          type="button"
+          class="kebab-trigger bulk-more"
+          [disabled]="bulkPending || pendingOwnerId !== null || !tenants.length"
+          (click)="toggleBulkExtendMenu($event)">
+          <span class="kebab-icon">⋮</span>
+          Toplu Süre İşlemleri
+        </button>
+        @if (bulkExtendMenuOpen) {
+          <div class="kebab-dropdown">
+            <button type="button" (click)="selectBulkExtend30()">
+              <span class="menu-item-icon">⏱</span>
+              <span class="menu-item-label">+30 gün uzat</span>
+            </button>
+            <button type="button" (click)="selectBulkExtend90()">
+              <span class="menu-item-icon">⏳</span>
+              <span class="menu-item-label">+90 gün uzat</span>
+            </button>
+            <button type="button" (click)="selectBulkUnlimited()">
+              <span class="menu-item-icon">∞</span>
+              <span class="menu-item-label">Süresiz yap</span>
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  @if (recommendation; as rec) {
+    <div
+      class="recommendation-bar"
+      [class.info]="rec.tone === 'info'"
+      [class.warning]="rec.tone === 'warning'"
+      [class.critical]="rec.tone === 'critical'">
+      <span>{{ rec.message }}</span>
+      <button
+        type="button"
+        [disabled]="bulkPending || pendingOwnerId !== null || !tenants.length"
+        (click)="runRecommendationAction()">
+        {{ rec.actionText }}
+      </button>
+    </div>
+  }
+
+  @if (errorMessage) {
+    <div class="error">{{ errorMessage }}</div>
+  }
+  @if (actionError) {
+    <div class="error">{{ actionError }}</div>
+  }
+  @if (actionMessage) {
+    <div class="success">{{ actionMessage }}</div>
+  }
+
+  @if (isLoading) {
+    <div class="loading">Yükleniyor...</div>
+  } @else {
+    <section class="tenant-grid">
+      @for (tenant of tenants; track tenant.ownerId) {
+        <article class="tenant-card">
+          <div class="tenant-head">
+            <h3>{{ tenant.companyName || tenant.ownerFullName }}</h3>
+            <div class="head-chips">
+              <span class="plan-chip">{{ tenant.planName }}</span>
+              <span
+                class="expiry-badge"
+                [class.none]="getExpiryState(tenant.planExpiresAt) === 'none'"
+                [class.ok]="getExpiryState(tenant.planExpiresAt) === 'ok'"
+                [class.warning]="getExpiryState(tenant.planExpiresAt) === 'warning'"
+                [class.expired]="getExpiryState(tenant.planExpiresAt) === 'expired'">
+                {{ getExpiryLabel(tenant.planExpiresAt) }}
+              </span>
+              @if (tenant.isSuspended) {
+                <span class="suspend-chip">Askıda</span>
+              }
+            </div>
+          </div>
+          <p class="line"><strong>Yetkili:</strong> {{ tenant.ownerFullName }}</p>
+          <p class="line"><strong>E-posta:</strong> {{ tenant.ownerEmail }}</p>
+          <p class="line"><strong>Telefon:</strong> {{ tenant.phoneNumber || '-' }}</p>
+          <p class="line"><strong>Müşteri/Sipariş:</strong> {{ tenant.usage.customerCount || 0 }} / {{ tenant.usage.orderCount || 0 }}</p>
+          <p class="line">
+            <strong>Katalog:</strong> {{ tenant.usage.catalogCount }} / {{ tenant.limits.maxCatalogCount }}
+            <span
+              class="usage-risk"
+              [class.none]="getUsageRisk(tenant) === 'none'"
+              [class.warning]="getUsageRisk(tenant) === 'warning'"
+              [class.critical]="getUsageRisk(tenant) === 'critical'">
+              {{ getUsageRiskLabel(tenant) }}
+            </span>
+          </p>
+          <p class="line"><strong>Parça:</strong> {{ tenant.usage.partCount }}</p>
+          <p class="line"><strong>Son katalog:</strong> {{ tenant.usage.lastCatalogAt ? (tenant.usage.lastCatalogAt | date:'dd.MM.yyyy HH:mm') : '-' }}</p>
+
+          <div class="actions">
+            <label>
+              Plan
+                <select
+                [value]="tenant.plan"
+                [disabled]="pendingOwnerId === tenant.ownerId || bulkPending"
+                (change)="updatePlan(tenant.ownerId, +$any($event.target).value)">
+                <option [value]="1">CatalogOnly</option>
+                <option [value]="2">CatalogWithAI</option>
+                <option [value]="3">CatalogWithAIAndEcommerce</option>
+              </select>
+            </label>
+
+            <div class="action-buttons">
+              <div class="kebab-menu" (click)="onMenuContainerClick($event)">
+                <button
+                  type="button"
+                  class="kebab-trigger tenant-more"
+                  [disabled]="pendingOwnerId === tenant.ownerId || bulkPending"
+                  (click)="toggleTenantExtendMenu(tenant.ownerId, $event)">
+                  <span class="kebab-icon">⋮</span>
+                  İşlemler
+                </button>
+                @if (openTenantExtendMenuOwnerId === tenant.ownerId) {
+                  <div class="kebab-dropdown">
+                    <button type="button" (click)="goTenantDetail(tenant.ownerId)">
+                      <span class="menu-item-icon">↗</span>
+                      <span class="menu-item-label">Detaya Git</span>
+                    </button>
+                    <div class="menu-separator"></div>
+                    <button type="button" (click)="selectTenantExtend30(tenant)">
+                      <span class="menu-item-icon">⏱</span>
+                      <span class="menu-item-label">+30 gün uzat</span>
+                    </button>
+                    <button type="button" (click)="selectTenantExtend90(tenant)">
+                      <span class="menu-item-icon">⏳</span>
+                      <span class="menu-item-label">+90 gün uzat</span>
+                    </button>
+                    <button type="button" (click)="selectTenantUnlimited(tenant)">
+                      <span class="menu-item-icon">∞</span>
+                      <span class="menu-item-label">Süresiz yap</span>
+                    </button>
+                    @if (!tenant.isSuspended) {
+                      <button type="button" class="danger-item" (click)="selectTenantSuspend(tenant.ownerId)">
+                        <span class="menu-item-icon">⛔</span>
+                        <span class="menu-item-label">Askıya Al</span>
+                      </button>
+                    } @else {
+                      <button type="button" class="success-item" (click)="selectTenantUnsuspend(tenant.ownerId)">
+                        <span class="menu-item-icon">✅</span>
+                        <span class="menu-item-label">Aktifleştir</span>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </article>
+      }
+    </section>
+  }
+</div>
+
+<app-action-reason-modal
+  [open]="reasonModalOpen"
+  [title]="reasonModalTitle"
+  [description]="reasonModalDescription"
+  [required]="reasonModalRequired"
+  [confirmText]="reasonModalConfirmText"
+  [placeholder]="reasonModalPlaceholder"
+  [templates]="reasonModalTemplates"
+  [pending]="reasonModalPending"
+  (closed)="onReasonModalClosed()"
+  (confirm)="onReasonModalConfirmed($event)">
+</app-action-reason-modal>

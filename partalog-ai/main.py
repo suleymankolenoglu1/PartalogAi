@@ -4,7 +4,7 @@ Görevi: C# Backend için Zeka Servislerini (YOLO, OCR, Gemini, Embedding) sunma
 """
 
 # --- 1. Standart Kütüphaneler ---
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -100,10 +100,16 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # --- 9. CORS (Güvenlik İzinleri) ---
+allowed_origins_raw = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:4200")
+allowed_origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
+if not allowed_origins:
+    allowed_origins = ["http://localhost:4200"]
+allow_credentials = "*" not in allowed_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -126,7 +132,8 @@ class EmbeddingRequest(BaseModel):
     text: str
 
 @app.post("/api/embed", tags=["6. Semantic Search (C# Helper)"])
-async def generate_embedding_endpoint(req: EmbeddingRequest):
+@limiter.limit("30/minute")
+async def generate_embedding_endpoint(request: Request, req: EmbeddingRequest):
     """
     C# Backend bu endpoint'e metin gönderir.
     Python, Google API ile vektör döner.

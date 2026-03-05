@@ -41,7 +41,7 @@ dotnet ef migrations bundle \
 
 ```bash
 backend/artifacts/efbundle \
-  --connection "Host=127.0.0.1;Port=5432;Database=KatalogcuDb;Username=postgres;Password=Password123!"
+  --connection "Host=127.0.0.1;Port=5432;Database=KatalogcuDb;Username=postgres;Password=CHANGE_ME"
 ```
 
 CI tarafında aynı disiplin `/Users/suleymankolenoglu/Desktop/Projeler/Katalogcu/.github/workflows/backend-migration-discipline.yml` ile enforce edilir.

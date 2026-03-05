@@ -31,15 +31,14 @@ namespace Katalogcu.API.Controllers
             _sender = sender;
         }
 
-        private string? ResolvePublicSessionToken(string? sessionTokenFromQuery)
+        private string? ResolvePublicSessionToken()
         {
             var sessionTokenFromHeader = Request.Headers["X-Public-Session"].ToString();
             if (!string.IsNullOrWhiteSpace(sessionTokenFromHeader))
             {
                 return sessionTokenFromHeader.Trim();
             }
-
-            return string.IsNullOrWhiteSpace(sessionTokenFromQuery) ? null : sessionTokenFromQuery.Trim();
+            return null;
         }
 
         [HttpGet]
@@ -255,12 +254,12 @@ namespace Katalogcu.API.Controllers
 
         [AllowAnonymous]
         [HttpGet("public-auth/me")]
-        public async Task<IActionResult> GetPublicCustomerMe([FromQuery] string publicToken, [FromQuery] string? sessionToken = null)
+        public async Task<IActionResult> GetPublicCustomerMe([FromQuery] string publicToken)
         {
             var payload = _publicAccessTokenService.Validate(publicToken);
             if (payload == null) return Unauthorized("Oturum geçersiz.");
 
-            var resolvedSessionToken = ResolvePublicSessionToken(sessionToken);
+            var resolvedSessionToken = ResolvePublicSessionToken();
             if (string.IsNullOrWhiteSpace(resolvedSessionToken)) return Unauthorized("Oturum geçersiz.");
 
             try
@@ -286,12 +285,12 @@ namespace Katalogcu.API.Controllers
 
         [AllowAnonymous]
         [HttpGet("public-auth/orders")]
-        public async Task<IActionResult> GetPublicCustomerOrders([FromQuery] string publicToken, [FromQuery] string? sessionToken = null)
+        public async Task<IActionResult> GetPublicCustomerOrders([FromQuery] string publicToken)
         {
             var payload = _publicAccessTokenService.Validate(publicToken);
             if (payload == null) return Unauthorized("Oturum geçersiz.");
 
-            var resolvedSessionToken = ResolvePublicSessionToken(sessionToken);
+            var resolvedSessionToken = ResolvePublicSessionToken();
             if (string.IsNullOrWhiteSpace(resolvedSessionToken)) return Unauthorized("Oturum geçersiz.");
 
             try
@@ -319,13 +318,12 @@ namespace Katalogcu.API.Controllers
         [HttpGet("public-auth/orders/{orderId:guid}")]
         public async Task<IActionResult> GetPublicCustomerOrderDetail(
             Guid orderId,
-            [FromQuery] string publicToken,
-            [FromQuery] string? sessionToken = null)
+            [FromQuery] string publicToken)
         {
             var payload = _publicAccessTokenService.Validate(publicToken);
             if (payload == null) return Unauthorized("Oturum geçersiz.");
 
-            var resolvedSessionToken = ResolvePublicSessionToken(sessionToken);
+            var resolvedSessionToken = ResolvePublicSessionToken();
             if (string.IsNullOrWhiteSpace(resolvedSessionToken)) return Unauthorized("Oturum geçersiz.");
 
             try

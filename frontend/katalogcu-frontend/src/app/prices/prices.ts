@@ -31,10 +31,28 @@ export class PricesComponent {
     return this.authService.isPlanSelected();
   }
 
+  isCurrentPlan(plan: PlanId): boolean {
+    return this.currentPlan === plan;
+  }
+
+  getPlanActionLabel(plan: PlanId): string {
+    if (!this.isLoggedIn) return 'Giriş Yap ve Seç';
+    if (this.isCurrentPlan(plan)) return 'Mevcut Plan';
+    if (plan < this.currentPlan) return 'Bu Plana Düşür';
+    return 'Bu Plana Yükselt';
+  }
+
   selectPlan(plan: PlanId) {
     if (!this.isLoggedIn) {
       this.router.navigate(['/login']);
       return;
+    }
+
+    if (this.isCurrentPlan(plan)) return;
+
+    if (plan < this.currentPlan) {
+      const approve = confirm('Planı düşürmek istediğine emin misin? Bu planın dışındaki modüller kapanacak.');
+      if (!approve) return;
     }
 
     this.isSubmitting = true;
@@ -50,6 +68,29 @@ export class PricesComponent {
       error: (err) => {
         this.isSubmitting = false;
         this.submitError = err?.error?.message || 'Plan seçimi sırasında hata oluştu.';
+      }
+    });
+  }
+
+  cancelPaidPlan() {
+    if (!this.isLoggedIn || this.currentPlan === 1 || this.isSubmitting) return;
+
+    const approve = confirm('Ücretli planı iptal edip Katalog paketine dönmek istiyor musun?');
+    if (!approve) return;
+
+    this.isSubmitting = true;
+    this.submitError = null;
+    this.submitSuccess = null;
+
+    this.authService.cancelPlan().subscribe({
+      next: () => {
+        this.isSubmitting = false;
+        this.submitSuccess = 'Ücretli plan iptal edildi. Katalog paketine geçildi.';
+        this.router.navigate(['/dashboard']);
+      },
+      error: (err) => {
+        this.isSubmitting = false;
+        this.submitError = err?.error?.message || 'Plan iptali sırasında hata oluştu.';
       }
     });
   }

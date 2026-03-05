@@ -3,12 +3,10 @@
     <aside class="app-sidebar">
         
         <div class="sidebar-header">
-            <div class="logo-icon">
-                <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                    <path clip-rule="evenodd" d="M47.2426 24L24 47.2426L0.757355 24L24 0.757355L47.2426 24ZM12.2426 21H35.7574L24 9.24264L12.2426 21Z" fill-rule="evenodd"></path>
-                </svg>
+            <div class="brand-wrap">
+                <img class="brand-logo" src="assets/brand/partalog-logo-light.svg" alt="partalog.tech">
+                <span class="brand-panel-tag">PANEL</span>
             </div>
-            <span class="app-name">Partalog Panel</span>
         </div>
 
         <nav class="sidebar-nav">
@@ -22,109 +20,179 @@
                 <span class="label">Kataloglarım</span>
             </a>
 
-            <div class="nav-row">
-                <a [routerLink]="hasPlan(2) ? '/dashboard/ai' : '/upgrade'"
-                   [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai' }"
-                   routerLinkActive="active"
-                   class="nav-item"
-                   [class.nav-item-locked]="!hasPlan(2)">
-                    <span class="material-symbols-outlined icon">auto_awesome</span>
-                    <span class="label">AI Ayarları</span>
-                    @if (!hasPlan(2)) {
-                        <span class="nav-badge">PRO</span>
+            @if (supportsAiFeature) {
+                <div class="nav-row">
+                    <a [routerLink]="hasPlan(2) ? '/dashboard/ai' : '/upgrade'"
+                    [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai' }"
+                    routerLinkActive="active"
+                    class="nav-item"
+                    [class.nav-item-locked]="!hasPlan(2)">
+                        <span class="material-symbols-outlined icon">auto_awesome</span>
+                        <span class="label">AI Ayarları</span>
+                        @if (!hasPlan(2) && showUpgradePrompts) {
+                            <span class="nav-badge">PRO</span>
+                        }
+                    </a>
+                    @if (!hasPlan(2) && showUpgradePrompts) {
+                        <div class="nav-item-menu-wrap">
+                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('ai', $event)" aria-label="AI Ayarları menüsü">
+                                <span class="material-symbols-outlined">more_horiz</span>
+                            </button>
+                            @if (openLockedMenuKey === 'ai') {
+                                <div class="nav-popover-menu">
+                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(2, 'ai')">
+                                        AI Ayarları için Upgrade
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     }
-                </a>
-                @if (!hasPlan(2)) {
-                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(2, 'ai')">Upgrade</button>
-                }
-            </div>
+                </div>
 
-            <div class="nav-row">
-                <a [routerLink]="hasPlan(2) ? '/dashboard/chat-quality' : '/upgrade'"
-                   [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai-quality' }"
-                   routerLinkActive="active"
-                   class="nav-item"
-                   [class.nav-item-locked]="!hasPlan(2)">
-                    <span class="material-symbols-outlined icon">monitoring</span>
-                    <span class="label">AI Kalite</span>
-                    @if (!hasPlan(2)) {
-                        <span class="nav-badge">PRO</span>
+                <div class="nav-row">
+                    <a [routerLink]="hasPlan(2) ? '/dashboard/chat-quality' : '/upgrade'"
+                    [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai-quality' }"
+                    routerLinkActive="active"
+                    class="nav-item"
+                    [class.nav-item-locked]="!hasPlan(2)">
+                        <span class="material-symbols-outlined icon">monitoring</span>
+                        <span class="label">AI Kalite</span>
+                        @if (!hasPlan(2) && showUpgradePrompts) {
+                            <span class="nav-badge">PRO</span>
+                        }
+                    </a>
+                    @if (!hasPlan(2) && showUpgradePrompts) {
+                        <div class="nav-item-menu-wrap">
+                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('ai-quality', $event)" aria-label="AI Kalite menüsü">
+                                <span class="material-symbols-outlined">more_horiz</span>
+                            </button>
+                            @if (openLockedMenuKey === 'ai-quality') {
+                                <div class="nav-popover-menu">
+                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(2, 'ai-quality')">
+                                        AI Kalite için Upgrade
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     }
-                </a>
-                @if (!hasPlan(2)) {
-                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(2, 'ai-quality')">Upgrade</button>
-                }
-            </div>
+                </div>
 
-            <div class="nav-row">
-                <a [routerLink]="hasPlan(2) ? '/dashboard/visual-feedback' : '/upgrade'"
-                   [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'visual-feedback' }"
-                   routerLinkActive="active"
-                   class="nav-item"
-                   [class.nav-item-locked]="!hasPlan(2)">
-                    <span class="material-symbols-outlined icon">image_search</span>
-                    <span class="label">Görsel Feedback</span>
-                    @if (!hasPlan(2)) {
-                        <span class="nav-badge">PRO</span>
+                <div class="nav-row">
+                    <a [routerLink]="hasPlan(2) ? '/dashboard/visual-feedback' : '/upgrade'"
+                    [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'visual-feedback' }"
+                    routerLinkActive="active"
+                    class="nav-item"
+                    [class.nav-item-locked]="!hasPlan(2)">
+                        <span class="material-symbols-outlined icon">image_search</span>
+                        <span class="label">Görsel Feedback</span>
+                        @if (!hasPlan(2) && showUpgradePrompts) {
+                            <span class="nav-badge">PRO</span>
+                        }
+                    </a>
+                    @if (!hasPlan(2) && showUpgradePrompts) {
+                        <div class="nav-item-menu-wrap">
+                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('visual-feedback', $event)" aria-label="Görsel Feedback menüsü">
+                                <span class="material-symbols-outlined">more_horiz</span>
+                            </button>
+                            @if (openLockedMenuKey === 'visual-feedback') {
+                                <div class="nav-popover-menu">
+                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(2, 'visual-feedback')">
+                                        Görsel Feedback için Upgrade
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     }
-                </a>
-                @if (!hasPlan(2)) {
-                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(2, 'visual-feedback')">Upgrade</button>
-                }
-            </div>
+                </div>
+            }
 
-            <div class="nav-row">
-                <a [routerLink]="hasPlan(3) ? '/dashboard/ecommerce' : '/upgrade'"
-                   [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'ecommerce' }"
-                   routerLinkActive="active"
-                   class="nav-item"
-                   [class.nav-item-locked]="!hasPlan(3)">
-                    <span class="material-symbols-outlined icon">inventory_2</span>
-                    <span class="label">Ürünler</span>
-                    @if (!hasPlan(3)) {
-                        <span class="nav-badge">ENT</span>
+            @if (supportsEcommerceFeature) {
+                <div class="nav-row">
+                    <a [routerLink]="hasPlan(3) ? '/dashboard/ecommerce' : '/upgrade'"
+                    [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'ecommerce' }"
+                    routerLinkActive="active"
+                    class="nav-item"
+                    [class.nav-item-locked]="!hasPlan(3)">
+                        <span class="material-symbols-outlined icon">inventory_2</span>
+                        <span class="label">Ürünler</span>
+                        @if (!hasPlan(3) && showUpgradePrompts) {
+                            <span class="nav-badge">ENT</span>
+                        }
+                    </a>
+                    @if (!hasPlan(3) && showUpgradePrompts) {
+                        <div class="nav-item-menu-wrap">
+                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('ecommerce', $event)" aria-label="Ürünler menüsü">
+                                <span class="material-symbols-outlined">more_horiz</span>
+                            </button>
+                            @if (openLockedMenuKey === 'ecommerce') {
+                                <div class="nav-popover-menu">
+                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(3, 'ecommerce')">
+                                        Ürünler için Upgrade
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     }
-                </a>
-                @if (!hasPlan(3)) {
-                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(3, 'ecommerce')">Upgrade</button>
-                }
-            </div>
+                </div>
 
-            <div class="nav-row">
-                <a [routerLink]="hasPlan(3) ? '/dashboard/orders' : '/upgrade'"
-                   [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'orders' }"
-                   routerLinkActive="active"
-                   class="nav-item"
-                   [class.nav-item-locked]="!hasPlan(3)">
-                    <span class="material-symbols-outlined icon">receipt_long</span>
-                    <span class="label">Siparişler</span>
-                    @if (!hasPlan(3)) {
-                        <span class="nav-badge">ENT</span>
-                    } @else if (unreadOrderCount > 0) {
-                        <span class="nav-badge">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
+                <div class="nav-row">
+                    <a [routerLink]="hasPlan(3) ? '/dashboard/orders' : '/upgrade'"
+                    [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'orders' }"
+                    routerLinkActive="active"
+                    class="nav-item"
+                    [class.nav-item-locked]="!hasPlan(3)">
+                        <span class="material-symbols-outlined icon">receipt_long</span>
+                        <span class="label">Siparişler</span>
+                        @if (!hasPlan(3) && showUpgradePrompts) {
+                            <span class="nav-badge">ENT</span>
+                        } @else if (hasPlan(3) && unreadOrderCount > 0) {
+                            <span class="nav-badge">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
+                        }
+                    </a>
+                    @if (!hasPlan(3) && showUpgradePrompts) {
+                        <div class="nav-item-menu-wrap">
+                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('orders', $event)" aria-label="Siparişler menüsü">
+                                <span class="material-symbols-outlined">more_horiz</span>
+                            </button>
+                            @if (openLockedMenuKey === 'orders') {
+                                <div class="nav-popover-menu">
+                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(3, 'orders')">
+                                        Siparişler için Upgrade
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     }
-                </a>
-                @if (!hasPlan(3)) {
-                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(3, 'orders')">Upgrade</button>
-                }
-            </div>
+                </div>
 
-            <div class="nav-row">
-                <a [routerLink]="hasPlan(3) ? '/dashboard/customers' : '/upgrade'"
-                   [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'customers' }"
-                   routerLinkActive="active"
-                   class="nav-item"
-                   [class.nav-item-locked]="!hasPlan(3)">
-                    <span class="material-symbols-outlined icon">groups</span>
-                    <span class="label">Müşteriler</span>
-                    @if (!hasPlan(3)) {
-                        <span class="nav-badge">ENT</span>
+                <div class="nav-row">
+                    <a [routerLink]="hasPlan(3) ? '/dashboard/customers' : '/upgrade'"
+                    [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'customers' }"
+                    routerLinkActive="active"
+                    class="nav-item"
+                    [class.nav-item-locked]="!hasPlan(3)">
+                        <span class="material-symbols-outlined icon">groups</span>
+                        <span class="label">Müşteriler</span>
+                        @if (!hasPlan(3) && showUpgradePrompts) {
+                            <span class="nav-badge">ENT</span>
+                        }
+                    </a>
+                    @if (!hasPlan(3) && showUpgradePrompts) {
+                        <div class="nav-item-menu-wrap">
+                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('customers', $event)" aria-label="Müşteriler menüsü">
+                                <span class="material-symbols-outlined">more_horiz</span>
+                            </button>
+                            @if (openLockedMenuKey === 'customers') {
+                                <div class="nav-popover-menu">
+                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(3, 'customers')">
+                                        Müşteriler için Upgrade
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     }
-                </a>
-                @if (!hasPlan(3)) {
-                    <button type="button" class="nav-upgrade-btn" (click)="goUpgrade(3, 'customers')">Upgrade</button>
-                }
-            </div>
+                </div>
+            }
 
             <div class="nav-divider"></div>
 
@@ -133,17 +201,17 @@
                 <span class="label">Ayarlar</span>
             </a>
 
-            @if (currentPlan < 3) {
+            @if (shouldShowSidebarUpgradePromo) {
                 <div class="upgrade-promo-box">
                     <div class="upgrade-promo-title">Planını Yükselt</div>
                     <div class="upgrade-promo-text">
-                        @if (currentPlan < 2) {
+                        @if (supportsAiFeature && currentPlan < 2) {
                             AI modülleri ve gelişmiş sohbet için Pro planına geç.
                         } @else {
                             Sipariş, ürün ve müşteri akışı için Enterprise planına geç.
                         }
                     </div>
-                    <button type="button" class="upgrade-promo-btn" (click)="goUpgrade(currentPlan < 2 ? 2 : 3, currentPlan < 2 ? 'ai' : 'ecommerce')">
+                    <button type="button" class="upgrade-promo-btn" (click)="goUpgrade(nextUpgradePlan, nextUpgradeFeature)">
                         Upgrade Et
                     </button>
                 </div>
@@ -165,18 +233,16 @@
                         </span>
                     </div>
                     @if (publicToken) {
-                        <a [routerLink]="['/public-view', publicToken]" target="_blank" class="store-open-link" title="Vitrini aç">
+                        <a [routerLink]="['/p', publicToken]" target="_blank" class="store-open-link" title="Vitrini aç">
                             <span class="material-symbols-outlined arrow-icon">open_in_new</span>
                         </a>
                     }
                 </div>
 
                 <div class="store-actions">
-                    @if (publicToken) {
-                        <button type="button" class="store-action-btn" (click)="copyPublicLink()" [disabled]="publicActionLoading">Link Kopyala</button>
-                    }
-                    <button type="button" class="store-action-btn" (click)="rotatePublicLink()" [disabled]="publicActionLoading">Linki Yenile</button>
-                    <button type="button" class="store-action-btn danger" (click)="revokePublicLink()" [disabled]="publicActionLoading">Linki İptal Et</button>
+                    <button type="button" class="store-action-btn" (click)="goToLinkManagement()">
+                        Link Yönetimi
+                    </button>
                 </div>
 
                 @if (publicActionMessage) {
@@ -203,6 +269,11 @@
                 <button class="mobile-menu-btn">
                     <span class="material-symbols-outlined">menu</span>
                 </button>
+
+                <div class="header-brand-pill">
+                    <img src="assets/brand/partalog-mark.svg" alt="Partalog" class="header-brand-mark">
+                    <span class="header-brand-text">partalog.tech</span>
+                </div>
                 
                 <div class="search-box">
                     <span class="material-symbols-outlined search-icon">search</span>
@@ -211,18 +282,20 @@
             </div>
 
             <div class="header-right">
-                @if (currentPlan < 3) {
-                    <button type="button" class="header-upgrade-btn" (click)="goUpgrade(currentPlan < 2 ? 2 : 3, currentPlan < 2 ? 'ai' : 'ecommerce')">
+                @if (shouldShowHeaderUpgradeButton) {
+                    <button type="button" class="header-upgrade-btn" (click)="goUpgrade(nextUpgradePlan, nextUpgradeFeature)">
                         Upgrade Et
                     </button>
                 }
-                <button class="notif-btn" (click)="openOrdersFromNotification()">
-                    <span class="material-symbols-outlined">notifications</span>
-                    @if (unreadOrderCount > 0) {
-                        <span class="notif-dot"></span>
-                        <span class="notif-count">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
-                    }
-                </button>
+                @if (supportsEcommerceFeature) {
+                    <button class="notif-btn" (click)="openOrdersFromNotification()">
+                        <span class="material-symbols-outlined">notifications</span>
+                        @if (unreadOrderCount > 0) {
+                            <span class="notif-dot"></span>
+                            <span class="notif-count">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
+                        }
+                    </button>
+                }
                 
                 <div class="user-profile">
                     <div class="user-info">

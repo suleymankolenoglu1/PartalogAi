@@ -1,0 +1,419 @@
+<div class="tenant-detail-page">
+  <header class="detail-top">
+    <a routerLink="/platform" class="back-link">← Platform listesine dön</a>
+    <h1>İşletme Detayı</h1>
+  </header>
+
+  @if (isLoading) {
+    <div class="loading">Yükleniyor...</div>
+  } @else if (errorMessage) {
+    <div class="error">{{ errorMessage }}</div>
+  } @else if (detail) {
+    <section class="panel action-panel">
+      <div class="panel-head">
+        <h2>Tenant Aksiyonları</h2>
+        <span>Canlı yönetim</span>
+      </div>
+
+      <div class="action-grid">
+        <label class="plan-editor">
+          <span>Paket</span>
+          <div class="plan-row">
+            <select [(ngModel)]="selectedPlan" [disabled]="pendingAction !== null">
+              <option [ngValue]="1">CatalogOnly</option>
+              <option [ngValue]="2">CatalogWithAI</option>
+              <option [ngValue]="3">CatalogWithAIAndEcommerce</option>
+            </select>
+            <button type="button" class="primary" [disabled]="pendingAction !== null || !canSubmitPlanUpdate()" (click)="updatePlan()">
+              Planı Kaydet
+            </button>
+          </div>
+        </label>
+
+        <label class="plan-editor">
+          <span>Paket Bitiş Tarihi</span>
+          <div class="plan-row">
+            <input type="date" [(ngModel)]="planExpiresAtInput" [disabled]="pendingAction !== null">
+            <button type="button" class="ghost" [disabled]="pendingAction !== null || !planExpiresAtInput" (click)="planExpiresAtInput = ''">
+              Temizle
+            </button>
+          </div>
+        </label>
+
+        <label class="plan-editor">
+          <span>İşlem Notu (opsiyonel)</span>
+          <div class="plan-row">
+            <input
+              type="text"
+              maxlength="300"
+              placeholder="Örn: müşteri talebiyle +90 gün"
+              [(ngModel)]="planActionReason"
+              [disabled]="pendingAction !== null">
+            <button type="button" class="ghost" [disabled]="pendingAction !== null || !planActionReason" (click)="planActionReason = ''">
+              Temizle
+            </button>
+          </div>
+        </label>
+
+        <div class="suspend-actions">
+          <div class="kebab-menu" (click)="onQuickMenuContainerClick($event)">
+            <button type="button" class="ghost kebab-trigger" [disabled]="pendingAction !== null" (click)="toggleQuickActionMenu($event)">
+              ⋮ İşlemler
+            </button>
+            @if (quickActionMenuOpen) {
+              <div class="kebab-dropdown">
+                <button type="button" (click)="selectQuickExpiry(30)">
+                  <span class="menu-item-icon">⏱</span>
+                  <span class="menu-item-label">+30 gün</span>
+                </button>
+                <button type="button" (click)="selectQuickExpiry(90)">
+                  <span class="menu-item-icon">⏳</span>
+                  <span class="menu-item-label">+90 gün</span>
+                </button>
+                <button type="button" (click)="selectQuickExpiry(null)">
+                  <span class="menu-item-icon">∞</span>
+                  <span class="menu-item-label">Süresiz</span>
+                </button>
+                <div class="menu-separator"></div>
+                @if (!detail.isSuspended) {
+                  <button type="button" class="danger-item" (click)="selectQuickSuspendToggle()">
+                    <span class="menu-item-icon">⛔</span>
+                    <span class="menu-item-label">Askıya Al</span>
+                  </button>
+                } @else {
+                  <button type="button" class="success-item" (click)="selectQuickSuspendToggle()">
+                    <span class="menu-item-icon">✅</span>
+                    <span class="menu-item-label">Aktifleştir</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      @if (actionError) {
+        <div class="error">{{ actionError }}</div>
+      }
+      @if (actionMessage) {
+        <div class="success">{{ actionMessage }}</div>
+      }
+    </section>
+
+    <section class="summary-grid">
+      <article class="summary-card">
+        <p class="label">Firma</p>
+        <h3>{{ detail.companyName || detail.ownerFullName }}</h3>
+        <p>{{ detail.ownerEmail }}</p>
+      </article>
+
+      <article class="summary-card">
+        <p class="label">Paket</p>
+        <h3 class="plan-title">
+          {{ detail.planName }}
+          <span
+            class="expiry-badge"
+            [class.none]="getExpiryState(detail.planExpiresAt) === 'none'"
+            [class.ok]="getExpiryState(detail.planExpiresAt) === 'ok'"
+            [class.warning]="getExpiryState(detail.planExpiresAt) === 'warning'"
+            [class.expired]="getExpiryState(detail.planExpiresAt) === 'expired'">
+            {{ getExpiryLabel(detail.planExpiresAt) }}
+          </span>
+        </h3>
+        <p>Katalog limiti: {{ detail.limits.maxCatalogCount }}</p>
+        <p>Bitiş: {{ detail.planExpiresAt ? (detail.planExpiresAt | date:'dd.MM.yyyy') : '-' }}</p>
+      </article>
+
+      <article class="summary-card">
+        <p class="label">Kullanım</p>
+        <h3>{{ detail.usageTotals.catalogCount }} katalog</h3>
+        <p>{{ detail.usageTotals.partCount }} parça • {{ detail.usageTotals.orderCount }} sipariş</p>
+      </article>
+
+      <article class="summary-card">
+        <p class="label">Müşteri</p>
+        <h3>{{ detail.customerTotals.customerCount }} müşteri</h3>
+        @if (detail.ecommerceEnabled) {
+          <p>Aktif: {{ detail.customerTotals.activeCustomerCount }}</p>
+          <p>Toplam ciro: ₺{{ detail.customerTotals.totalRevenue | number:'1.2-2' }}</p>
+        } @else {
+          <p>E-ticaret modülü kapalı.</p>
+        }
+      </article>
+
+      <article class="summary-card">
+        <p class="label">Durum</p>
+        <h3>{{ detail.isSuspended ? 'Askıda' : 'Aktif' }}</h3>
+        <p>Public link: {{ detail.publicLinkEnabled ? 'Açık' : 'Kapalı' }}</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Aylık Kullanım</h2>
+        <span>Son {{ detail.monthlyUsage.length }} ay</span>
+      </div>
+
+      <div class="usage-chart">
+        @for (point of detail.monthlyUsage; track point.month) {
+          <div class="usage-column">
+            <div class="bars">
+              <span class="bar catalog" [style.height]="usageBarHeight(point.catalogs, 'catalogs')" [title]="'Katalog: ' + point.catalogs"></span>
+              <span class="bar part" [style.height]="usageBarHeight(point.parts, 'parts')" [title]="'Parça: ' + point.parts"></span>
+              <span class="bar order" [style.height]="usageBarHeight(point.orders, 'orders')" [title]="'Sipariş: ' + point.orders"></span>
+              <span class="bar ai" [style.height]="usageBarHeight(point.aiJobs, 'aiJobs')" [title]="'AI Job: ' + point.aiJobs"></span>
+            </div>
+            <p>{{ monthLabel(point.month) }}</p>
+          </div>
+        }
+      </div>
+
+      <div class="legend">
+        <span><i class="catalog"></i>Katalog</span>
+        <span><i class="part"></i>Parça</span>
+        <span><i class="order"></i>Sipariş</span>
+        <span><i class="ai"></i>AI Job</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Son Kataloglar</h2>
+        <span>{{ detail.recentCatalogs.length }} kayıt</span>
+      </div>
+      <div class="simple-table">
+        <div class="row header">
+          <span>Katalog</span>
+          <span>Durum</span>
+          <span>Güncelleme</span>
+        </div>
+        @for (catalog of detail.recentCatalogs; track catalog.id) {
+          <div class="row">
+            <span>{{ catalog.name }}</span>
+            <span>{{ catalog.status }}</span>
+            <span>{{ (catalog.updatedAt || catalog.createdAt) | date:'dd.MM.yyyy HH:mm' }}</span>
+          </div>
+        }
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Müşteri Özeti</h2>
+        <span>{{ detail.topCustomers.length }} müşteri</span>
+      </div>
+      @if (!detail.ecommerceEnabled) {
+        <div class="empty-note">E-ticaret modülü kapalı olduğu için müşteri/sipariş verileri pasif.</div>
+      } @else {
+        <div class="simple-table">
+          <div class="row header customer-row">
+            <span>Müşteri</span>
+            <span>İletişim</span>
+            <span>Sipariş</span>
+            <span>Son Sipariş</span>
+          </div>
+          @for (customer of detail.topCustomers; track customer.id) {
+            <div class="row customer-row">
+              <span>
+                <strong>{{ customer.fullName }}</strong>
+                <small class="row-sub">{{ customer.isActive ? 'Aktif' : 'Pasif' }}</small>
+              </span>
+              <span>
+                <div>{{ customer.phone || '-' }}</div>
+                <small class="row-sub">{{ customer.email || '-' }}</small>
+              </span>
+              <span>
+                <div>{{ customer.orderCount }} sipariş</div>
+                <small class="row-sub">₺{{ customer.totalSpent | number:'1.2-2' }}</small>
+              </span>
+              <span>{{ customer.lastOrderDate ? (customer.lastOrderDate | date:'dd.MM.yyyy HH:mm') : '-' }}</span>
+            </div>
+          }
+          @if (!detail.topCustomers.length) {
+            <div class="row empty-state">
+              <span>Henüz müşteri kaydı yok.</span>
+            </div>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Son Siparişler</h2>
+        <span>{{ filteredRecentOrders.length }} / {{ detail.recentOrders.length }} sipariş</span>
+      </div>
+      @if (!detail.ecommerceEnabled) {
+        <div class="empty-note">E-ticaret modülü kapalı olduğu için sipariş akışı pasif.</div>
+      } @else {
+        <div class="order-filters">
+          <input
+            type="text"
+            placeholder="Sipariş no, müşteri, telefon veya ürün ara..."
+            [(ngModel)]="orderQuery">
+          <select [(ngModel)]="orderStatusFilter">
+            @for (status of orderStatusOptions; track status) {
+              <option [value]="status">
+                @if (status === 'all') {
+                  Tüm Durumlar
+                } @else {
+                  {{ status }}
+                }
+              </option>
+            }
+          </select>
+          <input type="date" [(ngModel)]="orderDateFrom" title="Başlangıç tarihi">
+          <input type="date" [(ngModel)]="orderDateTo" title="Bitiş tarihi">
+          <button type="button" class="ghost mini" (click)="resetOrderFilters()">Temizle</button>
+        </div>
+
+        <div class="simple-table">
+          <div class="row header order-row">
+            <span>Sipariş</span>
+            <span>Müşteri</span>
+            <span>Durum / Tutar</span>
+            <span>Kalemler</span>
+          </div>
+          @for (order of filteredRecentOrders; track order.id) {
+            <div class="row order-row clickable" (click)="toggleOrderExpand(order.id)">
+              <span>
+                <strong>{{ order.orderNumber }}</strong>
+                <small class="row-sub">{{ order.createdAt | date:'dd.MM.yyyy HH:mm' }}</small>
+              </span>
+              <span>
+                <div>{{ order.customerName || '-' }}</div>
+                <small class="row-sub">{{ order.customerPhone || order.customerEmail || '-' }}</small>
+              </span>
+              <span>
+                <div>{{ order.status }}</div>
+                <small class="row-sub">₺{{ order.totalAmount | number:'1.2-2' }}</small>
+              </span>
+              <span class="order-items-cell">
+                @for (item of order.items; track item.productId + item.productCode) {
+                  <span class="order-item-chip">
+                    {{ item.productCode || '-' }} • {{ item.productName }} x{{ item.quantity }}
+                  </span>
+                }
+                @if (!order.items.length) {
+                  <span class="row-sub">Kalem bilgisi yok</span>
+                }
+                <span class="expand-indicator">{{ isOrderExpanded(order.id) ? '▲' : '▼' }}</span>
+              </span>
+            </div>
+            @if (isOrderExpanded(order.id)) {
+              <div class="row order-expand-row">
+                <span>
+                  <strong>Ödeme:</strong> {{ order.paymentMethod || '-' }}<br>
+                  <strong>Kalem:</strong> {{ order.itemCount }} adet
+                </span>
+                <span>
+                  <strong>Teslimat:</strong>
+                  {{ order.deliveryAddress || '-' }}
+                  @if (order.deliveryCity) {, {{ order.deliveryCity }}}
+                  @if (order.deliveryDistrict) { / {{ order.deliveryDistrict }}}
+                </span>
+                <span>
+                  <strong>Müşteri E-posta:</strong> {{ order.customerEmail || '-' }}
+                </span>
+                <span>
+                  <strong>Not:</strong> {{ order.deliveryNote || '-' }}
+                </span>
+              </div>
+            }
+          }
+          @if (!filteredRecentOrders.length) {
+            <div class="row empty-state">
+              <span>Henüz sipariş kaydı yok.</span>
+            </div>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Audit Log</h2>
+        <span>{{ filteredAuditLog.length }} / {{ detail.auditLog.length }} olay</span>
+      </div>
+
+      <div class="audit-filters">
+        <input
+          type="text"
+          placeholder="Olay, detay veya notta ara..."
+          [(ngModel)]="auditQuery">
+        <select [(ngModel)]="auditTypeFilter">
+          @for (type of auditTypeOptions; track type) {
+            <option [value]="type">
+              @if (type === 'all') {
+                Tüm Tipler
+              } @else {
+                {{ type }}
+              }
+            </option>
+          }
+        </select>
+        <input type="date" [(ngModel)]="auditDateFrom" title="Başlangıç tarihi">
+        <input type="date" [(ngModel)]="auditDateTo" title="Bitiş tarihi">
+        <button type="button" class="ghost mini" (click)="resetAuditFilters()">Temizle</button>
+        <button type="button" class="ghost mini export" [disabled]="!filteredAuditLog.length" (click)="exportFilteredAuditCsv()">CSV Dışa Aktar</button>
+      </div>
+
+      <div class="simple-table">
+        <div class="row header">
+          <span>Tarih</span>
+          <span>Tip</span>
+          <span>Olay</span>
+          <span>Detay</span>
+        </div>
+        @for (event of filteredAuditLog; track event.timestamp + event.type + event.title) {
+          <div class="row">
+            <span>{{ event.timestamp | date:'dd.MM.yyyy HH:mm' }}</span>
+            <span>{{ event.type }}</span>
+            <span>{{ event.title }}</span>
+            <span class="detail-cell">
+              @if (event.operationId) {
+                <span class="operation-meta">
+                  <span class="operation-id">Op: {{ event.operationId }}</span>
+                  @if (event.operationCount && event.operationCount > 1) {
+                    <span class="operation-count">{{ event.operationCount }} kayıt</span>
+                  }
+                </span>
+              }
+              <span>{{ event.detail || '-' }}</span>
+              @if (event.changes?.length) {
+                <span class="change-badges">
+                  @for (change of event.changes; track change.field + change.before + change.after) {
+                    <span class="change-badge">
+                      <strong>{{ change.field }}</strong>
+                      <span class="before">{{ change.before || '-' }}</span>
+                      <span class="arrow">→</span>
+                      <span class="after">{{ change.after || '-' }}</span>
+                    </span>
+                  }
+                </span>
+              }
+            </span>
+          </div>
+        }
+        @if (!filteredAuditLog.length) {
+          <div class="row empty-state">
+            <span>Filtreye uygun audit kaydı bulunamadı.</span>
+          </div>
+        }
+      </div>
+    </section>
+  }
+</div>
+
+<app-action-reason-modal
+  [open]="reasonModalOpen"
+  [title]="reasonModalTitle"
+  [description]="reasonModalDescription"
+  [required]="reasonModalRequired"
+  [confirmText]="reasonModalConfirmText"
+  [placeholder]="reasonModalPlaceholder"
+  [templates]="reasonModalTemplates"
+  [pending]="reasonModalPending"
+  (closed)="onReasonModalClosed()"
+  (confirm)="onReasonModalConfirmed($event)">
+</app-action-reason-modal>

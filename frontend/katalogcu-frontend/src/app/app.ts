@@ -36,7 +36,10 @@ export class AppComponent {
       if (
           url.startsWith('/dashboard') || 
           url.startsWith('/view') || 
-          url.startsWith('/public-view')
+          url.startsWith('/public-view') ||
+          url.startsWith('/p') ||
+          url.startsWith('/login') ||
+          url.startsWith('/register')
          ) {
         this.showHeader = false;
       } else {

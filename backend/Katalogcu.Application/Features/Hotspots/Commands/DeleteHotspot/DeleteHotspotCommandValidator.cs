@@ -9,5 +9,9 @@ public sealed class DeleteHotspotCommandValidator : AbstractValidator<DeleteHots
         RuleFor(x => x.HotspotId)
             .NotEqual(Guid.Empty)
             .WithMessage("Geçersiz hotspot.");
+
+        RuleFor(x => x.UserId)
+            .NotEqual(Guid.Empty)
+            .WithMessage("Kullanıcı bilgisi bulunamadı.");
     }
 }

@@ -28,6 +28,15 @@ Docker orkestrasyonu için:
 MVP smoke testleri için:
 👉 **[backend/SMOKE_TESTS.md](./backend/SMOKE_TESTS.md)** dosyasına bakınız.
 
+Tek paket (Catalog Only) canlıya çıkış kontrol listesi için:
+👉 **[backend/CATALOG_ONLY_PROD_CHECKLIST.md](./backend/CATALOG_ONLY_PROD_CHECKLIST.md)** dosyasına bakınız.
+
+Catalog-only Go/No-Go karar formu için:
+👉 **[backend/CATALOG_ONLY_RELEASE_GO_NO_GO.md](./backend/CATALOG_ONLY_RELEASE_GO_NO_GO.md)** dosyasına bakınız.
+
+Catalog-only release rapor scripti:
+👉 **[backend/scripts/generate_catalog_release_report.sh](./backend/scripts/generate_catalog_release_report.sh)**
+
 ## 🚀 Hızlı Başlangıç
 
 ### Gereksinimler

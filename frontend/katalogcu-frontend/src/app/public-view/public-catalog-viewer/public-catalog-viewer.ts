@@ -1,9 +1,10 @@
-import { Component, OnInit, OnDestroy, inject, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ElementRef, ViewChild, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CatalogService, Catalog, CatalogPage, CatalogPageItem } from '../../core/services/catalog.service';
 import { CartService } from '../../core/services/cart.service';
+import { environment } from '../../../environments/environment';
 
 interface ViewerGroup {
   pageIndex: number;
@@ -21,6 +22,7 @@ interface RequestedPartSelection {
 
 type StockFilter = 'all' | 'in' | 'out';
 type SortMode = 'ref' | 'name' | 'stock';
+type PartsPaneSnapLevel = 0 | 1 | 2;
 
 @Component({
   selector: 'app-public-catalog-viewer',
@@ -37,6 +39,8 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   public cartService = inject(CartService); 
   @ViewChild('viewport') private viewportRef?: ElementRef<HTMLDivElement>;
   @ViewChild('technicalImage') private technicalImageRef?: ElementRef<HTMLImageElement>;
+  @ViewChild('partsPane') private partsPaneRef?: ElementRef<HTMLElement>;
+  @ViewChild('partsList') private partsListRef?: ElementRef<HTMLDivElement>;
 
   // 🔥 DÜZELTME: Bu değişken artık class property olarak burada!
   // HTML'deki [routerLink] bunu kullanacak.
@@ -68,6 +72,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   isSidebarCollapsed = false;
   isPageListExpanded = true;
   isMobilePartsExpanded = false;
+  isMobilePartsMid = false;
   isCartOpen = false; 
   isLoading = true;
   private requestedPageNumber: number | null = null;
@@ -79,6 +84,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   private readonly maxSelectionQty = 99;
   private itemSelectionQty: Record<string, number> = {};
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private hotspotTooltipClasses: Record<string, string> = {};
   private touchMode: 'none' | 'pan' | 'pinch' = 'none';
   private touchStartX = 0;
   private touchStartY = 0;
@@ -88,12 +94,26 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   private pinchStartDistance = 0;
   private pinchStartScale = 1;
   private partsSheetTouchStartY = 0;
+  private partsSheetTouchStartX = 0;
+  private partsSheetGestureActive = false;
+  private partsSheetStartedInList = false;
+  private partsSheetGestureFromHandle = false;
+  private partsSheetStartHeightPx = 0;
+  private partsSheetStartSnapLevel: PartsPaneSnapLevel = 0;
+  private partsSheetCurrentHeightPx: number | null = null;
+  private partsSheetLastDeltaY = 0;
+  isPartsSheetDragging = false;
 
   // Zoom & Pan
   transform = { x: 0, y: 0, scale: 1 };
   isDragging = false;
   startX = 0;
   startY = 0;
+
+  get partsPaneHeightPx(): number | null {
+    if (!this.isMobileViewport()) return null;
+    return this.partsSheetCurrentHeightPx;
+  }
 
   ngOnDestroy(): void {
     if (this.searchDebounceTimer) {
@@ -142,7 +162,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     if (!this.publicToken) return;
     this.catalogService.getPublicStorefront(this.publicToken).subscribe({
       next: (res) => {
-        this.canUseEcommerce = res?.ecommerceEnabled === true;
+        this.canUseEcommerce = environment.features.enableEcommerce && res?.ecommerceEnabled === true;
         if (!this.canUseEcommerce) {
           this.isCartOpen = false;
         }
@@ -202,7 +222,9 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     this.activePage = this.catalog.pages[group.pageIndex];
     if (this.isMobileViewport()) {
       this.isMobileSidebarOpen = false;
-      this.isMobilePartsExpanded = false;
+      this.applyPartsPaneSnapLevel(0);
+      this.partsSheetCurrentHeightPx = null;
+      this.isPartsSheetDragging = false;
     }
     
     // UI Sıfırla
@@ -214,6 +236,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     this.searchQuery = '';
     this.stockFilter = 'all';
     this.sortMode = 'ref';
+    this.hotspotTooltipClasses = {};
     this.isLoading = true;
 
     // Backend'den Sayfa İçeriğini Çek
@@ -344,10 +367,76 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     return matched?.localName || matched?.partName || matched?.partCode || 'Parça';
   }
 
+  getHotspotTooltipClass(spot: { top: number; left: number; width: number; height: number; label?: string }, index: number): string {
+    const key = this.getHotspotTooltipKey(spot, index);
+    const dynamicClass = this.hotspotTooltipClasses[key];
+    if (dynamicClass) return dynamicClass;
+
+    return this.getFallbackHotspotTooltipClass(spot);
+  }
+
+  updateTooltipPosition(event: Event, spot: { top: number; left: number; width: number; height: number; label?: string }, index: number) {
+    const hotspotElement = event.currentTarget as HTMLElement | null;
+    const viewportElement = this.viewportRef?.nativeElement;
+    if (!hotspotElement || !viewportElement) return;
+
+    const tooltipElement = hotspotElement.querySelector('.hotspot-tooltip') as HTMLElement | null;
+    if (!tooltipElement) return;
+
+    const key = this.getHotspotTooltipKey(spot, index);
+    this.hotspotTooltipClasses[key] = this.calculateTooltipClass(hotspotElement, tooltipElement, viewportElement);
+  }
+
+  private getFallbackHotspotTooltipClass(spot: { top: number; left: number; width: number; height: number }): string {
+    const top = Number.isFinite(spot.top) ? spot.top : 0;
+    const left = Number.isFinite(spot.left) ? spot.left : 0;
+    const width = Number.isFinite(spot.width) ? spot.width : 0;
+
+    const center = left + (width / 2);
+    const verticalClass = top < 16 ? 'tooltip-below' : 'tooltip-above';
+
+    if (center < 18) return `${verticalClass} tooltip-left`;
+    if (center > 82) return `${verticalClass} tooltip-right`;
+    return `${verticalClass} tooltip-center`;
+  }
+
+  private calculateTooltipClass(hotspotEl: HTMLElement, tooltipEl: HTMLElement, viewportEl: HTMLElement): string {
+    const viewportRect = viewportEl.getBoundingClientRect();
+    const hotspotRect = hotspotEl.getBoundingClientRect();
+    const tooltipRect = tooltipEl.getBoundingClientRect();
+
+    const tooltipWidth = tooltipRect.width > 0 ? tooltipRect.width : 220;
+    const tooltipHeight = tooltipRect.height > 0 ? tooltipRect.height : 56;
+    const edgePadding = 10;
+    const gap = 8;
+
+    const spaceAbove = hotspotRect.top - viewportRect.top;
+    const spaceBelow = viewportRect.bottom - hotspotRect.bottom;
+    const verticalClass =
+      spaceAbove < (tooltipHeight + gap + edgePadding) && spaceBelow > spaceAbove
+        ? 'tooltip-below'
+        : 'tooltip-above';
+
+    const hotspotCenterX = hotspotRect.left + (hotspotRect.width / 2);
+    const centeredLeft = hotspotCenterX - (tooltipWidth / 2);
+    const centeredRight = hotspotCenterX + (tooltipWidth / 2);
+
+    let horizontalClass = 'tooltip-center';
+    if (centeredLeft < viewportRect.left + edgePadding) horizontalClass = 'tooltip-left';
+    if (centeredRight > viewportRect.right - edgePadding) horizontalClass = 'tooltip-right';
+
+    return `${verticalClass} ${horizontalClass}`;
+  }
+
+  private getHotspotTooltipKey(spot: { label?: string }, index: number): string {
+    const label = this.normalizeValue(spot.label ?? '');
+    return `${this.activeGroupIndex}:${index}:${label}`;
+  }
+
   goCheckout() {
     if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
-    this.router.navigate(['/public-view', this.publicToken, 'checkout']);
+    this.router.navigate(['/p', this.publicToken, 'checkout']);
   }
 
   get currentPagePositionText(): string {
@@ -372,16 +461,99 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
 
   onPartsHandleTouchStart(event: TouchEvent) {
     if (!this.isMobileViewport() || event.touches.length !== 1) return;
+    const touchTarget = event.target as HTMLElement | null;
+    const startedFromHandle = !!touchTarget?.closest('.parts-handle');
+    if (!startedFromHandle && this.shouldIgnorePartsSheetGestureStart(touchTarget)) return;
+
+    this.partsSheetGestureActive = true;
+    this.partsSheetGestureFromHandle = startedFromHandle;
+    this.partsSheetStartedInList = !!touchTarget?.closest('.parts-list');
+    this.partsSheetTouchStartX = event.touches[0].clientX;
     this.partsSheetTouchStartY = event.touches[0].clientY;
+    this.partsSheetLastDeltaY = 0;
+    this.partsSheetStartSnapLevel = this.getCurrentPartsPaneSnapLevel();
+    this.partsSheetStartHeightPx = this.getCurrentPartsPaneHeightPx();
+    this.partsSheetCurrentHeightPx = this.partsSheetStartHeightPx;
+    this.isPartsSheetDragging = false;
+  }
+
+  onPartsHandleTouchMove(event: TouchEvent) {
+    if (!this.isMobileViewport() || !this.partsSheetGestureActive || event.touches.length !== 1) return;
+
+    const currentX = event.touches[0].clientX;
+    const currentY = event.touches[0].clientY;
+    const deltaX = currentX - this.partsSheetTouchStartX;
+    const deltaY = currentY - this.partsSheetTouchStartY;
+    this.partsSheetLastDeltaY = deltaY;
+
+    if (Math.abs(deltaY) <= Math.abs(deltaX)) return;
+
+    const wantsExpand = deltaY < 0;
+    const wantsCollapse = deltaY > 0;
+    const currentSnapLevel = this.getCurrentPartsPaneSnapLevel();
+    if (this.partsSheetStartedInList && !this.partsSheetGestureFromHandle && currentSnapLevel > 0 && wantsExpand) {
+      return;
+    }
+
+    const canCollapse = this.partsSheetGestureFromHandle || !this.partsSheetStartedInList || this.isPartsListAtTop();
+    if (wantsCollapse && !canCollapse) return;
+
+    const minHeight = this.getPartsPaneCollapsedHeightPx();
+    const maxHeight = this.getPartsPaneExpandedHeightPx();
+    const nextHeight = this.clamp(this.partsSheetStartHeightPx - deltaY, minHeight, maxHeight);
+
+    this.isPartsSheetDragging = true;
+    this.partsSheetCurrentHeightPx = nextHeight;
+    event.preventDefault();
   }
 
   onPartsHandleTouchEnd(event: TouchEvent) {
-    if (!this.isMobileViewport() || !this.partsSheetTouchStartY) return;
+    if (!this.isMobileViewport() || !this.partsSheetGestureActive || !this.partsSheetTouchStartY) return;
     const endY = event.changedTouches[0]?.clientY ?? this.partsSheetTouchStartY;
     const deltaY = endY - this.partsSheetTouchStartY;
-    if (deltaY < -45) this.isMobilePartsExpanded = true;
-    if (deltaY > 45) this.isMobilePartsExpanded = false;
-    this.partsSheetTouchStartY = 0;
+    const canCollapse = this.partsSheetGestureFromHandle || !this.partsSheetStartedInList || this.isPartsListAtTop();
+    const swipeThreshold = 45;
+
+    if (this.isPartsSheetDragging && this.partsSheetCurrentHeightPx !== null) {
+      const strongSwipe = Math.abs(this.partsSheetLastDeltaY) > 36 || Math.abs(deltaY) > swipeThreshold;
+      const currentLevel = this.partsSheetStartSnapLevel;
+      let targetLevel: PartsPaneSnapLevel;
+
+      if (strongSwipe) {
+        if (this.partsSheetLastDeltaY < 0) {
+          targetLevel = this.clampSnapLevel((currentLevel + 1) as PartsPaneSnapLevel);
+        } else if (canCollapse) {
+          targetLevel = this.clampSnapLevel((currentLevel - 1) as PartsPaneSnapLevel);
+        } else {
+          targetLevel = currentLevel;
+        }
+      } else {
+        targetLevel = this.getNearestPartsPaneSnapLevel(this.partsSheetCurrentHeightPx, canCollapse);
+      }
+      this.snapPartsPane(targetLevel);
+    } else {
+      const currentLevel = this.getCurrentPartsPaneSnapLevel();
+      let targetLevel: PartsPaneSnapLevel = currentLevel;
+      if (deltaY < -swipeThreshold) {
+        targetLevel = this.clampSnapLevel((currentLevel + 1) as PartsPaneSnapLevel);
+      } else if (deltaY > swipeThreshold && canCollapse) {
+        targetLevel = this.clampSnapLevel((currentLevel - 1) as PartsPaneSnapLevel);
+      }
+
+      if (targetLevel !== currentLevel) {
+        this.snapPartsPane(targetLevel);
+      } else {
+        this.partsSheetCurrentHeightPx = null;
+        this.isPartsSheetDragging = false;
+      }
+    }
+    this.resetPartsSheetGestureState();
+  }
+
+  onPartsHandleTouchCancel() {
+    this.partsSheetCurrentHeightPx = null;
+    this.isPartsSheetDragging = false;
+    this.resetPartsSheetGestureState();
   }
 
   // --- ARAMA & FİLTRELEME ---
@@ -480,7 +652,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
 
   askAiFromSearch() {
     if (!this.publicToken) return;
-    this.router.navigate(['/public-view', this.publicToken], {
+    this.router.navigate(['/p', this.publicToken], {
       queryParams: this.searchInput.trim() ? { q: this.searchInput.trim() } : undefined
     });
   }
@@ -499,8 +671,12 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   }
 
   // --- ETKİLEŞİM ---
-  onHotspotClick(label: string) {
+  onHotspotClick(label: string, event?: Event, spotIndex?: number) {
     this.selectedPartLabel = label;
+    if (event && Number.isInteger(spotIndex)) {
+      const spot = this.activePage?.hotspots?.[spotIndex as number];
+      if (spot) this.updateTooltipPosition(event, spot, spotIndex as number);
+    }
 
     // refNo VEYA partCode ile eşleştir
     this.selectedItem = this.pageItems.find(
@@ -528,6 +704,8 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
         }
       }, 50);
     }
+
+    this.recalculateSelectedTooltip();
   }
 
   onItemClick(item: CatalogPageItem) {
@@ -698,6 +876,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     this.selectedPartLabel = hotspot.label;
     this.selectedItem = null;
     this.selectedProductId = null;
+    this.recalculateSelectedTooltip();
     this.focusSelectedHotspotInViewport();
     return true;
   }
@@ -758,6 +937,8 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
       this.focusSelectedHotspotInViewport();
     }
 
+    this.recalculateSelectedTooltip();
+
     if (!scrollRow) return;
     setTimeout(() => {
       const row = document.getElementById('row-' + item.catalogItemId);
@@ -797,11 +978,41 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
         x: this.transform.x + (viewportCenterX - hotspotCenterX),
         y: this.transform.y + (viewportCenterY - hotspotCenterY),
       };
+      this.recalculateSelectedTooltip();
     }, 30);
   }
 
+  @HostListener('window:resize')
+  onWindowResize() {
+    this.recalculateSelectedTooltip();
+    if (this.isMobileViewport() && this.partsSheetCurrentHeightPx !== null) {
+      this.partsSheetCurrentHeightPx = this.getPartsPaneHeightForSnap(this.getCurrentPartsPaneSnapLevel());
+    }
+  }
+
+  private recalculateSelectedTooltip() {
+    setTimeout(() => {
+      const viewportElement = this.viewportRef?.nativeElement;
+      const selectedLabel = this.normalizeValue(this.selectedPartLabel);
+      if (!viewportElement || !selectedLabel || !this.activePage?.hotspots?.length) return;
+
+      const spotIndex = this.activePage.hotspots.findIndex((spot) => this.normalizeValue(spot.label) === selectedLabel);
+      if (spotIndex < 0) return;
+
+      const hotspotElements = Array.from(viewportElement.querySelectorAll('.hotspot'));
+      const hotspotElement = hotspotElements[spotIndex] as HTMLElement | undefined;
+      const tooltipElement = hotspotElement?.querySelector('.hotspot-tooltip') as HTMLElement | null | undefined;
+      if (!hotspotElement || !tooltipElement) return;
+
+      const key = this.getHotspotTooltipKey(this.activePage.hotspots[spotIndex], spotIndex);
+      this.hotspotTooltipClasses[key] = this.calculateTooltipClass(hotspotElement, tooltipElement, viewportElement);
+    }, 0);
+  }
+
   toggleMobileSidebar() {
-    this.isMobilePartsExpanded = false;
+    this.applyPartsPaneSnapLevel(0);
+    this.partsSheetCurrentHeightPx = null;
+    this.isPartsSheetDragging = false;
     this.isMobileSidebarOpen = !this.isMobileSidebarOpen;
   }
 
@@ -820,6 +1031,113 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   private isMobileViewport(): boolean {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  private shouldIgnorePartsSheetGestureStart(target: HTMLElement | null): boolean {
+    if (!target) return false;
+    return !!target.closest('input, textarea, select, button, a, [contenteditable="true"]');
+  }
+
+  private isPartsListAtTop(): boolean {
+    const listElement = this.partsListRef?.nativeElement;
+    if (!listElement) return true;
+    return listElement.scrollTop <= 0;
+  }
+
+  private getCurrentPartsPaneHeightPx(): number {
+    const paneElement = this.partsPaneRef?.nativeElement;
+    if (paneElement) {
+      const measured = paneElement.getBoundingClientRect().height;
+      if (measured > 0) return measured;
+    }
+
+    return this.getPartsPaneHeightForSnap(this.getCurrentPartsPaneSnapLevel());
+  }
+
+  private getPartsPaneCollapsedHeightPx(): number {
+    const viewportHeight = this.getViewportHeightPx();
+    return Math.max(260, Math.round(viewportHeight * 0.58));
+  }
+
+  private getPartsPaneExpandedHeightPx(): number {
+    const viewportHeight = this.getViewportHeightPx();
+    return Math.max(320, viewportHeight - 60);
+  }
+
+  private getPartsPaneMidHeightPx(): number {
+    const viewportHeight = this.getViewportHeightPx();
+    return Math.max(300, Math.round(viewportHeight * 0.78));
+  }
+
+  private getPartsPaneHeightForSnap(level: PartsPaneSnapLevel): number {
+    if (level === 2) return this.getPartsPaneExpandedHeightPx();
+    if (level === 1) return this.getPartsPaneMidHeightPx();
+    return this.getPartsPaneCollapsedHeightPx();
+  }
+
+  private getViewportHeightPx(): number {
+    if (typeof window === 'undefined') return 800;
+    return window.innerHeight || document.documentElement.clientHeight || 800;
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  private snapPartsPane(level: PartsPaneSnapLevel) {
+    this.applyPartsPaneSnapLevel(level);
+    this.isPartsSheetDragging = false;
+    this.partsSheetCurrentHeightPx = this.getPartsPaneHeightForSnap(level);
+
+    setTimeout(() => {
+      if (!this.isPartsSheetDragging) {
+        this.partsSheetCurrentHeightPx = null;
+      }
+    }, 220);
+  }
+
+  private resetPartsSheetGestureState() {
+    this.partsSheetTouchStartY = 0;
+    this.partsSheetTouchStartX = 0;
+    this.partsSheetGestureActive = false;
+    this.partsSheetStartedInList = false;
+    this.partsSheetGestureFromHandle = false;
+    this.partsSheetStartHeightPx = 0;
+    this.partsSheetStartSnapLevel = 0;
+    this.partsSheetLastDeltaY = 0;
+  }
+
+  private getCurrentPartsPaneSnapLevel(): PartsPaneSnapLevel {
+    if (this.isMobilePartsExpanded) return 2;
+    if (this.isMobilePartsMid) return 1;
+    return 0;
+  }
+
+  private applyPartsPaneSnapLevel(level: PartsPaneSnapLevel) {
+    this.isMobilePartsExpanded = level === 2;
+    this.isMobilePartsMid = level === 1;
+  }
+
+  private getNearestPartsPaneSnapLevel(height: number, canCollapse: boolean): PartsPaneSnapLevel {
+    const candidates: PartsPaneSnapLevel[] = canCollapse ? [0, 1, 2] : [1, 2];
+    let best = candidates[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const level of candidates) {
+      const distance = Math.abs(this.getPartsPaneHeightForSnap(level) - height);
+      if (distance < bestDistance) {
+        best = level;
+        bestDistance = distance;
+      }
+    }
+
+    return best;
+  }
+
+  private clampSnapLevel(level: number): PartsPaneSnapLevel {
+    if (level <= 0) return 0;
+    if (level >= 2) return 2;
+    return 1;
   }
 
   private getDistance(t1: Touch, t2: Touch): number {

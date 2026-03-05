@@ -1,0 +1,449 @@
+/* Admin panel unified visual language (sharp + modern) */
+.app-layout .apple-page-wrapper,
+.app-layout .cq-page,
+.app-layout .vf-page-wrapper,
+.app-layout .plan-dashboard {
+  font-family: var(--pt-font) !important;
+}
+
+.app-layout .apple-page-wrapper {
+  padding: var(--pt-space-6) !important;
+  display: grid !important;
+  gap: var(--pt-space-4) !important;
+  background: radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--pt-blue) 8%, transparent) 0%, transparent 32%), var(--pt-bg-page) !important;
+}
+
+.app-layout .page-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: var(--pt-space-4) !important;
+  background: var(--pt-bg-card) !important;
+  border: 1px solid var(--pt-border) !important;
+  border-radius: var(--pt-radius-xl) !important;
+  box-shadow: var(--pt-shadow-sm) !important;
+  padding: var(--pt-space-5) !important;
+}
+
+.app-layout .header-content h1,
+.app-layout .vf-title h1,
+.app-layout .cq-header h1 {
+  margin: 0 !important;
+  font-size: 28px !important;
+  letter-spacing: -0.03em !important;
+  font-weight: 800 !important;
+  color: var(--pt-text-heading) !important;
+}
+
+.app-layout .header-content p,
+.app-layout .vf-title p,
+.app-layout .cq-header p {
+  margin: var(--pt-space-1) 0 0 !important;
+  font-size: var(--pt-font-size-md) !important;
+  color: var(--pt-text-muted) !important;
+}
+
+.app-layout .btn-primary,
+.app-layout .btn-submit,
+.app-layout .cq-refresh-btn,
+.app-layout .apple-btn,
+.app-layout .empty-upload-btn {
+  height: 36px !important;
+  border: 1px solid var(--pt-navy) !important;
+  background: var(--pt-navy) !important;
+  color: var(--pt-text-inverse) !important;
+  border-radius: var(--pt-radius-md) !important;
+  padding: 0 var(--pt-space-3) !important;
+  font-size: var(--pt-font-size-sm) !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  cursor: pointer !important;
+  transition: var(--pt-transition) !important;
+}
+
+.app-layout .btn-primary:hover,
+.app-layout .btn-submit:hover,
+.app-layout .cq-refresh-btn:hover,
+.app-layout .apple-btn:hover,
+.app-layout .empty-upload-btn:hover {
+  background: var(--pt-navy-deep) !important;
+  border-color: var(--pt-navy-deep) !important;
+}
+
+.app-layout .btn-secondary,
+.app-layout .btn-cancel,
+.app-layout .date-clear-btn,
+.app-layout .filter-btn,
+.app-layout .cq-chip,
+.app-layout .tab-btn,
+.app-layout .page-btn,
+.app-layout .store-action-btn,
+.app-layout .upgrade-btn,
+.app-layout .nav-upgrade-btn,
+.app-layout .icon-btn {
+  border: 1px solid var(--pt-border-hover) !important;
+  background: var(--pt-bg-subtle) !important;
+  color: var(--pt-text-body) !important;
+  border-radius: var(--pt-radius-sm) !important;
+  transition: var(--pt-transition) !important;
+}
+
+.app-layout .btn-secondary:hover,
+.app-layout .btn-cancel:hover,
+.app-layout .date-clear-btn:hover,
+.app-layout .filter-btn:hover,
+.app-layout .cq-chip:hover,
+.app-layout .tab-btn:hover,
+.app-layout .page-btn:hover,
+.app-layout .upgrade-btn:hover,
+.app-layout .icon-btn:hover {
+  border-color: var(--pt-blue-border) !important;
+  background: var(--pt-blue-light) !important;
+  color: var(--pt-blue-hover) !important;
+}
+
+.app-layout .toolbar,
+.app-layout .cq-tools,
+.app-layout .vf-search-bar,
+.app-layout .settings-tabs {
+  background: var(--pt-bg-card) !important;
+  border: 1px solid var(--pt-border) !important;
+  border-radius: var(--pt-radius-xl) !important;
+  box-shadow: var(--pt-shadow-sm) !important;
+  padding: var(--pt-space-3) !important;
+}
+
+.app-layout .toolbar,
+.app-layout .cq-tools {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--pt-space-2) !important;
+  flex-wrap: wrap !important;
+}
+
+.app-layout .search-wrapper,
+.app-layout .search-box,
+.app-layout .cq-search,
+.app-layout .vf-search-bar {
+  position: relative !important;
+  border: 1px solid var(--pt-border) !important;
+  background: var(--pt-bg-subtle) !important;
+  border-radius: var(--pt-radius-md) !important;
+}
+
+.app-layout .search-wrapper,
+.app-layout .cq-search {
+  min-width: 260px !important;
+  flex: 1 1 280px !important;
+}
+
+.app-layout .search-input,
+.app-layout .vf-search-input,
+.app-layout .cq-search input,
+.app-layout .form-input,
+.app-layout .form-textarea,
+.app-layout .filter-select,
+.app-layout .date-input,
+.app-layout .cq-filter,
+.app-layout .cq-date,
+.app-layout .status-note-input {
+  border: 1px solid var(--pt-border) !important;
+  background: var(--pt-bg-subtle) !important;
+  color: var(--pt-text-heading) !important;
+  border-radius: var(--pt-radius-sm) !important;
+  outline: none !important;
+  font-family: var(--pt-font) !important;
+  transition: var(--pt-transition) !important;
+}
+
+.app-layout .search-input,
+.app-layout .vf-search-input,
+.app-layout .cq-search input {
+  height: 38px !important;
+  width: 100% !important;
+  padding: 0 var(--pt-space-3) 0 36px !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.app-layout .search-wrapper:focus-within,
+.app-layout .search-box:focus-within,
+.app-layout .cq-search:focus-within,
+.app-layout .vf-search-bar:focus-within {
+  border-color: var(--pt-blue) !important;
+  background: var(--pt-bg-card) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pt-blue) 12%, transparent) !important;
+}
+
+.app-layout .form-input,
+.app-layout .filter-select,
+.app-layout .date-input,
+.app-layout .cq-filter,
+.app-layout .cq-date,
+.app-layout .status-note-input {
+  height: 36px !important;
+  padding: 0 10px !important;
+}
+
+.app-layout .form-textarea {
+  min-height: 96px !important;
+  padding: 10px !important;
+  resize: vertical !important;
+}
+
+.app-layout .search-input::placeholder,
+.app-layout .vf-search-input::placeholder,
+.app-layout .cq-search input::placeholder,
+.app-layout .form-input::placeholder,
+.app-layout .form-textarea::placeholder {
+  color: var(--pt-text-faint) !important;
+}
+
+.app-layout .search-icon {
+  color: var(--pt-text-faint) !important;
+}
+
+.app-layout .table-card,
+.app-layout .form-card,
+.app-layout .settings-card,
+.app-layout .public-card,
+.app-layout .ai-jobs-panel,
+.app-layout .cq-trend,
+.app-layout .cq-reasons,
+.app-layout .cq-table-wrap,
+.app-layout .vf-table-container,
+.app-layout .summary-card,
+.app-layout .ai-summary-card,
+.app-layout .cq-card,
+.app-layout .detail-card,
+.app-layout .order-card,
+.app-layout .folder-card,
+.app-layout .catalog-card,
+.app-layout .media-item,
+.app-layout .toggle-item,
+.app-layout .catalog-item,
+.app-layout .status-history-row {
+  background: var(--pt-bg-card) !important;
+  border: 1px solid var(--pt-border) !important;
+  border-radius: var(--pt-radius-md) !important;
+  box-shadow: var(--pt-shadow-sm) !important;
+}
+
+.app-layout .summary-card,
+.app-layout .ai-summary-card,
+.app-layout .cq-card {
+  padding: var(--pt-space-3) !important;
+}
+
+.app-layout .summary-value,
+.app-layout .ai-summary-card .value,
+.app-layout .cq-value {
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  color: var(--pt-navy) !important;
+}
+
+.app-layout .summary-label,
+.app-layout .ai-summary-card .label,
+.app-layout .cq-label {
+  font-size: var(--pt-font-size-xs) !important;
+  color: var(--pt-text-muted) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+}
+
+.app-layout .folder-card,
+.app-layout .catalog-card,
+.app-layout .order-card,
+.app-layout .status-history-row,
+.app-layout .catalog-item,
+.app-layout .media-item,
+.app-layout .toggle-item {
+  box-shadow: none !important;
+}
+
+.app-layout .folder-card:hover,
+.app-layout .catalog-card:hover,
+.app-layout .order-card:hover,
+.app-layout .media-item:hover {
+  border-color: var(--pt-blue-border) !important;
+  transform: translateY(-1px) !important;
+}
+
+.app-layout .order-card.active,
+.app-layout .data-row:hover,
+.app-layout .catalog-item.selected,
+.app-layout .tab-btn.active,
+.app-layout .filter-btn.active,
+.app-layout .page-btn.active {
+  background: var(--pt-blue-light) !important;
+  border-color: var(--pt-blue-border) !important;
+  color: var(--pt-blue-hover) !important;
+}
+
+.app-layout .table-responsive,
+.app-layout .ai-jobs-table-wrap {
+  overflow: auto !important;
+  border-radius: var(--pt-radius-sm) !important;
+}
+
+.app-layout .data-table,
+.app-layout .items-table,
+.app-layout .ai-jobs-table,
+.app-layout .vf-table,
+.app-layout .cq-table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+.app-layout .data-table thead th,
+.app-layout .items-table thead th,
+.app-layout .ai-jobs-table thead th,
+.app-layout .vf-table thead th,
+.app-layout .cq-table thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1 !important;
+  background: var(--pt-navy-soft) !important;
+  color: var(--pt-navy) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  border-bottom: 1px solid var(--pt-border) !important;
+  padding: 10px 12px !important;
+}
+
+.app-layout .data-table tbody td,
+.app-layout .items-table tbody td,
+.app-layout .ai-jobs-table tbody td,
+.app-layout .vf-table tbody td,
+.app-layout .cq-table tbody td {
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--pt-border) !important;
+  color: var(--pt-text-body) !important;
+  font-size: var(--pt-font-size-sm) !important;
+  vertical-align: middle !important;
+}
+
+.app-layout .status-chip,
+.app-layout .status-badge,
+.app-layout .payment-chip,
+.app-layout .public-badge,
+.app-layout .catalog-tag,
+.app-layout .code-badge,
+.app-layout .oem-pill,
+.app-layout .vf-stat-badge,
+.app-layout .cq-badge {
+  border-radius: var(--pt-radius-pill) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 2px 8px !important;
+}
+
+.app-layout .status-pending,
+.app-layout .status-processing,
+.app-layout .status-shipped,
+.app-layout .status-completed,
+.app-layout .status-cancelled,
+.app-layout .status-active,
+.app-layout .status-passive,
+.app-layout .status-blocked {
+  border-width: 1px !important;
+  border-style: solid !important;
+}
+
+.app-layout .pagination-bar {
+  border-top: 1px solid var(--pt-border) !important;
+  padding-top: var(--pt-space-2) !important;
+}
+
+.app-layout .pagination-info {
+  color: var(--pt-text-muted) !important;
+  font-size: var(--pt-font-size-sm) !important;
+}
+
+.app-layout .row-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.app-layout .icon-btn,
+.app-layout .action-icon,
+.app-layout .delete-btn,
+.app-layout .folder-delete-btn,
+.app-layout .remove-btn,
+.app-layout .back-btn {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: var(--pt-radius-sm) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid var(--pt-border-hover) !important;
+  background: var(--pt-bg-subtle) !important;
+  color: var(--pt-text-body) !important;
+}
+
+.app-layout .form-header,
+.app-layout .vf-header,
+.app-layout .cq-header,
+.app-layout .movement-header,
+.app-layout .ai-jobs-header,
+.app-layout .public-header,
+.app-layout .detail-head {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: var(--pt-space-3) !important;
+}
+
+.app-layout .tab-btn.active {
+  font-weight: 700 !important;
+}
+
+.app-layout .slider {
+  border-radius: var(--pt-radius-pill) !important;
+}
+
+.app-layout .spinner,
+.app-layout .spinner-sm,
+.app-layout .spinner-md,
+.app-layout .spinner-inline {
+  border-radius: var(--pt-radius-pill) !important;
+}
+
+@media (max-width: 1024px) {
+  .app-layout .apple-page-wrapper {
+    padding: var(--pt-space-4) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-layout .apple-page-wrapper {
+    padding: var(--pt-space-3) !important;
+  }
+
+  .app-layout .page-header,
+  .app-layout .vf-header,
+  .app-layout .cq-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+  }
+
+  .app-layout .toolbar,
+  .app-layout .cq-tools {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .app-layout .search-wrapper,
+  .app-layout .cq-search {
+    min-width: 100% !important;
+  }
+}

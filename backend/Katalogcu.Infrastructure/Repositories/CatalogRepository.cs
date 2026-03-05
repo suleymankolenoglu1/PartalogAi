@@ -198,6 +198,55 @@ public sealed class CatalogRepository : ICatalogRepository
         return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
     }
 
+    public async Task<int> CountStorefrontViewsByUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT COUNT(*)
+            FROM "PublicStorefrontViews"
+            WHERE "OwnerUserId" = @userId
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
+    }
+
+    public async Task<int> CountStorefrontViewsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT COUNT(*)
+            FROM "PublicStorefrontViews"
+            WHERE "OwnerUserId" = @userId
+              AND "ViewedAtUtc" >= @fromUtc
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        AddParameter(command, "fromUtc", fromUtc);
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
+    }
+
+    public async Task<int> CountUniqueStorefrontVisitorsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            SELECT COUNT(DISTINCT "FingerprintHash")
+            FROM "PublicStorefrontViews"
+            WHERE "OwnerUserId" = @userId
+              AND "ViewedAtUtc" >= @fromUtc
+            """,
+            cancellationToken);
+
+        AddParameter(command, "userId", userId);
+        AddParameter(command, "fromUtc", fromUtc);
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar == null || scalar is DBNull ? 0 : Convert.ToInt32(scalar);
+    }
+
     public async Task<bool> RecordCatalogViewAsync(
         Guid catalogId,
         Guid ownerUserId,
@@ -220,6 +269,37 @@ public sealed class CatalogRepository : ICatalogRepository
 
         AddParameter(command, "id", Guid.NewGuid());
         AddParameter(command, "catalogId", catalogId);
+        AddParameter(command, "ownerUserId", ownerUserId);
+        AddParameter(command, "fingerprintHash", fingerprintHash);
+        AddParameter(command, "bucketStartUtc", bucketStartUtc);
+        AddParameter(command, "viewedAtUtc", viewedAtUtc);
+        AddParameter(command, "source", source);
+        AddParameter(command, "createdDate", DateTime.UtcNow);
+
+        var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+        return affected > 0;
+    }
+
+    public async Task<bool> RecordStorefrontViewAsync(
+        Guid ownerUserId,
+        string fingerprintHash,
+        DateTime bucketStartUtc,
+        DateTime viewedAtUtc,
+        string source,
+        CancellationToken cancellationToken)
+    {
+        using var command = await CreateCommandAsync(
+            """
+            INSERT INTO "PublicStorefrontViews"
+                ("Id", "OwnerUserId", "FingerprintHash", "BucketStartUtc", "ViewedAtUtc", "Source", "CreatedDate")
+            VALUES
+                (@id, @ownerUserId, @fingerprintHash, @bucketStartUtc, @viewedAtUtc, @source, @createdDate)
+            ON CONFLICT ("OwnerUserId", "FingerprintHash", "BucketStartUtc")
+            DO NOTHING
+            """,
+            cancellationToken);
+
+        AddParameter(command, "id", Guid.NewGuid());
         AddParameter(command, "ownerUserId", ownerUserId);
         AddParameter(command, "fingerprintHash", fingerprintHash);
         AddParameter(command, "bucketStartUtc", bucketStartUtc);
@@ -287,6 +367,44 @@ public sealed class CatalogRepository : ICatalogRepository
         }
 
         return await query.OrderBy(ci => ci.RefNumber).ToListAsync(cancellationToken);
+    }
+
+    public Task<CatalogItem?> GetCatalogItemByIdForUserAsync(
+        Guid catalogItemId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        return _context.CatalogItems
+            .Include(ci => ci.Catalog)
+            .FirstOrDefaultAsync(
+                ci => ci.Id == catalogItemId && ci.Catalog.UserId == userId,
+                cancellationToken);
+    }
+
+    public Task AddCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken)
+    {
+        return _context.CatalogItems.AddAsync(item, cancellationToken).AsTask();
+    }
+
+    public void RemoveCatalogItem(CatalogItem item)
+    {
+        _context.CatalogItems.Remove(item);
+    }
+
+    public Task<bool> CatalogPageExistsForCatalogAsync(
+        Guid catalogId,
+        int pageNumber,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        return _context.CatalogPages
+            .Include(p => p.Catalog)
+            .AnyAsync(
+                p => p.CatalogId == catalogId &&
+                     p.PageNumber == pageNumber &&
+                     p.Catalog != null &&
+                     p.Catalog.UserId == userId,
+                cancellationToken);
     }
 
     public async Task<IReadOnlyDictionary<string, Product>> GetOwnedStockedProductsByCodesAsync(

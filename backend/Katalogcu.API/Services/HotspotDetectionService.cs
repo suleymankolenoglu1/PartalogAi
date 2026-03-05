@@ -27,13 +27,27 @@ public sealed class HotspotDetectionService : IHotspotDetectionService
         }
 
         await using var stream = File.OpenRead(filePath);
-        var formFile = new FormFile(stream, 0, stream.Length, "file", Path.GetFileName(filePath))
+        var fileName = Path.GetFileName(filePath);
+        var formFile = new FormFile(stream, 0, stream.Length, "file", fileName)
         {
             Headers = new HeaderDictionary(),
-            ContentType = "image/jpeg"
+            ContentType = ResolveContentType(fileName)
         };
 
         return await _aiService.DetectHotspotsAsync(formFile, pageId);
+    }
+
+    private static string ResolveContentType(string fileName)
+    {
+        var extension = Path.GetExtension(fileName)?.ToLowerInvariant();
+        return extension switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".jpeg" => "image/jpeg",
+            ".jpg" => "image/jpeg",
+            _ => "image/png"
+        };
     }
 
     private string GetPhysicalPath(string url)

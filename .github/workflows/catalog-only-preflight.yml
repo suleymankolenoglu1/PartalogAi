@@ -1,0 +1,72 @@
+name: Catalog-Only Preflight
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/catalog-only-preflight.yml"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/catalog-only-preflight.yml"
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "frontend/katalogcu-frontend/package-lock.json"
+
+      - name: Restore backend
+        run: dotnet restore backend/Katalogcu.API/Katalogcu.API.csproj
+
+      - name: Install dotnet-ef
+        run: |
+          dotnet tool install --global dotnet-ef --version 9.*
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Install frontend dependencies
+        working-directory: frontend/katalogcu-frontend
+        run: npm ci
+
+      - name: Run catalog-only preflight
+        run: |
+          chmod +x backend/scripts/preflight_catalog_only.sh
+          backend/scripts/preflight_catalog_only.sh --skip-runtime
+
+      - name: Generate catalog-only release report
+        if: always()
+        run: |
+          chmod +x backend/scripts/generate_catalog_release_report.sh
+          backend/scripts/generate_catalog_release_report.sh --with-preflight
+
+      - name: Upload catalog-only report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-only-release-report-${{ github.run_number }}
+          path: |
+            backend/reports/*.md
+            backend/reports/*.log
+            backend/reports/*.result
+          if-no-files-found: error

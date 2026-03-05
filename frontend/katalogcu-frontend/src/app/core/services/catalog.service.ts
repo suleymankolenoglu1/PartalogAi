@@ -12,6 +12,15 @@ export interface DashboardStats {
   totalViews: number;
   viewsLast7Days?: number;
   uniqueViewersLast30Days?: number;
+  storefrontVisitsTotal?: number;
+  storefrontVisitsToday?: number;
+  storefrontVisitsLast7Days?: number;
+  storefrontUniqueVisitorsLast30Days?: number;
+  aiUsedThisMonth?: number;
+  aiMonthlyLimit?: number | null;
+  aiRemainingThisMonth?: number;
+  aiEnabled?: boolean;
+  aiUnlimited?: boolean;
   pendingCount: number;
   visualEmbeddingCount?: number;  // YENİ: Visual Embedding'li parça sayısı
   recentCatalogs: DashboardCatalogItem[];
@@ -38,6 +47,12 @@ export interface PublicStorefront {
   subscriptionPlan?: number;
   aiChatEnabled?: boolean;
   ecommerceEnabled?: boolean;
+}
+
+export interface PublicFolderSummary {
+  id: string;
+  name: string;
+  itemCount: number;
 }
 
 export interface CatalogAiJobSummary {
@@ -144,6 +159,31 @@ export interface Hotspot {
   description?: string; 
 }
 
+export interface CatalogItemUpsertRequest {
+  catalogId: string;
+  pageNumber: number;
+  refNo: string;
+  partCode: string;
+  partName: string;
+  description?: string;
+}
+
+export interface CatalogItemUpdateRequest {
+  refNo: string;
+  partCode: string;
+  partName: string;
+  description?: string;
+}
+
+export interface HotspotUpdateRequest {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  label?: string;
+  productId?: string | null;
+}
+
 export interface CatalogPage {
   id: string;
   catalogId: string;
@@ -226,6 +266,11 @@ export class CatalogService {
     return this.http.get<PublicStorefront>(`${this.apiUrl}/catalogs/public-storefront`, { params });
   }
 
+  getPublicFoldersByToken(token: string): Observable<PublicFolderSummary[]> {
+    const params = new HttpParams().set('token', token);
+    return this.http.get<PublicFolderSummary[]>(`${this.apiUrl}/catalogs/public-folders-by-token`, { params });
+  }
+
   getPublicToken(catalogIds?: string[]): Observable<{ token: string }> {
     let params = new HttpParams();
     if (catalogIds && catalogIds.length > 0) {
@@ -272,9 +317,10 @@ export class CatalogService {
   // 🧠 AI & ANALİZ & SAYFA İŞLEMLERİ
   // ==========================================
 
-  getPageItems(catalogId: string, pageNumber: string, options?: { publicToken?: string }): Observable<CatalogPageItem[]> {
+  getPageItems(catalogId: string, pageNumber: string, options?: { publicToken?: string; strictPage?: boolean }): Observable<CatalogPageItem[]> {
     let params = new HttpParams();
     if (options?.publicToken) params = params.set('token', options.publicToken);
+    if (options?.strictPage) params = params.set('strict', 'true');
     return this.http.get<CatalogPageItem[]>(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageNumber}/items`, { params });
   }
 
@@ -312,7 +358,23 @@ export class CatalogService {
     return this.http.post<Hotspot>(`${this.apiUrl}/hotspots`, hotspotData);
   }
 
+  updateHotspot(id: string, hotspotData: HotspotUpdateRequest): Observable<Hotspot> {
+    return this.http.put<Hotspot>(`${this.apiUrl}/hotspots/${id}`, hotspotData);
+  }
+
   deleteHotspot(id: string): Observable<any> {
     return this.http.delete(`${this.apiUrl}/hotspots/${id}`);
+  }
+
+  createCatalogItem(data: CatalogItemUpsertRequest): Observable<CatalogPageItem> {
+    return this.http.post<CatalogPageItem>(`${this.apiUrl}/catalog-items`, data);
+  }
+
+  updateCatalogItem(id: string, data: CatalogItemUpdateRequest): Observable<CatalogPageItem> {
+    return this.http.put<CatalogPageItem>(`${this.apiUrl}/catalog-items/${id}`, data);
+  }
+
+  deleteCatalogItem(id: string): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/catalog-items/${id}`);
   }
 }

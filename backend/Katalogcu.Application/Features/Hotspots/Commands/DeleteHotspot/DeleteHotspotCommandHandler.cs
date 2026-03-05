@@ -15,7 +15,7 @@ public sealed class DeleteHotspotCommandHandler : IRequestHandler<DeleteHotspotC
 
     public async Task<OperationResult<bool>> Handle(DeleteHotspotCommand request, CancellationToken cancellationToken)
     {
-        var hotspot = await _hotspotRepository.GetHotspotByIdAsync(request.HotspotId, cancellationToken);
+        var hotspot = await _hotspotRepository.GetHotspotByIdForUserAsync(request.HotspotId, request.UserId, cancellationToken);
         if (hotspot == null)
         {
             return OperationResult<bool>.Failure("not_found", "Hotspot bulunamadı");

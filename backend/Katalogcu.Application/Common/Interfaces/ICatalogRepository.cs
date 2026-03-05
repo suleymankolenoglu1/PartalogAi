@@ -35,9 +35,19 @@ public interface ICatalogRepository
     Task<int> CountCatalogViewsByUserAsync(Guid userId, CancellationToken cancellationToken);
     Task<int> CountCatalogViewsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken);
     Task<int> CountUniqueCatalogViewersByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken);
+    Task<int> CountStorefrontViewsByUserAsync(Guid userId, CancellationToken cancellationToken);
+    Task<int> CountStorefrontViewsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken);
+    Task<int> CountUniqueStorefrontVisitorsByUserInRangeAsync(Guid userId, DateTime fromUtc, CancellationToken cancellationToken);
 
     Task<bool> RecordCatalogViewAsync(
         Guid catalogId,
+        Guid ownerUserId,
+        string fingerprintHash,
+        DateTime bucketStartUtc,
+        DateTime viewedAtUtc,
+        string source,
+        CancellationToken cancellationToken);
+    Task<bool> RecordStorefrontViewAsync(
         Guid ownerUserId,
         string fingerprintHash,
         DateTime bucketStartUtc,
@@ -60,6 +70,21 @@ public interface ICatalogRepository
         Guid userId,
         bool publicOnlyPublished,
         IReadOnlyCollection<Guid>? allowedCatalogIds,
+        CancellationToken cancellationToken);
+
+    Task<CatalogItem?> GetCatalogItemByIdForUserAsync(
+        Guid catalogItemId,
+        Guid userId,
+        CancellationToken cancellationToken);
+
+    Task AddCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken);
+
+    void RemoveCatalogItem(CatalogItem item);
+
+    Task<bool> CatalogPageExistsForCatalogAsync(
+        Guid catalogId,
+        int pageNumber,
+        Guid userId,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyDictionary<string, Product>> GetOwnedStockedProductsByCodesAsync(

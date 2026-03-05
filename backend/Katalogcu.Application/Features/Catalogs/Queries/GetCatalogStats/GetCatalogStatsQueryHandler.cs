@@ -24,11 +24,25 @@ public sealed class GetCatalogStatsQueryHandler : IRequestHandler<GetCatalogStat
         var visualEmbeddingCount = await _catalogRepository.CountVisualEmbeddingCatalogItemsByUserAsync(request.UserId, cancellationToken);
         var totalViews = await _catalogRepository.CountCatalogViewsByUserAsync(request.UserId, cancellationToken);
         var now = DateTime.UtcNow;
+        var todayStartUtc = now.Date;
         var viewsLast7Days = await _catalogRepository.CountCatalogViewsByUserInRangeAsync(
             request.UserId,
             now.AddDays(-7),
             cancellationToken);
         var uniqueViewersLast30Days = await _catalogRepository.CountUniqueCatalogViewersByUserInRangeAsync(
+            request.UserId,
+            now.AddDays(-30),
+            cancellationToken);
+        var storefrontVisitsTotal = await _catalogRepository.CountStorefrontViewsByUserAsync(request.UserId, cancellationToken);
+        var storefrontVisitsToday = await _catalogRepository.CountStorefrontViewsByUserInRangeAsync(
+            request.UserId,
+            todayStartUtc,
+            cancellationToken);
+        var storefrontVisitsLast7Days = await _catalogRepository.CountStorefrontViewsByUserInRangeAsync(
+            request.UserId,
+            now.AddDays(-7),
+            cancellationToken);
+        var storefrontUniqueVisitorsLast30Days = await _catalogRepository.CountUniqueStorefrontVisitorsByUserInRangeAsync(
             request.UserId,
             now.AddDays(-30),
             cancellationToken);
@@ -40,6 +54,10 @@ public sealed class GetCatalogStatsQueryHandler : IRequestHandler<GetCatalogStat
             TotalViews = totalViews,
             ViewsLast7Days = viewsLast7Days,
             UniqueViewersLast30Days = uniqueViewersLast30Days,
+            StorefrontVisitsTotal = storefrontVisitsTotal,
+            StorefrontVisitsToday = storefrontVisitsToday,
+            StorefrontVisitsLast7Days = storefrontVisitsLast7Days,
+            StorefrontUniqueVisitorsLast30Days = storefrontUniqueVisitorsLast30Days,
             PendingCount = pendingCount,
             RecentCatalogs = recentCatalogs,
             TopViewedCatalogs = topViewedCatalogs,

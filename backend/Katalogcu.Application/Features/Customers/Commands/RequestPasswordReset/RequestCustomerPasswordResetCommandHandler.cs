@@ -45,6 +45,12 @@ public sealed class RequestCustomerPasswordResetCommandHandler : IRequestHandler
 
     private static bool IsDebugEnabled()
     {
+        var aspnetEnv = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (!string.Equals(aspnetEnv, "Development", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         var raw = Environment.GetEnvironmentVariable("DEBUG");
         if (string.IsNullOrWhiteSpace(raw)) return false;
         return raw.Equals("1", StringComparison.OrdinalIgnoreCase)

@@ -1,346 +1,376 @@
-<div class="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] font-sans flex flex-col p-6 h-screen overflow-hidden">
-
-    @if (isLoading) {
-    <div class="flex-1 flex flex-col items-center justify-center gap-4">
-        <span class="material-symbols-outlined animate-spin text-5xl text-[#0066CC]">progress_activity</span>
-        <span class="font-medium text-[#86868B]">Katalog verileri yükleniyor...</span>
+<div class="cd-shell">
+  @if (isLoading) {
+    <div class="cd-state-wrap">
+      <span class="material-symbols-outlined cd-spin">progress_activity</span>
+      <p>Katalog verileri yükleniyor...</p>
     </div>
-    }
-    @else if (catalog) {
-
+  } @else if (catalog) {
     @if (isMultiPageMode) {
-    <div class="fixed inset-0 bg-black/30 backdrop-blur-xl z-[60] flex items-center justify-center p-6">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-in">
-            <div class="px-6 py-5 border-b border-[#D2D2D7] flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10">
-                <div class="flex items-center gap-3">
-                    <div class="size-10 rounded-lg bg-gradient-to-br from-[#0066CC] to-[#004499] text-white flex items-center justify-center shadow-md">
-                        <span class="material-symbols-outlined text-2xl">auto_fix_high</span>
-                    </div>
-                    <div>
-                        <h2 class="font-bold text-lg text-[#1D1D1F]">Gelişmiş AI Analizi</h2>
-                        <p class="text-xs text-[#86868B]">Tablo ve teknik resim sayfalarını eşleştirin.</p>
-                    </div>
-                </div>
-                <button (click)="closeMultiPageAnalysis()" class="size-8 rounded-full bg-[#F5F5F7] hover:bg-[#E5E5EA] flex items-center justify-center text-[#1D1D1F] transition-colors">
-                    <span class="material-symbols-outlined text-xl">close</span>
-                </button>
+      <div class="cd-modal-backdrop">
+        <div class="cd-modal-card">
+          <div class="cd-modal-head">
+            <div>
+              <h2>Gelişmiş AI Analizi</h2>
+              <p>Tablo ve teknik çizim sayfasını eşleştir.</p>
             </div>
+            <button type="button" class="cd-icon-btn" (click)="closeMultiPageAnalysis()">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
 
-            <div class="flex-1 overflow-auto p-8 bg-[#FAFAFA]">
-                 @if (analysisStep === 'select-table') {
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
-                        <div class="flex flex-col h-full">
-                            <h3 class="font-bold text-[#1D1D1F] mb-1">Tablo Sayfasını Seçin</h3>
-                             <div class="grid grid-cols-3 sm:grid-cols-4 gap-4 overflow-y-auto p-1 max-h-[500px]">
-                                @for (page of catalog.pages; track page.id) {
-                                <div (click)="selectTablePage(page)"
-                                    class="relative cursor-pointer rounded-xl border-2 overflow-hidden transition-all group aspect-[3/4]"
-                                    [ngClass]="selectedTablePage?.id === page.id ? 'border-[#0066CC] ring-4 ring-[#0066CC]/10' : 'border-[#E5E5EA] hover:border-[#0066CC]/50'">
-                                    <img [src]="page.imageUrl" class="w-full h-full object-cover">
-                                     @if (selectedTablePage?.id === page.id) {
-                                        <div class="absolute top-2 right-2 bg-[#0066CC] text-white rounded-full size-6 flex items-center justify-center shadow-lg">
-                                            <span class="material-symbols-outlined text-sm">check</span>
-                                        </div>
-                                    }
-                                </div>
-                                }
-                            </div>
-                         </div>
-                         <div class="bg-[#F5F5F7] rounded-xl border border-[#D2D2D7] p-4 flex flex-col">
-                             @if (selectedTablePage) {
-                                 <div class="relative flex-1 bg-[#E5E5EA] rounded-lg overflow-hidden border border-[#D2D2D7] select-none flex items-center justify-center"
-                                    (mousedown)="onDrawStart($event, 'table')"
-                                    (mousemove)="onDrawMove($event)"
-                                    (mouseup)="onDrawEnd()"
-                                    (mouseleave)="onDrawEnd()">
-                                    <img [src]="selectedTablePage.imageUrl" class="max-w-full max-h-[400px] object-contain pointer-events-none shadow-lg">
-                                    @if (isDrawing && currentRect && activeRectType === 'table') {
-                                        <div class="absolute border-2 border-dashed border-[#0066CC] bg-[#0066CC]/10 pointer-events-none"
-                                            [style.left.%]="currentRect.x" [style.top.%]="currentRect.y"
-                                            [style.width.%]="currentRect.w" [style.height.%]="currentRect.h">
-                                        </div>
-                                    }
-                                 </div>
-                             }
-                          </div>
-                     </div>
-                  }
-                  
-                  @if (analysisStep === 'select-image') {
-                      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
-                           <div class="flex flex-col h-full">
-                                <h3 class="font-bold text-[#1D1D1F] mb-1">Teknik Resim Sayfasını Seçin</h3>
-                                <div class="grid grid-cols-3 sm:grid-cols-4 gap-4 overflow-y-auto p-1 max-h-[500px]">
-                                    @for (page of catalog.pages; track page.id) {
-                                        <div (click)="selectImagePage(page)" class="relative cursor-pointer rounded-xl border-2 overflow-hidden transition-all group aspect-[3/4]"
-                                        [ngClass]="selectedImagePage?.id === page.id ? 'border-[#0066CC]' : 'border-[#E5E5EA]'">
-                                            <img [src]="page.imageUrl" class="w-full h-full object-cover">
-                                        </div>
-                                    }
-                                </div>
-                           </div>
-                           <div class="bg-[#F5F5F7] rounded-xl border border-[#D2D2D7] p-4 flex flex-col">
-                                @if (selectedImagePage) {
-                                    <div class="relative flex-1 bg-[#E5E5EA] rounded-lg overflow-hidden border border-[#D2D2D7] select-none flex items-center justify-center"
-                                    (mousedown)="onDrawStart($event, 'image')" (mousemove)="onDrawMove($event)" (mouseup)="onDrawEnd()">
-                                        <img [src]="selectedImagePage.imageUrl" class="max-w-full max-h-[400px] object-contain">
-                                    </div>
-                                }
-                           </div>
-                      </div>
-                  }
-
-                  @if (analysisStep === 'ready') {
-                       <div class="max-w-xl mx-auto py-8 text-center">
-                            <h3 class="text-2xl font-bold">Analiz İçin Hazır</h3>
-                            <button (click)="runMultiPageAnalysis()" class="mt-4 px-8 py-2 bg-[#34C759] text-white rounded-lg font-bold">Başlat</button>
-                       </div>
-                  }
-             </div>
-             
-             <div class="p-5 border-t border-[#D2D2D7] bg-white flex items-center justify-between">
-                <button (click)="prevAnalysisStep()" [disabled]="analysisStep === 'select-table'" class="px-4 py-2 text-[#86868B]">Geri</button>
-                <div class="flex gap-3">
-                     <button (click)="closeMultiPageAnalysis()" class="px-5 py-2 border">İptal</button>
-                     @if (analysisStep !== 'ready') {
-                        <button (click)="nextAnalysisStep()" class="px-6 py-2 bg-[#0066CC] text-white rounded-lg">İleri</button>
-                     }
+          <div class="cd-modal-body">
+            @if (analysisStep === 'select-table') {
+              <section class="cd-modal-step">
+                <header>
+                  <h3>1. Tablo Sayfasını Seç</h3>
+                  <p>Tablo alanını sürükleyerek işaretle.</p>
+                </header>
+                <div class="cd-modal-grid">
+                  <div class="cd-thumb-grid">
+                    @for (page of (catalog.pages || []); track page.id) {
+                      <button
+                        type="button"
+                        class="cd-thumb-card"
+                        [class.active]="selectedTablePage?.id === page.id"
+                        (click)="selectTablePage(page)">
+                        <img [src]="page.imageUrl" alt="Sayfa küçük görseli">
+                        <span>Sf {{ page.pageNumber }}</span>
+                      </button>
+                    }
+                  </div>
+                  <div class="cd-draw-stage"
+                    (mousedown)="onDrawStart($event, 'table')"
+                    (mousemove)="onDrawMove($event)"
+                    (mouseup)="onDrawEnd()"
+                    (mouseleave)="onDrawEnd()">
+                    @if (selectedTablePage) {
+                      <img [src]="selectedTablePage.imageUrl" alt="Tablo önizleme">
+                    }
+                    @if (isDrawing && currentRect && activeRectType === 'table') {
+                      <div
+                        class="cd-draw-rect"
+                        [style.left.%]="currentRect.x"
+                        [style.top.%]="currentRect.y"
+                        [style.width.%]="currentRect.w"
+                        [style.height.%]="currentRect.h"></div>
+                    }
+                  </div>
                 </div>
+              </section>
+            }
+
+            @if (analysisStep === 'select-image') {
+              <section class="cd-modal-step">
+                <header>
+                  <h3>2. Teknik Çizim Sayfasını Seç</h3>
+                  <p>Çizim alanını sürükleyerek işaretle.</p>
+                </header>
+                <div class="cd-modal-grid">
+                  <div class="cd-thumb-grid">
+                    @for (page of (catalog.pages || []); track page.id) {
+                      <button
+                        type="button"
+                        class="cd-thumb-card"
+                        [class.active]="selectedImagePage?.id === page.id"
+                        (click)="selectImagePage(page)">
+                        <img [src]="page.imageUrl" alt="Sayfa küçük görseli">
+                        <span>Sf {{ page.pageNumber }}</span>
+                      </button>
+                    }
+                  </div>
+                  <div class="cd-draw-stage"
+                    (mousedown)="onDrawStart($event, 'image')"
+                    (mousemove)="onDrawMove($event)"
+                    (mouseup)="onDrawEnd()"
+                    (mouseleave)="onDrawEnd()">
+                    @if (selectedImagePage) {
+                      <img [src]="selectedImagePage.imageUrl" alt="Çizim önizleme">
+                    }
+                    @if (isDrawing && currentRect && activeRectType === 'image') {
+                      <div
+                        class="cd-draw-rect"
+                        [style.left.%]="currentRect.x"
+                        [style.top.%]="currentRect.y"
+                        [style.width.%]="currentRect.w"
+                        [style.height.%]="currentRect.h"></div>
+                    }
+                  </div>
+                </div>
+              </section>
+            }
+
+            @if (analysisStep === 'ready') {
+              <section class="cd-ready-step">
+                <h3>Analiz İçin Hazır</h3>
+                <p>Seçimler tamam. Analizi şimdi başlatabilirsin.</p>
+                <button type="button" class="cd-btn primary" (click)="runMultiPageAnalysis()">Analizi Başlat</button>
+              </section>
+            }
+          </div>
+
+          <div class="cd-modal-foot">
+            <button type="button" class="cd-btn subtle" (click)="prevAnalysisStep()" [disabled]="analysisStep === 'select-table'">Geri</button>
+            <div class="cd-modal-actions">
+              <button type="button" class="cd-btn subtle" (click)="closeMultiPageAnalysis()">İptal</button>
+              @if (analysisStep !== 'ready') {
+                <button type="button" class="cd-btn primary" (click)="nextAnalysisStep()">İleri</button>
+              }
             </div>
+          </div>
         </div>
-    </div>
+      </div>
     }
 
-    <div class="flex flex-col md:flex-row items-center justify-between mb-6 px-1 gap-4 shrink-0">
-        <div>
-            <div class="flex items-center gap-2 text-xs font-medium text-[#86868B] mb-1">
-                <a routerLink="/dashboard/catalogs" class="hover:text-[#0066CC] transition-colors">Kataloglar</a>
-                <span class="material-symbols-outlined text-[14px]">chevron_right</span>
-                <span class="text-[#1D1D1F] font-semibold">{{ catalog.name }}</span>
-            </div>
-            <h1 class="text-2xl font-bold text-[#1D1D1F] tracking-tight">{{ catalog.name }}</h1>
+    <header class="cd-header">
+      <div class="cd-head-meta">
+        <div class="cd-breadcrumb">
+          <a routerLink="/dashboard/catalogs">Kataloglar</a>
+          <span>/</span>
+          <strong>{{ catalog.name }}</strong>
+        </div>
+        <h1>{{ catalog.name }}</h1>
+      </div>
+      <div class="cd-head-actions">
+        <button type="button" class="cd-btn subtle" (click)="openMultiPageAnalysis()">
+          <span class="material-symbols-outlined">auto_fix_high</span>
+          Gelişmiş Analiz
+        </button>
+        <button type="button" class="cd-btn subtle" (click)="runFullPageAnalysis()">
+          <span class="material-symbols-outlined">bolt</span>
+          Hızlı Analiz
+        </button>
+
+        <div class="cd-toggle-wrap">
+          <span>EDITÖR</span>
+          <button
+            type="button"
+            class="cd-toggle"
+            [class.active]="isEditMode"
+            (click)="toggleEditMode()">
+            <span></span>
+          </button>
         </div>
 
-        <div class="flex gap-3 items-center">
-            
-            <button (click)="openMultiPageAnalysis()"
-                class="px-4 py-2 bg-white border border-[#D2D2D7] hover:border-[#0066CC] hover:text-[#0066CC] text-[#1D1D1F] rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm transition-all">
-                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                <span class="hidden md:inline">Gelişmiş Analiz</span>
+        <button type="button" class="cd-btn primary" (click)="publishAndOpen()">
+          <span class="material-symbols-outlined">public</span>
+          @if (catalog.status === 'Published') { Görüntüle } @else { Yayınla }
+        </button>
+      </div>
+    </header>
+
+    <div class="cd-layout">
+      <aside class="cd-pages">
+        <div class="cd-pages-head">Sayfalar</div>
+        <div class="cd-pages-list">
+          @for (page of (catalog.pages || []); track page.id; let i = $index) {
+            <button
+              type="button"
+              class="cd-page-btn"
+              [class.active]="i === activePageIndex"
+              (click)="selectPage(i)">
+              <img [src]="page.imageUrl" alt="Sayfa küçük görseli">
+              <div class="cd-page-meta">
+                <strong>Sf {{ page.pageNumber }}</strong>
+                <span>{{ page.aiDescription || 'Teknik sayfa' }}</span>
+              </div>
             </button>
-
-            <button (click)="runFullPageAnalysis()"
-                class="px-4 py-2 bg-white border border-[#D2D2D7] hover:border-[#0066CC] hover:text-[#0066CC] text-[#1D1D1F] rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm transition-all">
-                <span class="material-symbols-outlined text-[18px]">bolt</span>
-                <span class="hidden md:inline">Hızlı Analiz</span>
-            </button>
-
-            <div class="flex items-center gap-3 bg-white px-3 py-1.5 rounded-lg border border-[#D2D2D7] shadow-sm">
-                <span class="text-xs font-bold uppercase tracking-wide" [class.text-[#0066CC]]="isEditMode" [class.text-[#86868B]]="!isEditMode">
-                    Editör
-                </span>
-                <button (click)="isEditMode = !isEditMode"
-                    class="relative w-9 h-5 rounded-full transition-colors focus:outline-none"
-                    [ngClass]="isEditMode ? 'bg-[#0066CC]' : 'bg-[#E5E5EA]'">
-                    <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm"
-                        [ngClass]="isEditMode ? 'translate-x-4' : 'translate-x-0'"></span>
-                </button>
-            </div>
-
-            <div class="h-6 w-px bg-[#D2D2D7] mx-1"></div>
-
-            <button (click)="publishAndOpen()"
-                class="px-4 py-2 bg-[#0066CC] hover:bg-[#004499] text-white rounded-lg text-sm font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2">
-                <span class="material-symbols-outlined text-[18px]">public</span>
-                @if (catalog.status === 'Published') { Görüntüle } @else { Yayınla }
-            </button>
+          }
         </div>
-    </div>
+      </aside>
 
-    <div class="flex flex-col lg:flex-row gap-6 h-full overflow-hidden">
+      <section class="cd-canvas-panel">
+        <div
+          #pageCanvas
+          class="cd-canvas"
+          [ngClass]="isAiMode ? 'busy' : (isEditMode ? 'edit' : '')"
+          (click)="(!isAiMode && activePage) ? onImageClick($event) : null">
 
-        <div class="flex-1 flex flex-col gap-4 relative min-h-0">
-            <div class="flex-1 bg-white rounded-2xl border border-[#D2D2D7] relative overflow-hidden shadow-sm group select-none"
-                [ngClass]="isAiMode ? 'cursor-wait' : (isEditMode ? 'cursor-crosshair' : 'cursor-default')"
-                (click)="(!isAiMode && activePage) ? onImageClick($event) : null">
+          @if (activePage) {
+            <img
+              #activePageImage
+              [src]="activePage.imageUrl"
+              (load)="onActiveImageLoad()"
+              class="cd-page-image"
+              alt="Teknik çizim">
 
-                @if (activePage) {
-                <img [src]="activePage.imageUrl"
-                    class="w-full h-full object-contain pointer-events-none transition-opacity duration-300"
-                    [class.opacity-90]="isEditMode">
+            <div
+              class="cd-hotspot-layer"
+              [style.left.px]="imageFrame.left"
+              [style.top.px]="imageFrame.top"
+              [style.width.px]="imageFrame.width"
+              [style.height.px]="imageFrame.height">
 
-                @if (!isAiMode && activePage.hotspots) {
-                    @for (spot of activePage.hotspots; track spot.id) {
-                        <div class="absolute group transition-all duration-150 z-10"
-                            (click)="onHotspotClick($event, spot)"
-                            [style.top.%]="spot.top" 
-                            [style.left.%]="spot.left"
-                            [style.width.%]="spot.width" 
-                            [style.height.%]="spot.height"
-                            [ngClass]="{
-                                'border-2 border-[#0066CC] bg-[#0066CC]/20 shadow-[0_0_0_2px_rgba(255,255,255,0.5)]': selectedPartRef === spot.label,
-                                'border border-dashed border-[#0066CC]/60 hover:border-solid hover:border-[#0066CC] hover:bg-[#0066CC]/10': !selectedPartRef && isEditMode,
-                                'border border-transparent hover:border-[#0066CC]/50': !isEditMode
-                            }">
-
-                            @if (isEditMode) {
-                            <button (click)="removeHotspot($event, spot.id)"
-                                class="absolute -top-2 -right-2 size-5 bg-[#FF3B30] text-white rounded-full flex items-center justify-center text-[10px] shadow-sm border border-white transition-all opacity-0 group-hover:opacity-100 hover:scale-110 z-30"
-                                title="Sil">
-                                ✕
-                            </button>
-                            }
-
-                            <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 bg-[#1D1D1F] text-white text-[10px] font-bold rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
-                                #{{ spot.label }}
-                            </div>
-                        </div>
-                    }
-                }
-
-                @if (!isAiMode && tempHotspot) {
-                <div class="absolute size-8 border-2 border-[#FF9500] bg-[#FF9500]/20 rounded-full animate-pulse shadow-lg z-30 flex items-center justify-center pointer-events-none"
-                    [style.top.%]="tempHotspot.y"
-                    [style.left.%]="tempHotspot.x"
-                    [style.transform]="'translate(-50%, -50%)'">
-                    <span class="material-symbols-outlined text-[16px] text-[#FF9500]">add</span>
-                </div>
-                }
-
-                @if (isAiMode) {
-                <div class="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div class="flex flex-col items-center gap-4 p-8">
-                        <div class="relative size-16">
-                            <span class="absolute inset-0 flex items-center justify-center material-symbols-outlined text-[#0066CC] animate-spin">autorenew</span>
-                        </div>
-                        <div class="text-center">
-                            <h3 class="font-bold text-[#1D1D1F] text-lg">Yapay Zeka Analizi</h3>
-                            <p class="text-[#86868B] text-sm mt-1">Görsel taranıyor ve parçalar eşleştiriliyor...</p>
-                        </div>
-                    </div>
-                </div>
-                }
-
-                } @else {
-                <div class="flex h-full flex-col items-center justify-center text-[#D2D2D7] gap-4">
-                    <span class="material-symbols-outlined text-6xl opacity-50">image_not_supported</span>
-                    <p class="font-medium text-[#86868B]">Görüntülenecek sayfa yok.</p>
-                </div>
-                }
-            </div>
-
-            @if (catalog.pages && catalog.pages.length > 1) {
-            <div class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-md px-4 py-2 rounded-full border border-[#D2D2D7] shadow-lg flex items-center gap-4 z-40 transition-transform hover:-translate-y-1">
-                <button (click)="prevPage()" [disabled]="activePageIndex === 0"
-                    class="size-8 rounded-full hover:bg-[#F5F5F7] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[#1D1D1F] flex items-center justify-center">
-                    <span class="material-symbols-outlined text-xl">chevron_left</span>
-                </button>
-
-                <div class="flex flex-col items-center min-w-[120px]">
-                    <span class="text-sm font-bold text-[#1D1D1F] tabular-nums select-none">
-                        Sayfa {{ activePageIndex + 1 }} / {{ catalog.pages.length }}
-                    </span>
-                </div>
-
-                <button (click)="nextPage()" [disabled]="activePageIndex === catalog.pages.length - 1"
-                    class="size-8 rounded-full hover:bg-[#F5F5F7] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[#1D1D1F] flex items-center justify-center">
-                    <span class="material-symbols-outlined text-xl">chevron_right</span>
-                </button>
-            </div>
-            }
-        </div>
-
-        <div class="w-full lg:w-[420px] bg-white rounded-2xl border border-[#D2D2D7] shadow-sm flex flex-col overflow-hidden shrink-0">
-            
-            <div class="px-5 py-4 border-b border-[#F5F5F7] bg-white z-10">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="font-bold text-[#1D1D1F] flex items-center gap-2 text-sm">
-                        @if (isEditMode) {
-                        <span class="material-symbols-outlined text-[#FF9500]">link</span>
-                        <span>Parça Eşleştirme Modu</span>
-                        } @else {
-                        <span class="material-symbols-outlined text-[#86868B]">list</span>
-                        <span>Parça Listesi</span>
-                        <span class="bg-[#F5F5F7] text-[#86868B] px-2 py-0.5 rounded-full text-xs font-bold">{{ pageItems.length }}</span>
-                        }
-                    </h3>
-                </div>
-                
-                <div class="grid grid-cols-12 gap-2 text-[10px] font-bold text-[#86868B] uppercase tracking-wider px-2">
-                    <div class="col-span-2 text-center">Ref</div>
-                    <div class="col-span-4">Kod</div>
-                    <div class="col-span-6">Açıklama</div>
-                </div>
-            </div>
-
-            <div class="flex-1 overflow-y-auto p-2 space-y-1 bg-white">
-                @for (item of pageItems; track item.catalogItemId) {
-                <div [id]="'part-' + item.refNo"
-                    (click)="isEditMode ? assignItemToHotspot(item) : selectPart(item.refNo)"
-                    class="grid grid-cols-12 gap-2 items-center p-2.5 rounded-lg cursor-pointer transition-all duration-200 group relative text-sm border border-transparent"
+              @if (!isAiMode && activePage.hotspots) {
+                @for (spot of activePage.hotspots; track spot.id) {
+                  <div
+                    class="cd-hotspot"
+                    (click)="onHotspotClick($event, spot)"
+                    [style.top.%]="spot.top"
+                    [style.left.%]="spot.left"
+                    [style.width.%]="spot.width"
+                    [style.height.%]="spot.height"
                     [ngClass]="{
-                        'bg-[#FFF8E6] border-[#FF9500]': isEditMode && tempHotspot,
-                        'bg-[#F0F7FF] border-[#0066CC] shadow-sm': selectedPartRef === item.refNo && !isEditMode,
-                        'hover:bg-[#F5F5F7]': selectedPartRef !== item.refNo
+                      'selected': selectedPartRef === spot.label,
+                      'editing': isEditMode,
+                      'active-edit': selectedHotspotId === spot.id
                     }">
 
-                    <div class="col-span-2 font-mono font-bold text-center"
-                        [ngClass]="selectedPartRef === item.refNo ? 'text-[#0066CC]' : 'text-[#86868B]'">
-                        {{ item.refNo || '-' }}
-                    </div>
-
-                    <div class="col-span-4">
-                        <span class="font-mono text-xs font-medium truncate block"
-                            [ngClass]="selectedPartRef === item.refNo ? 'text-[#0066CC]' : 'text-[#1D1D1F]'">
-                            {{ item.partCode }}
-                        </span>
-                    </div>
-
-                    <div class="col-span-6 text-xs font-medium truncate"
-                        [ngClass]="selectedPartRef === item.refNo ? 'text-[#0066CC]' : 'text-[#1D1D1F]'"
-                        [title]="item.partName || ''">
-                        {{ item.partName || '-' }}
-                        @if(item.isStocked) { <span class="text-[9px] bg-green-100 text-green-700 px-1 rounded ml-1">STOK</span> }
-                    </div>
-
-                    @if (isEditMode && tempHotspot) {
-                    <div class="absolute right-2 top-1/2 -translate-y-1/2 text-[#34C759] opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm rounded-full p-1 border border-[#F5F5F7]">
-                        <span class="material-symbols-outlined text-[16px]">link</span>
-                    </div>
+                    @if (isEditMode) {
+                      <button type="button" class="cd-hotspot-delete" (click)="removeHotspot($event, spot.id)">✕</button>
                     }
-                </div>
+
+                    <span class="cd-hotspot-tag">#{{ spot.label }}</span>
+                  </div>
                 }
-                
-                @if (pageItems.length === 0) {
-                <div class="flex flex-col items-center justify-center py-16 text-[#86868B] gap-3 text-center px-4">
-                    <div class="size-12 bg-[#F5F5F7] rounded-full flex items-center justify-center">
-                        <span class="material-symbols-outlined text-2xl opacity-50">toc</span>
-                    </div>
-                    @if (hasHotspots) {
-                    <p class="text-xs">Hotspotlar var ancak parça verisi eşleşmedi.</p>
-                    } @else {
-                    <p class="text-sm font-medium">Bu sayfada parça listesi yok.</p>
-                    <button (click)="openMultiPageAnalysis()" class="text-xs text-[#0066CC] hover:underline">
-                        Analiz Başlat
-                    </button>
-                    }
-                </div>
-                }
+              }
+
+              @if (!isAiMode && tempHotspot) {
+                <div
+                  class="cd-temp-hotspot"
+                  [style.top.%]="tempHotspot.y"
+                  [style.left.%]="tempHotspot.x"></div>
+              }
             </div>
-        </div>
-    </div>
 
-    }
-    @else {
-    <div class="flex-1 flex flex-col items-center justify-center text-[#FF3B30] gap-4">
-        <span class="material-symbols-outlined text-6xl opacity-80">error_outline</span>
-        <div class="text-center">
-            <h3 class="font-bold text-lg text-[#1D1D1F]">Katalog Yüklenemedi</h3>
-            <p class="text-sm text-[#86868B] mt-1">Bağlantınızı kontrol edip tekrar deneyin.</p>
+            @if (isAiMode) {
+              <div class="cd-ai-overlay">
+                <span class="material-symbols-outlined cd-spin">autorenew</span>
+                <h3>Yapay Zeka Analizi</h3>
+                <p>Sayfa taranıyor, parça eşleştirmesi hazırlanıyor...</p>
+              </div>
+            }
+          } @else {
+            <div class="cd-empty-stage">
+              <span class="material-symbols-outlined">image_not_supported</span>
+              <p>Görüntülenecek sayfa bulunamadı.</p>
+            </div>
+          }
         </div>
-        <a routerLink="/dashboard/catalogs" class="px-4 py-2 bg-white border border-[#D2D2D7] rounded-lg text-sm font-medium text-[#1D1D1F] hover:bg-[#F5F5F7] transition-colors">
-            Listeye Dön
-        </a>
+
+        @if (catalog.pages && catalog.pages.length > 1) {
+          <div class="cd-page-nav">
+            <button type="button" (click)="prevPage()" [disabled]="activePageIndex === 0">
+              <span class="material-symbols-outlined">chevron_left</span>
+            </button>
+            <span>Sayfa {{ activePageIndex + 1 }} / {{ catalog.pages.length }}</span>
+            <button type="button" (click)="nextPage()" [disabled]="activePageIndex === catalog.pages.length - 1">
+              <span class="material-symbols-outlined">chevron_right</span>
+            </button>
+          </div>
+        }
+      </section>
+
+      <aside class="cd-parts">
+        <div class="cd-parts-head">
+          <div class="cd-parts-title">
+            @if (isEditMode) {
+              <span class="material-symbols-outlined">link</span>
+              <h3>Parça Eşleştirme</h3>
+            } @else {
+              <span class="material-symbols-outlined">list</span>
+              <h3>Parça Listesi</h3>
+            }
+            <strong>{{ pageItems.length }}</strong>
+          </div>
+
+          @if (isEditMode) {
+            <button type="button" class="cd-btn subtle" (click)="openAddItemForm()">+ Satır Ekle</button>
+          }
+        </div>
+
+        @if (isEditMode && selectedHotspotId) {
+          <div class="cd-form-card">
+            <div class="cd-form-head">
+              <h4>Seçili Hotspot</h4>
+              <button type="button" (click)="selectedHotspotId = null">Kapat</button>
+            </div>
+
+            <div class="cd-form-grid">
+              <input [(ngModel)]="hotspotForm.label" placeholder="Etiket">
+              <input [(ngModel)]="hotspotForm.left" type="number" step="0.1" placeholder="Left %">
+              <input [(ngModel)]="hotspotForm.top" type="number" step="0.1" placeholder="Top %">
+              <input [(ngModel)]="hotspotForm.width" type="number" step="0.1" placeholder="Width %">
+              <input [(ngModel)]="hotspotForm.height" type="number" step="0.1" placeholder="Height %">
+            </div>
+
+            <button type="button" class="cd-btn primary full" (click)="saveSelectedHotspot()">Hotspotu Kaydet</button>
+          </div>
+        }
+
+        @if (isEditMode && isItemFormVisible) {
+          <div class="cd-form-card">
+            <div class="cd-form-head">
+              <h4>@if (editingCatalogItemId) { Satır Düzenle } @else { Yeni Satır Ekle }</h4>
+              <button type="button" (click)="closeItemForm()">Kapat</button>
+            </div>
+
+            <div class="cd-form-stack">
+              <input [(ngModel)]="itemForm.refNo" placeholder="Ref No">
+              <input [(ngModel)]="itemForm.partCode" placeholder="Parça Kodu">
+              <input [(ngModel)]="itemForm.partName" placeholder="Parça Adı">
+              <input [(ngModel)]="itemForm.description" placeholder="Açıklama (opsiyonel)">
+            </div>
+
+            <button type="button" class="cd-btn primary full" (click)="saveItemForm()">
+              @if (editingCatalogItemId) { Satırı Güncelle } @else { Satırı Kaydet }
+            </button>
+          </div>
+        }
+
+        <div class="cd-part-list">
+          @for (item of pageItems; track item.catalogItemId) {
+            <article
+              [id]="'part-' + item.refNo"
+              class="cd-part-row"
+              [ngClass]="{
+                'selected': selectedPartRef === item.refNo && !isEditMode,
+                'linking': isEditMode && tempHotspot
+              }"
+              (click)="isEditMode ? assignItemToHotspot(item) : selectPart(item.refNo)">
+
+              <div class="cd-ref">{{ item.refNo || '-' }}</div>
+
+              <div class="cd-part-main">
+                <div class="cd-code">{{ item.partCode }}</div>
+                <div class="cd-name">{{ item.partName || '-' }}</div>
+              </div>
+
+              <div class="cd-row-actions">
+                @if(item.isStocked) {
+                  <span class="cd-stock">STOK</span>
+                }
+                @if (isEditMode) {
+                  <button type="button" class="cd-row-icon" (click)="openEditItemForm(item, $event)">
+                    <span class="material-symbols-outlined">edit</span>
+                  </button>
+                  <button type="button" class="cd-row-icon danger" (click)="deleteItem(item, $event)">
+                    <span class="material-symbols-outlined">delete</span>
+                  </button>
+                }
+              </div>
+            </article>
+          }
+
+          @if (pageItems.length === 0) {
+            <div class="cd-empty-parts">
+              <span class="material-symbols-outlined">toc</span>
+              @if (hasHotspots) {
+                <p>Hotspot var ama eşleşen parça satırı yok.</p>
+              } @else {
+                <p>Bu sayfada parça bulunamadı.</p>
+                <button type="button" (click)="openMultiPageAnalysis()">Analiz Başlat</button>
+              }
+            </div>
+          }
+        </div>
+      </aside>
     </div>
-    }
+  } @else {
+    <div class="cd-state-wrap error">
+      <span class="material-symbols-outlined">error_outline</span>
+      <h3>Katalog yüklenemedi</h3>
+      <p>Bağlantıyı kontrol edip tekrar dene.</p>
+      <a routerLink="/dashboard/catalogs">Listeye Dön</a>
+    </div>
+  }
 </div>

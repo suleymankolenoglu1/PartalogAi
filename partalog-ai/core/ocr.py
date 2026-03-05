@@ -9,7 +9,6 @@ import cv2
 from typing import Optional, List, Tuple
 from loguru import logger
 import re
-from collections import Counter
 
 
 class HotspotOCR:
@@ -38,13 +37,18 @@ class HotspotOCR:
         """
         if image is None or image.size == 0:
             return None
+
+        image = self._normalize_input(image)
         
         # Birden fazla yöntemle oku
         candidates = []
         
         methods = [
+            ("center_auto", lambda img: self._preprocess_auto_polarity(self._crop_center(img, 0.6))),
+            ("center_clahe", lambda img: self._preprocess_clahe_binary(self._crop_center(img, 0.62))),
             ("center_inverted", lambda img: self._preprocess_inverted(self._crop_center(img, 0.6))),
             ("center_adaptive", lambda img: self._preprocess_adaptive(self._crop_center(img, 0.6))),
+            ("full_auto", self._preprocess_auto_polarity),
             ("full_inverted", self._preprocess_inverted),
             ("mask_circle", self._preprocess_with_circle_mask),
         ]
@@ -121,7 +125,12 @@ class HotspotOCR:
             image,
             allowlist='0123456789',
             detail=1,
-            paragraph=False
+            paragraph=False,
+            contrast_ths=0.05,
+            adjust_contrast=0.75,
+            text_threshold=0.35,
+            low_text=0.2,
+            link_threshold=0.2
         )
         
         if not results: 
@@ -136,6 +145,10 @@ class HotspotOCR:
         text = re.sub(r'[^0-9]', '', text)
         
         if not text:
+            return None, 0.0
+
+        # Çok düşük confidence ile gelen uzun adayları erken ele
+        if confidence < 0.25 and len(text) > 2:
             return None, 0.0
         
         # === DÜZELTME KURALLARI ===
@@ -262,10 +275,7 @@ class HotspotOCR:
     
     def _preprocess_inverted(self, image: np.ndarray) -> np.ndarray:
         """Siyah zemin beyaz yazı için ters çevir."""
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image.copy()
+        gray = self._to_gray(image)
         
         inverted = cv2.bitwise_not(gray)
         
@@ -282,10 +292,7 @@ class HotspotOCR:
     
     def _preprocess_adaptive(self, image: np.ndarray) -> np.ndarray:
         """Adaptive threshold ile ön işleme."""
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image.copy()
+        gray = self._to_gray(image)
         
         binary = cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -302,6 +309,70 @@ class HotspotOCR:
     def read_numbers_batch(self, images: List[np. ndarray]) -> List[Optional[str]]: 
         """Birden fazla görüntüden numara oku."""
         return [self.read_number(img) for img in images]
+
+    def _normalize_input(self, image: np.ndarray) -> np.ndarray:
+        """Çok küçük crop'larda OCR'ın çökmesini önlemek için minimum boyut uygula."""
+        h, w = image.shape[:2]
+        if h >= 40 and w >= 40:
+            return image
+
+        min_side = 48
+        scale = max(min_side / max(h, 1), min_side / max(w, 1))
+        scale = min(4.0, max(1.0, scale))
+        return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+    def _to_gray(self, image: np.ndarray) -> np.ndarray:
+        if len(image.shape) == 3:
+            return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        return image.copy()
+
+    def _is_dark_background(self, gray: np.ndarray) -> bool:
+        """Merkez bölgenin karanlık oranına göre polarite tahmini yap."""
+        h, w = gray.shape[:2]
+        cy1, cy2 = int(h * 0.2), int(h * 0.8)
+        cx1, cx2 = int(w * 0.2), int(w * 0.8)
+        roi = gray[cy1:cy2, cx1:cx2]
+        if roi.size == 0:
+            roi = gray
+        # 0-255 skala: düşük değerler koyu
+        dark_ratio = float((roi < 95).sum()) / float(roi.size)
+        return dark_ratio > 0.5
+
+    def _preprocess_auto_polarity(self, image: np.ndarray) -> np.ndarray:
+        """Zemin koyu/açık durumuna göre otomatik threshold polaritesi seç."""
+        gray = self._to_gray(image)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+
+        if self._is_dark_background(enhanced):
+            _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        else:
+            _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+        kernel = np.ones((2, 2), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        return cv2.resize(binary, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+
+    def _preprocess_clahe_binary(self, image: np.ndarray) -> np.ndarray:
+        """Siyah hotspot üstündeki beyaz rakamlarda kontrastı güçlendir."""
+        gray = self._to_gray(image)
+        clahe = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(6, 6))
+        enhanced = clahe.apply(gray)
+        sharpen = cv2.addWeighted(enhanced, 1.45, cv2.GaussianBlur(enhanced, (0, 0), 1.2), -0.45, 0)
+
+        if self._is_dark_background(sharpen):
+            binary = cv2.adaptiveThreshold(
+                sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 13, 3
+            )
+        else:
+            binary = cv2.adaptiveThreshold(
+                sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 13, 3
+            )
+
+        kernel = np.ones((2, 2), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        return cv2.resize(binary, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     
     def get_info(self) -> dict:
         """OCR bilgilerini döndür."""
@@ -309,7 +380,15 @@ class HotspotOCR:
             "engine": "EasyOCR",
             "gpu_enabled": self.use_gpu,
             "allowed_chars": "0123456789",
-            "features": ["center_crop", "circle_mask", "voting", "3digit_correction", "4digit_correction"]
+            "features": [
+                "center_crop",
+                "circle_mask",
+                "auto_polarity",
+                "clahe_enhancement",
+                "voting",
+                "3digit_correction",
+                "4digit_correction"
+            ]
         }
 
 

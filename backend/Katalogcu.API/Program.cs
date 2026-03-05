@@ -16,6 +16,8 @@ using Polly.Extensions.Http; // 🔥 Polly HTTP Extensions için
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,6 +49,8 @@ builder.Services.Configure<KestrelServerOptions>(options =>
 // Genel HttpClient Fabrikası
 builder.Services.AddHttpClient(); 
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<ProductFeatureOptions>(builder.Configuration.GetSection("ProductFeatures"));
+builder.Services.AddSingleton<IProductFeaturePolicy, ProductFeaturePolicy>();
 
 // Yardımcı Servisler
 builder.Services.AddScoped<PdfService>();
@@ -115,6 +119,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         {
             x.UseVector();
         }));
+builder.Services.AddHealthChecks();
 
 // JWT Authentication Ayarları
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -122,6 +127,26 @@ var jwtSecret = jwtSettings["SecretKey"];
 if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Trim().Length < 32)
 {
     throw new InvalidOperationException("JwtSettings:SecretKey zorunludur ve en az 32 karakter olmalıdır.");
+}
+
+var publicLinkSecret = builder.Configuration["PublicLink:SecretKey"];
+var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+if (builder.Environment.IsProduction())
+{
+    if (jwtSecret.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("JwtSettings:SecretKey production ortamında CHANGE_ME olamaz.");
+    }
+
+    if (string.IsNullOrWhiteSpace(publicLinkSecret) || publicLinkSecret.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("PublicLink:SecretKey production ortamında geçerli bir secret olmalıdır.");
+    }
+
+    if (string.IsNullOrWhiteSpace(defaultConnection) || defaultConnection.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("ConnectionStrings:DefaultConnection production ortamında geçerli olmalıdır.");
+    }
 }
 
 var secretKey = Encoding.ASCII.GetBytes(jwtSecret);
@@ -152,7 +177,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
+    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -169,6 +194,18 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization(options =>
 {
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireRole("admin"));
+
+    options.AddPolicy("PlatformAdminOnly", policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireAssertion(context =>
+            {
+                var roles = context.User.FindAll(ClaimTypes.Role).Select(x => x.Value);
+                return roles.Any(role => role.Equals("platformadmin", StringComparison.OrdinalIgnoreCase));
+            }));
+
     options.AddPolicy("PrivilegedUser", policy =>
         policy.RequireAuthenticatedUser()
             .RequireAssertion(context =>
@@ -293,9 +330,38 @@ builder.Services.AddRateLimiter(options =>
                 AutoReplenishment = true
             });
     });
+
+    options.AddPolicy("auth-login", httpContext =>
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"auth-login:{ip}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 6,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
 });
 
 var app = builder.Build();
+
+var featurePolicy = app.Services.GetRequiredService<IProductFeaturePolicy>();
+app.Logger.LogInformation(
+    "ProductFeatures mode => AI: {AiEnabled}, ECommerce: {EcommerceEnabled}, UpgradePrompts: {UpgradePromptsEnabled}",
+    featurePolicy.AiEnabled,
+    featurePolicy.EcommerceEnabled,
+    featurePolicy.UpgradePromptsEnabled);
+
+if (app.Environment.IsProduction() && (featurePolicy.AiEnabled || featurePolicy.EcommerceEnabled))
+{
+    app.Logger.LogWarning(
+        "Production mode is running with premium modules enabled (AI={AiEnabled}, ECommerce={EcommerceEnabled}).",
+        featurePolicy.AiEnabled,
+        featurePolicy.EcommerceEnabled);
+}
 
 // Uygulama açılırken bekleyen migration'ları uygula
 using (var scope = app.Services.CreateScope())
@@ -337,15 +403,92 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    app.UseExceptionHandler(errorApp =>
+    {
+        errorApp.Run(async context =>
+        {
+            var feature = context.Features.Get<IExceptionHandlerFeature>();
+            var logger = context.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("GlobalExceptionHandler");
 
+            if (feature?.Error != null)
+            {
+                logger.LogError(feature.Error, "Unhandled exception on path {Path}", context.Request.Path);
+            }
+
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                success = false,
+                message = "Beklenmeyen bir sistem hatası oluştu."
+            });
+        });
+    });
+
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
 app.UseStaticFiles(); 
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
+    await next();
+});
 app.UseCors("AllowAngularApp");
 app.UseRateLimiter();
-app.UseAuthentication(); 
+app.UseAuthentication();
+app.UseMiddleware<UserSuspensionMiddleware>();
+app.UseMiddleware<ModuleFeatureGateMiddleware>();
 app.UseMiddleware<CatalogPlanLimitMiddleware>();
 app.UseAuthorization();  
 
 app.MapControllers();
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false
+});
+app.MapGet("/health/ready", async (AppDbContext db, CancellationToken cancellationToken) =>
+{
+    var canConnect = await db.Database.CanConnectAsync(cancellationToken);
+    if (!canConnect)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Service Unavailable",
+            detail: "Database connection check failed.");
+    }
+
+    return Results.Ok(new { status = "ready" });
+});
+app.MapGet("/health/migrations", async (AppDbContext db, CancellationToken cancellationToken) =>
+{
+    var pendingMigrations = (await db.Database.GetPendingMigrationsAsync(cancellationToken)).ToArray();
+    var hasPendingModelChanges = db.Database.HasPendingModelChanges();
+
+    if (pendingMigrations.Length > 0 || hasPendingModelChanges)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Migration check failed",
+            detail: $"PendingMigrations={pendingMigrations.Length}, PendingModelChanges={hasPendingModelChanges}");
+    }
+
+    var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync(cancellationToken)).ToArray();
+    return Results.Ok(new
+    {
+        status = "ok",
+        appliedCount = appliedMigrations.Length,
+        latestApplied = appliedMigrations.LastOrDefault()
+    });
+});
 
 app.Run();
 

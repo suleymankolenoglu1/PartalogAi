@@ -16,12 +16,16 @@ public sealed class AuthRepository : IAuthRepository
 
     public Task<AppUser?> GetByEmailAsync(string email, CancellationToken cancellationToken)
     {
-        return _context.Users.FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+        return _context.Users.FirstOrDefaultAsync(
+            u => EF.Functions.ILike(u.Email, email),
+            cancellationToken);
     }
 
     public Task<bool> EmailExistsAsync(string email, CancellationToken cancellationToken)
     {
-        return _context.Users.AnyAsync(u => u.Email == email, cancellationToken);
+        return _context.Users.AnyAsync(
+            u => EF.Functions.ILike(u.Email, email),
+            cancellationToken);
     }
 
     public Task AddUserAsync(AppUser user, CancellationToken cancellationToken)

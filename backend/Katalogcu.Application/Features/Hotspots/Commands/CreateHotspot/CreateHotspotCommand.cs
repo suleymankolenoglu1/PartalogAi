@@ -5,6 +5,7 @@ using MediatR;
 namespace Katalogcu.Application.Features.Hotspots.Commands.CreateHotspot;
 
 public sealed record CreateHotspotCommand(
+    Guid UserId,
     Guid PageId,
     double Left,
     double Top,

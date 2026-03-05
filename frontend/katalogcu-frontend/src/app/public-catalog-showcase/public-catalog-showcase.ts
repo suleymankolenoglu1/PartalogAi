@@ -123,7 +123,7 @@ export class PublicCatalogShowcaseComponent implements OnInit {
   goCheckout() {
     if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
-    this.router.navigate(['/public-view', this.publicToken, 'checkout']);
+    this.router.navigate(['/p', this.publicToken, 'checkout']);
   }
 
   private loadStorefrontFeatures() {

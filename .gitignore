@@ -57,3 +57,6 @@ ENV/
 
 # Runtime feedback data
 backend/Katalogcu.API/App_Data/
+
+# Generated release reports
+backend/reports/

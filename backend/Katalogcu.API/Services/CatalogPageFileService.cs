@@ -30,6 +30,12 @@ public sealed class CatalogPageFileService : ICatalogPageFileService
             return null;
         }
 
+        var webRoot = _env.WebRootPath;
+        if (string.IsNullOrWhiteSpace(webRoot))
+        {
+            return null;
+        }
+
         var cleanPath = WebUtility.UrlDecode(url);
         if (Uri.TryCreate(cleanPath, UriKind.Absolute, out var uri))
         {
@@ -41,6 +47,18 @@ public sealed class CatalogPageFileService : ICatalogPageFileService
             .Replace('/', Path.DirectorySeparatorChar)
             .Replace('\\', Path.DirectorySeparatorChar);
 
-        return Path.Combine(_env.WebRootPath, cleanPath);
+        if (string.IsNullOrWhiteSpace(cleanPath))
+        {
+            return null;
+        }
+
+        var combined = Path.GetFullPath(Path.Combine(webRoot, cleanPath));
+        var rootWithSep = Path.GetFullPath(webRoot + Path.DirectorySeparatorChar);
+        if (!combined.StartsWith(rootWithSep, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return combined;
     }
 }

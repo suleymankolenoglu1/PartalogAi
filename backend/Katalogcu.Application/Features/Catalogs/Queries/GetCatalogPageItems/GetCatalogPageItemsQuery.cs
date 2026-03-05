@@ -9,5 +9,6 @@ public sealed record GetCatalogPageItemsQuery(
     int PageNumber,
     Guid UserId,
     bool IsPublic,
-    IReadOnlyCollection<Guid>? AllowedCatalogIds)
+    IReadOnlyCollection<Guid>? AllowedCatalogIds,
+    bool StrictPage = false)
     : IRequest<OperationResult<IReadOnlyList<CatalogPageItemDto>>>;

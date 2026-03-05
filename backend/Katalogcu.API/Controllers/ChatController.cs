@@ -187,7 +187,7 @@ namespace Katalogcu.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Chat Controller Hatası");
-                return StatusCode(500, new { error = "Sistem hatası: " + ex.Message });
+                return StatusCode(500, new { error = "Sistem hatası oluştu. Lütfen tekrar deneyin." });
             }
         }
 
