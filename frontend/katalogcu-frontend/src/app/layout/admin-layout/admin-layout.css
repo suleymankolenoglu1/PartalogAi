@@ -263,6 +263,8 @@
 .store-card-wrapper {
   margin-top: auto;
   padding-top: var(--pt-space-3);
+  display: grid;
+  gap: 10px;
 }
 
 .store-card {
@@ -335,7 +337,7 @@
 }
 
 .store-actions {
-  margin-top: 8px;
+  margin-top: 0;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -363,6 +365,13 @@
 .store-action-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.store-action-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .store-feedback {

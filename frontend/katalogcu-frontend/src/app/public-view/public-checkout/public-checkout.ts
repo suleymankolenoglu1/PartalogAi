@@ -6,6 +6,7 @@ import { CartService } from '../../core/services/cart.service';
 import { CustomerService, PublicCustomerOrder, PublicCustomerOrderDetail } from '../../core/services/customer.service';
 import { CatalogService, PublicStorefront } from '../../core/services/catalog.service';
 import { environment } from '../../../environments/environment';
+import { emitEmbedEvent } from '../../core/utils/embed-bridge';
 
 type AuthTab = 'login' | 'register';
 type PaymentMethod = 'KapidaOdeme' | 'HavaleEFT';
@@ -105,6 +106,10 @@ export class PublicCheckoutComponent implements OnInit {
     }
     this.cartService.setScope(`public:${this.publicToken}`);
     this.loadStorefront();
+    emitEmbedEvent('checkout:start', {
+      publicToken: this.publicToken,
+      source: 'checkout-page'
+    });
     const stored = localStorage.getItem(this.getSessionKey());
     if (!stored) return;
     this.customerSessionToken = stored;

@@ -1,0 +1,199 @@
+<div class="apple-page-wrapper">
+  <header class="page-header">
+    <div class="header-content">
+      <h1>Web Sitesine Entegrasyon</h1>
+      <p>Teknik bilgin olmasa da bu sayfadaki adımları sırayla yaparak Partalog vitrini kendi sitene ekleyebilirsin.</p>
+    </div>
+  </header>
+
+  <div class="embed-layout">
+    <section class="guide-card">
+      <h3>Hızlı Kurulum Rehberi</h3>
+      <ol class="guide-steps">
+        <li>
+          <strong>Domainini ekle</strong>
+          <p>Site adresini `https://www.siten.com` formatında gir ve listene ekle.</p>
+        </li>
+        <li>
+          <strong>Domain sahipliğini doğrula</strong>
+          <p>DNS TXT veya dosya yöntemi seç. Verilen değeri sitene ekleyip <em>Şimdi Doğrula</em> butonuna bas.</p>
+        </li>
+        <li>
+          <strong>Allowlist'e al</strong>
+          <p>Durum <em>verified</em> olunca <em>Allowlist'e Ekle</em> butonuna bas.</p>
+        </li>
+        <li>
+          <strong>Script kodunu kopyala</strong>
+          <p><em>Scripti Kopyala</em> ile kodu al, sitende `&lt;/body&gt;` etiketinden hemen önce yapıştır.</p>
+        </li>
+        <li>
+          <strong>Son testi yap</strong>
+          <p>Kendi siteni aç, katalogun gömülü olarak göründüğünü kontrol et.</p>
+        </li>
+      </ol>
+
+      <div class="guide-tip">
+        <strong>Basit anlatım:</strong>
+        <p>Bu sistem, senin sitene küçük bir kod ekleyerek Partalog vitrini canlı gösterir. Katalog içerikleri yine Partalog'da kalır.</p>
+      </div>
+
+      <div class="guide-note">
+        <h4>Kodu nereye ekleyeceğim?</h4>
+        <p>
+          HTML/PHP projede `footer` dosyasına, WordPress'te tema footer alanına,
+          özel panelde ise "Custom Code" alanına ekleyebilirsin.
+        </p>
+      </div>
+    </section>
+
+    <section class="embed-card">
+      <div class="embed-header">
+        <h3 class="section-title">Entegrasyon Ayarları</h3>
+        <span class="public-badge">SDK v1</span>
+      </div>
+
+      @if (embedLoading) {
+        <p class="hint-text">Embed ayarları yükleniyor...</p>
+      } @else {
+        <div class="embed-grid">
+          <div class="embed-column">
+            <h4>1) İzinli Domainler</h4>
+            <p class="hint-text">Sadece burada tanımlı domainlerden embed açılabilir.</p>
+            <div class="embed-origin-input">
+              <input
+                type="text"
+                class="form-input"
+                placeholder="https://www.site.com"
+                [(ngModel)]="embedOriginInput">
+              <button type="button" class="btn-secondary small" (click)="addEmbedOrigin()">Ekle</button>
+            </div>
+            <div class="origin-chip-list">
+              @for (origin of embedAllowedOrigins; track origin) {
+                <span class="origin-chip">
+                  {{ origin }}
+                  <button type="button" (click)="removeEmbedOrigin(origin)">×</button>
+                </span>
+              }
+              @if (embedAllowedOrigins.length === 0) {
+                <p class="hint-text">Henüz domain eklenmedi.</p>
+              }
+            </div>
+
+            <div class="embed-verify-box">
+              <h4>2) Domain Ownership Doğrulama</h4>
+              <p class="hint-text">DNS TXT veya dosya yöntemiyle domainin sana ait olduğunu kanıtla.</p>
+              <div class="embed-domain-row">
+                <select class="form-input" [(ngModel)]="embedDomainMethod">
+                  <option value="dns_txt">DNS TXT</option>
+                  <option value="file">Dosya (.well-known)</option>
+                </select>
+                <button type="button" class="btn-secondary small" [disabled]="embedSaving" (click)="createEmbedDomainChallenge()">
+                  Challenge Oluştur
+                </button>
+              </div>
+            </div>
+
+            <div class="embed-verify-box">
+              <h4>3) Hızlı Origin Testi</h4>
+              <p class="hint-text">Domainin allowlist'te mi hızlıca kontrol eder.</p>
+              <div class="embed-origin-input">
+                <input
+                  type="text"
+                  class="form-input"
+                  placeholder="https://www.site.com"
+                  [(ngModel)]="embedVerifyOriginInput">
+                <button type="button" class="btn-secondary small" [disabled]="embedVerifying" (click)="verifyEmbedOrigin()">
+                  @if (embedVerifying) { Kontrol... } @else { Kontrol Et }
+                </button>
+              </div>
+              @if (embedVerifyResult) {
+                <p class="public-feedback" [class.ok]="embedVerifyResult.allowed" [class.err]="!embedVerifyResult.allowed">
+                  {{ embedVerifyResult.allowed ? 'Origin izinli.' : 'Origin izinli değil.' }}
+                </p>
+              }
+            </div>
+          </div>
+
+          <div class="embed-column">
+            <h4>4) Script Kodu</h4>
+            <p class="hint-text">Bu scripti sitene eklersen katalog görünür.</p>
+            <div class="embed-code-box">
+              <code>
+                &lt;script src="{{ embedScriptSourceUrl }}" data-public-token="..."&gt;&lt;/script&gt;
+              </code>
+            </div>
+            <div class="embed-actions">
+              <button type="button" class="btn-secondary" [disabled]="!publicToken" (click)="copyEmbedScript()">
+                Scripti Kopyala
+              </button>
+              <button type="button" class="btn-primary" [disabled]="embedSaving" (click)="saveEmbedSettings()">
+                @if (embedSaving) { Kaydediliyor... } @else { Ayarları Kaydet }
+              </button>
+            </div>
+
+            <h4>5) Önizleme</h4>
+            @if (embedPreviewSafeUrl) {
+              <div class="embed-preview-frame">
+                <iframe [src]="embedPreviewSafeUrl" title="Embed Preview"></iframe>
+              </div>
+            } @else {
+              <p class="hint-text">Önizleme için önce Public Link üretmelisin.</p>
+            }
+          </div>
+        </div>
+
+        <div class="embed-domain-list">
+          <h4>Domain Doğrulama Kayıtları</h4>
+          @if (embedDomainsLoading) {
+            <p class="hint-text">Domain kayıtları yükleniyor...</p>
+          } @else if (embedDomains.length === 0) {
+            <p class="hint-text">Henüz domain doğrulama kaydı yok.</p>
+          } @else {
+            <div class="embed-domain-cards">
+              @for (row of embedDomains; track row.id) {
+                <article class="embed-domain-card">
+                  <div class="embed-domain-head">
+                    <div>
+                      <strong>{{ row.origin }}</strong>
+                      <small>{{ row.method === 'dns_txt' ? 'DNS TXT' : 'Dosya' }}</small>
+                    </div>
+                    <span class="domain-status" [class.ok]="row.status === 'verified'" [class.err]="row.status === 'failed'">
+                      {{ row.status }}
+                    </span>
+                  </div>
+
+                  @if (row.instructions.type === 'dns_txt') {
+                    <p class="hint-text">Record: <code>{{ row.instructions.recordName }}</code></p>
+                    <p class="hint-text">Value: <code>{{ row.instructions.recordValue }}</code></p>
+                    <button type="button" class="btn-secondary small" (click)="copyDomainInstruction(row.instructions.recordValue)">TXT değeri kopyala</button>
+                  } @else {
+                    <p class="hint-text">Dosya: <code>{{ row.instructions.filePath }}</code></p>
+                    <p class="hint-text">İçerik: <code>{{ row.instructions.fileContent }}</code></p>
+                    <button type="button" class="btn-secondary small" (click)="copyDomainInstruction(row.instructions.fileContent)">Dosya içeriği kopyala</button>
+                  }
+
+                  @if (row.lastError) {
+                    <p class="public-feedback err">{{ row.lastError }}</p>
+                  }
+
+                  <div class="embed-actions">
+                    <button type="button" class="btn-secondary small" (click)="verifyDomainNow(row)">Şimdi Doğrula</button>
+                    <button type="button" class="btn-secondary small" [disabled]="row.status !== 'verified'" (click)="activateDomain(row)">Allowlist'e Ekle</button>
+                    <button type="button" class="btn-secondary small danger" (click)="deleteDomain(row)">Sil</button>
+                  </div>
+                </article>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      @if (embedMessage) {
+        <p class="public-feedback ok">{{ embedMessage }}</p>
+      }
+      @if (embedError) {
+        <p class="public-feedback err">{{ embedError }}</p>
+      }
+    </section>
+  </div>
+</div>

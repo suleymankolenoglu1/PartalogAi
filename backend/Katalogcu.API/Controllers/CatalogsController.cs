@@ -43,6 +43,7 @@ namespace Katalogcu.API.Controllers
         private readonly ILogger<CatalogsController> _logger;
         private readonly IPublicAccessTokenService _publicAccessTokenService;
         private readonly IAiUsageQuotaService _aiUsageQuotaService;
+        private readonly IEmbedAnalyticsService _embedAnalyticsService;
         private readonly IProductFeaturePolicy _productFeaturePolicy;
         private readonly ISender _sender;
 
@@ -50,12 +51,14 @@ namespace Katalogcu.API.Controllers
             ILogger<CatalogsController> logger,
             IPublicAccessTokenService publicAccessTokenService,
             IAiUsageQuotaService aiUsageQuotaService,
+            IEmbedAnalyticsService embedAnalyticsService,
             IProductFeaturePolicy productFeaturePolicy,
             ISender sender)
         {
             _logger = logger;
             _publicAccessTokenService = publicAccessTokenService;
             _aiUsageQuotaService = aiUsageQuotaService;
+            _embedAnalyticsService = embedAnalyticsService;
             _productFeaturePolicy = productFeaturePolicy;
             _sender = sender;
         }
@@ -402,6 +405,7 @@ namespace Katalogcu.API.Controllers
 
             var stats = result.Value!;
             var aiUsage = await _aiUsageQuotaService.GetCurrentUsageAsync(userId, HttpContext.RequestAborted);
+            var embedAnalytics = await _embedAnalyticsService.GetSummaryAsync(userId, HttpContext.RequestAborted);
             return Ok(new
             {
                 TotalCatalogs = stats.TotalCatalogs,
@@ -413,6 +417,11 @@ namespace Katalogcu.API.Controllers
                 StorefrontVisitsToday = stats.StorefrontVisitsToday,
                 StorefrontVisitsLast7Days = stats.StorefrontVisitsLast7Days,
                 StorefrontUniqueVisitorsLast30Days = stats.StorefrontUniqueVisitorsLast30Days,
+                EmbedEventsTotal = embedAnalytics.TotalEvents,
+                EmbedEventsLast7Days = embedAnalytics.EventsLast7Days,
+                EmbedPartViewedCount = embedAnalytics.PartViewedCount,
+                EmbedCartAddCount = embedAnalytics.CartAddCount,
+                EmbedCheckoutStartCount = embedAnalytics.CheckoutStartCount,
                 PendingCount = stats.PendingCount,
                 RecentCatalogs = stats.RecentCatalogs,
                 TopViewedCatalogs = stats.TopViewedCatalogs,

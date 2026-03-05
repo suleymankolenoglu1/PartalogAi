@@ -16,6 +16,11 @@ export interface DashboardStats {
   storefrontVisitsToday?: number;
   storefrontVisitsLast7Days?: number;
   storefrontUniqueVisitorsLast30Days?: number;
+  embedEventsTotal?: number;
+  embedEventsLast7Days?: number;
+  embedPartViewedCount?: number;
+  embedCartAddCount?: number;
+  embedCheckoutStartCount?: number;
   aiUsedThisMonth?: number;
   aiMonthlyLimit?: number | null;
   aiRemainingThisMonth?: number;
@@ -47,6 +52,45 @@ export interface PublicStorefront {
   subscriptionPlan?: number;
   aiChatEnabled?: boolean;
   ecommerceEnabled?: boolean;
+}
+
+export interface EmbedSettings {
+  userId: string;
+  allowedOrigins: string[];
+  theme: string;
+  mode: string;
+}
+
+export interface EmbedVerifyOriginResponse {
+  allowed: boolean;
+  reason: string;
+  origin?: string;
+  ownerUserId?: string;
+  theme?: string;
+  mode?: string;
+}
+
+export interface EmbedDomainInstruction {
+  type: 'dns_txt' | 'file';
+  recordName?: string;
+  recordType?: string;
+  recordValue?: string;
+  filePath?: string;
+  fileUrl?: string;
+  fileContent?: string;
+}
+
+export interface EmbedDomainVerification {
+  id: string;
+  userId: string;
+  origin: string;
+  domain: string;
+  method: 'dns_txt' | 'file';
+  status: 'pending' | 'verified' | 'failed';
+  challengeToken: string;
+  verifiedAt?: string | null;
+  lastError?: string | null;
+  instructions: EmbedDomainInstruction;
 }
 
 export interface PublicFolderSummary {
@@ -293,6 +337,41 @@ export class CatalogService {
 
   revokePublicToken(): Observable<PublicTokenStatus> {
     return this.http.post<PublicTokenStatus>(`${this.apiUrl}/catalogs/public-token/revoke`, {});
+  }
+
+  getEmbedSettings(): Observable<EmbedSettings> {
+    return this.http.get<EmbedSettings>(`${this.apiUrl}/embed/settings`);
+  }
+
+  updateEmbedSettings(payload: { allowedOrigins: string[]; theme?: string; mode?: string }): Observable<EmbedSettings> {
+    return this.http.put<EmbedSettings>(`${this.apiUrl}/embed/settings`, payload);
+  }
+
+  verifyEmbedOrigin(publicToken: string, origin: string): Observable<EmbedVerifyOriginResponse> {
+    return this.http.post<EmbedVerifyOriginResponse>(`${this.apiUrl}/embed/verify-origin`, {
+      publicToken,
+      origin
+    });
+  }
+
+  getEmbedDomainVerifications(): Observable<EmbedDomainVerification[]> {
+    return this.http.get<EmbedDomainVerification[]>(`${this.apiUrl}/embed/domains`);
+  }
+
+  createEmbedDomainChallenge(payload: { origin: string; method: 'dns_txt' | 'file' }): Observable<EmbedDomainVerification> {
+    return this.http.post<EmbedDomainVerification>(`${this.apiUrl}/embed/domains/challenge`, payload);
+  }
+
+  verifyEmbedDomainNow(id: string): Observable<EmbedDomainVerification> {
+    return this.http.post<EmbedDomainVerification>(`${this.apiUrl}/embed/domains/${id}/verify-now`, {});
+  }
+
+  activateEmbedDomain(id: string): Observable<EmbedDomainVerification> {
+    return this.http.post<EmbedDomainVerification>(`${this.apiUrl}/embed/domains/${id}/activate`, {});
+  }
+
+  deleteEmbedDomainVerification(id: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`${this.apiUrl}/embed/domains/${id}`);
   }
 
   getCatalogById(id: string, options?: { publicToken?: string }): Observable<Catalog> {

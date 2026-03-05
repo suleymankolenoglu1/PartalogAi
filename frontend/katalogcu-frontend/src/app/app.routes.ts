@@ -30,6 +30,7 @@ import { PartsImportComponent } from './dashboard/parts/parts-import/parts-impor
 import { VisualFeedbackComponent } from './dashboard/visual-feedback/visual-feedback';
 import { ChatQualityComponent } from './dashboard/chat-quality/chat-quality';
 import { OrdersComponent } from './dashboard/orders/orders';
+import { EmbedIntegrationComponent } from './dashboard/embed-integration/embed-integration';
 import { planGuard } from './core/guards/plan.guard';
 import { planSelectionGuard } from './core/guards/plan-selection.guard';
 import { platformAdminGuard } from './core/guards/platform-admin.guard';
@@ -70,6 +71,7 @@ export const routes: Routes = [
       { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
       { path: 'settings', component: SettingsComponent },
+      { path: 'embed', component: EmbedIntegrationComponent },
       ...(aiEnabled
         ? [
             { path: 'visual-feedback', component: VisualFeedbackComponent, canActivate: [planGuard], data: { minPlan: 2 } },

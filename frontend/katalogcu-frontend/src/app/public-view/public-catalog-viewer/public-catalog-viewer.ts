@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { CatalogService, Catalog, CatalogPage, CatalogPageItem } from '../../core/services/catalog.service';
 import { CartService } from '../../core/services/cart.service';
 import { environment } from '../../../environments/environment';
+import { emitEmbedEvent } from '../../core/utils/embed-bridge';
 
 interface ViewerGroup {
   pageIndex: number;
@@ -307,7 +308,15 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     };
 
     this.cartService.addToCart(productToAdd);
-    this.isCartOpen = true; 
+    this.isCartOpen = true;
+    emitEmbedEvent('cart:add', {
+      catalogId: this.catalogId,
+      pageNumber: this.activePage?.pageNumber ?? null,
+      catalogItemId: productToAdd.catalogItemId,
+      refNo: productToAdd.refNo,
+      partCode: productToAdd.partCode,
+      partName: productToAdd.partName
+    });
   }
 
   addItemWithQty(item: CatalogPageItem) {
@@ -436,6 +445,11 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   goCheckout() {
     if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
+    emitEmbedEvent('checkout:start', {
+      publicToken: this.publicToken,
+      catalogId: this.catalogId,
+      source: 'catalog-viewer'
+    });
     this.router.navigate(['/p', this.publicToken, 'checkout']);
   }
 
@@ -690,6 +704,15 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     }
 
     if (this.selectedItem) {
+      emitEmbedEvent('part:viewed', {
+        catalogId: this.catalogId,
+        pageNumber: this.activePage?.pageNumber ?? null,
+        refNo: this.selectedItem.refNo,
+        partCode: this.selectedItem.partCode,
+        partName: this.selectedItem.partName,
+        catalogItemId: this.selectedItem.catalogItemId
+      });
+
       // Arama filtresini temizle ki highlight görünsün
       if (this.searchQuery) {
         this.clearSearch();
@@ -710,6 +733,14 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
 
   onItemClick(item: CatalogPageItem) {
     this.selectItemAndHighlight(item, false, true);
+    emitEmbedEvent('part:viewed', {
+      catalogId: this.catalogId,
+      pageNumber: this.activePage?.pageNumber ?? null,
+      refNo: item.refNo,
+      partCode: item.partCode,
+      partName: item.partName,
+      catalogItemId: item.catalogItemId
+    });
   }
 
   // --- ZOOM & PAN ---

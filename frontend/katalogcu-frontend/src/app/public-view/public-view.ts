@@ -6,6 +6,7 @@ import { CatalogService, Catalog, CatalogPageItem, PublicFolderSummary, PublicSt
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
 import { environment } from '../../environments/environment';
+import { emitEmbedEvent } from '../core/utils/embed-bridge';
 
 // 🔥 Yanıt Tipi Tanımı (HTML ile uyumlu olması için)
 interface AiResponse {
@@ -543,6 +544,15 @@ export class PublicViewComponent implements OnInit {
   openPartInCatalog(part: any) {
     const catalogId = String(part?.catalogId ?? '').trim();
     if (!catalogId) return;
+    emitEmbedEvent('part:viewed', {
+      catalogId,
+      pageNumber: part?.pageNumber ?? null,
+      refNo: part?.refNo ?? part?.ref_no ?? null,
+      partCode: part?.code ?? null,
+      partName: part?.name ?? null,
+      catalogItemId: part?.catalogItemId ?? null,
+      source: 'ai-result'
+    });
 
     const rawPageNumber = part?.pageNumber;
     const parsedPage = Number.parseInt(String(rawPageNumber ?? ''), 10);
@@ -614,6 +624,10 @@ export class PublicViewComponent implements OnInit {
   goCheckout() {
     if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
+    emitEmbedEvent('checkout:start', {
+      publicToken: this.publicToken,
+      source: 'public-view'
+    });
     this.router.navigate(['/p', this.publicToken, 'checkout']);
   }
 
@@ -654,6 +668,14 @@ export class PublicViewComponent implements OnInit {
 
     this.cartService.addToCart(item);
     this.isCartOpen = true;
+    emitEmbedEvent('cart:add', {
+      catalogItemId: item.catalogItemId,
+      refNo: item.refNo,
+      partCode: item.partCode,
+      partName: item.partName,
+      productId: item.productId ?? null,
+      source: 'ai-result'
+    });
   }
 
   getPartFeedbackKey(part: any): string {

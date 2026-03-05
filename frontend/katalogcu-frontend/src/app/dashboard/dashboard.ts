@@ -340,4 +340,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (week <= 0) return 0;
     return Math.round((this.storefrontVisitsToday / week) * 100);
   }
+
+  get embedEventsTotal(): number {
+    return Number(this.stats?.embedEventsTotal ?? 0);
+  }
+
+  get embedEventsLast7Days(): number {
+    return Number(this.stats?.embedEventsLast7Days ?? 0);
+  }
+
+  get embedPartViewedCount(): number {
+    return Number(this.stats?.embedPartViewedCount ?? 0);
+  }
+
+  get embedCartAddCount(): number {
+    return Number(this.stats?.embedCartAddCount ?? 0);
+  }
+
+  get embedCheckoutStartCount(): number {
+    return Number(this.stats?.embedCheckoutStartCount ?? 0);
+  }
 }

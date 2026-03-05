@@ -59,6 +59,9 @@ builder.Services.AddScoped<CatalogProcessorService>();
 builder.Services.AddScoped<IPublicLinkService, PublicLinkService>();
 builder.Services.AddScoped<IPublicCatalogLinkService, PublicCatalogLinkService>();
 builder.Services.AddScoped<IPublicAccessTokenService, PublicAccessTokenService>();
+builder.Services.AddScoped<IEmbedOriginService, EmbedOriginService>();
+builder.Services.AddScoped<IEmbedAnalyticsService, EmbedAnalyticsService>();
+builder.Services.AddScoped<IEmbedDomainVerificationService, EmbedDomainVerificationService>();
 builder.Services.AddScoped<IChatStreamProxyService, ChatStreamProxyService>();
 builder.Services.AddScoped<IVisualFeedbackService, VisualFeedbackService>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -331,6 +334,20 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
+    options.AddPolicy("public-embed-events", httpContext =>
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"public-embed-events:{ip}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+
     options.AddPolicy("auth-login", httpContext =>
     {
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
@@ -442,6 +459,7 @@ app.Use(async (context, next) =>
     context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
     await next();
 });
+app.UseMiddleware<DynamicEmbedCorsMiddleware>();
 app.UseCors("AllowAngularApp");
 app.UseRateLimiter();
 app.UseAuthentication();

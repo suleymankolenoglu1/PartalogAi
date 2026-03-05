@@ -365,6 +365,205 @@ input:checked + .slider:before {
     color: #B91C1C;
 }
 
+/* Embed */
+.embed-card {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    background: #fff;
+    display: grid;
+    gap: 14px;
+}
+
+.embed-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.embed-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.embed-column {
+    display: grid;
+    gap: 10px;
+}
+
+.embed-column h4 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-main);
+}
+
+.embed-origin-input {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+}
+
+.origin-chip-list {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: #F8FAFC;
+    padding: 8px;
+    min-height: 48px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.origin-chip {
+    height: 28px;
+    border-radius: 999px;
+    border: 1px solid #BFDBFE;
+    background: #EFF6FF;
+    color: #1D4ED8;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 8px 0 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.origin-chip button {
+    border: none;
+    background: transparent;
+    color: #1D4ED8;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.embed-code-box {
+    border: 1px solid var(--border-color);
+    background: #0F172A;
+    color: #E2E8F0;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    overflow-x: auto;
+}
+
+.embed-code-box code {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.embed-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.embed-preview-frame {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+    min-height: 320px;
+}
+
+.embed-preview-frame iframe {
+    width: 100%;
+    height: 420px;
+    border: none;
+}
+
+.embed-verify-box {
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    background: #FCFDFE;
+    padding: 10px;
+}
+
+.embed-domain-row {
+    display: grid;
+    grid-template-columns: 180px auto;
+    gap: 8px;
+}
+
+.embed-domain-list {
+    margin-top: 10px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+
+.embed-domain-list h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    color: var(--text-main);
+}
+
+.embed-domain-cards {
+    display: grid;
+    gap: 8px;
+}
+
+.embed-domain-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    background: #fff;
+    display: grid;
+    gap: 8px;
+}
+
+.embed-domain-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+}
+
+.embed-domain-head strong {
+    display: block;
+    font-size: 13px;
+    color: var(--text-main);
+}
+
+.embed-domain-head small {
+    color: var(--text-sub);
+    font-size: 11px;
+}
+
+.domain-status {
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid #CBD5E1;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.domain-status.ok {
+    border-color: #BBF7D0;
+    background: #ECFDF5;
+    color: #15803D;
+}
+
+.domain-status.err {
+    border-color: #FECACA;
+    background: #FEF2F2;
+    color: #B91C1C;
+}
+
+.embed-domain-card code {
+    background: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
 /* Animasyon */
 .fade-in { animation: fadeIn 0.3s ease-in-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
@@ -376,4 +575,8 @@ input:checked + .slider:before {
     .settings-tabs { overflow-x: auto; white-space: nowrap; }
     .plan-grid { grid-template-columns: 1fr; }
     .plan-cancel-box { flex-direction: column; align-items: flex-start; }
+    .embed-grid { grid-template-columns: 1fr; }
+    .embed-origin-input { grid-template-columns: 1fr; }
+    .embed-preview-frame iframe { height: 320px; }
+    .embed-domain-row { grid-template-columns: 1fr; }
 }

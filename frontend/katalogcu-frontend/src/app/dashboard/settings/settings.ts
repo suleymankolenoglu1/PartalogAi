@@ -1,11 +1,21 @@
 import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms'; // 🔥 HTML'de ngModel kullandığımız için şart
-import { Catalog, CatalogService, PublicTokenStatus, ShowcaseMedia } from '../../core/services/catalog.service'; // Interface'i import ettik
+import {
+  Catalog,
+  CatalogService,
+  EmbedDomainVerification,
+  EmbedSettings,
+  EmbedVerifyOriginResponse,
+  PublicTokenStatus,
+  ShowcaseMedia
+} from '../../core/services/catalog.service'; // Interface'i import ettik
 import { AuthService } from '../../core/services/auth.service';
 import { ActivatedRoute } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { PlanId } from '../../core/models/plan.model';
+import { environment } from '../../../environments/environment';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
 @Component({
   selector: 'app-settings',
@@ -18,6 +28,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private catalogService = inject(CatalogService);
   private authService = inject(AuthService);
   private route = inject(ActivatedRoute);
+  private sanitizer = inject(DomSanitizer);
   private queryParamSub?: Subscription;
 
   // Aktif sekme (Type güvenliği için string literal kullandık)
@@ -31,6 +42,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
   publicActionError: string | null = null;
   publishedCatalogs: Catalog[] = [];
   selectedCatalogIds = new Set<string>();
+  embedSettings: EmbedSettings | null = null;
+  embedAllowedOrigins: string[] = [];
+  embedOriginInput = '';
+  embedTheme = 'default';
+  embedMode = 'catalog';
+  embedLoading = false;
+  embedSaving = false;
+  embedMessage: string | null = null;
+  embedError: string | null = null;
+  embedVerifyOriginInput = '';
+  embedVerifying = false;
+  embedVerifyResult: EmbedVerifyOriginResponse | null = null;
+  embedDomainMethod: 'dns_txt' | 'file' = 'dns_txt';
+  embedDomainsLoading = false;
+  embedDomains: EmbedDomainVerification[] = [];
 
   // --- PROFİL (GERÇEK VERİ) ---
   profile = {
@@ -124,15 +150,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
         this.activeTab = requestedTab;
       }
 
-      if (this.activeTab !== 'public') return;
-      if (query.get('section') !== 'link-management') return;
+      const section = query.get('section');
+      if (this.activeTab === 'public' && section === 'link-management') {
+        setTimeout(() => {
+          document.getElementById('link-management')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }, 0);
+        return;
+      }
 
-      setTimeout(() => {
-        document.getElementById('link-management')?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }, 0);
     });
   }
 
@@ -143,6 +171,255 @@ export class SettingsComponent implements OnInit, OnDestroy {
       || tab === 'showcase'
       || tab === 'public'
       || tab === 'plan';
+  }
+
+  loadEmbedSettings() {
+    this.embedLoading = true;
+    this.embedError = null;
+    this.catalogService.getEmbedSettings().subscribe({
+      next: (settings) => {
+        this.embedSettings = settings;
+        this.embedAllowedOrigins = [...(settings.allowedOrigins || [])];
+        this.embedTheme = settings.theme || 'default';
+        this.embedMode = settings.mode || 'catalog';
+        this.embedLoading = false;
+      },
+      error: () => {
+        this.embedLoading = false;
+        this.embedError = 'Embed ayarları yüklenemedi.';
+      }
+    });
+  }
+
+  loadEmbedDomains() {
+    this.embedDomainsLoading = true;
+    this.catalogService.getEmbedDomainVerifications().subscribe({
+      next: (rows) => {
+        this.embedDomains = rows || [];
+        this.embedDomainsLoading = false;
+      },
+      error: () => {
+        this.embedDomainsLoading = false;
+      }
+    });
+  }
+
+  createEmbedDomainChallenge() {
+    const normalized = this.normalizeOrigin(this.embedOriginInput);
+    if (!normalized) {
+      this.embedError = 'Geçerli bir origin girin. Örn: https://www.site.com';
+      return;
+    }
+
+    this.embedSaving = true;
+    this.embedError = null;
+    this.embedMessage = null;
+    this.catalogService.createEmbedDomainChallenge({
+      origin: normalized,
+      method: this.embedDomainMethod
+    }).subscribe({
+      next: (row) => {
+        this.embedSaving = false;
+        this.embedOriginInput = '';
+        this.embedDomains = [row, ...this.embedDomains.filter((x) => x.id !== row.id)];
+        this.embedMessage = 'Domain doğrulama challenge oluşturuldu.';
+      },
+      error: (err) => {
+        this.embedSaving = false;
+        this.embedError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Challenge oluşturulamadı.');
+      }
+    });
+  }
+
+  verifyDomainNow(row: EmbedDomainVerification) {
+    this.catalogService.verifyEmbedDomainNow(row.id).subscribe({
+      next: (updated) => {
+        this.embedDomains = this.embedDomains.map((x) => x.id === updated.id ? updated : x);
+        this.embedMessage = updated.status === 'verified'
+          ? `${updated.origin} doğrulandı.`
+          : `${updated.origin} doğrulanamadı.`;
+        this.embedError = updated.status === 'verified' ? null : (updated.lastError || 'Doğrulama başarısız.');
+      },
+      error: (err) => {
+        this.embedError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Doğrulama başarısız.');
+      }
+    });
+  }
+
+  activateDomain(row: EmbedDomainVerification) {
+    this.catalogService.activateEmbedDomain(row.id).subscribe({
+      next: () => {
+        this.embedMessage = `${row.origin} allowlist'e eklendi.`;
+        this.embedError = null;
+        this.loadEmbedSettings();
+      },
+      error: (err) => {
+        this.embedError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Domain aktif edilemedi.');
+      }
+    });
+  }
+
+  deleteDomain(row: EmbedDomainVerification) {
+    this.catalogService.deleteEmbedDomainVerification(row.id).subscribe({
+      next: () => {
+        this.embedDomains = this.embedDomains.filter((x) => x.id !== row.id);
+      },
+      error: () => {
+        this.embedError = 'Domain kaydı silinemedi.';
+      }
+    });
+  }
+
+  addEmbedOrigin() {
+    const normalized = this.normalizeOrigin(this.embedOriginInput);
+    if (!normalized) {
+      this.embedError = 'Geçerli bir origin girin. Örn: https://www.site.com';
+      return;
+    }
+
+    if (this.embedAllowedOrigins.includes(normalized)) {
+      this.embedOriginInput = '';
+      return;
+    }
+
+    this.embedAllowedOrigins = [...this.embedAllowedOrigins, normalized];
+    this.embedOriginInput = '';
+    this.embedError = null;
+  }
+
+  removeEmbedOrigin(origin: string) {
+    this.embedAllowedOrigins = this.embedAllowedOrigins.filter((x) => x !== origin);
+  }
+
+  saveEmbedSettings() {
+    this.embedSaving = true;
+    this.embedMessage = null;
+    this.embedError = null;
+    this.catalogService.updateEmbedSettings({
+      allowedOrigins: this.embedAllowedOrigins,
+      theme: this.embedTheme,
+      mode: this.embedMode
+    }).subscribe({
+      next: (settings) => {
+        this.embedSettings = settings;
+        this.embedAllowedOrigins = [...(settings.allowedOrigins || [])];
+        this.embedTheme = settings.theme || 'default';
+        this.embedMode = settings.mode || 'catalog';
+        this.embedSaving = false;
+        this.embedMessage = 'Embed ayarları kaydedildi.';
+      },
+      error: (err) => {
+        this.embedSaving = false;
+        this.embedError = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.message ?? 'Embed ayarları kaydedilemedi.');
+      }
+    });
+  }
+
+  async copyEmbedScript() {
+    if (!this.publicToken) {
+      this.embedError = 'Önce Public Link üretin.';
+      return;
+    }
+
+    const apiRoot = this.getApiRoot();
+    const scriptText = `<div id="partalog-embed-root"></div>
+<script src="${apiRoot}/embed.js"
+  data-public-token="${this.publicToken}"
+  data-api-base-url="${apiRoot}"
+  data-app-base-url="${window.location.origin}"
+  data-target="partalog-embed-root"
+  data-height="780px"></script>`;
+
+    try {
+      await navigator.clipboard.writeText(scriptText);
+      this.embedMessage = 'Embed script panoya kopyalandı.';
+      this.embedError = null;
+    } catch {
+      this.embedError = 'Script kopyalanamadı.';
+      this.embedMessage = null;
+    }
+  }
+
+  verifyEmbedOrigin() {
+    if (!this.publicToken) {
+      this.embedError = 'Önce Public Link üretin.';
+      return;
+    }
+
+    const normalized = this.normalizeOrigin(this.embedVerifyOriginInput);
+    if (!normalized) {
+      this.embedError = 'Doğrulama için geçerli origin girin.';
+      return;
+    }
+
+    this.embedVerifying = true;
+    this.embedVerifyResult = null;
+    this.embedError = null;
+    this.catalogService.verifyEmbedOrigin(this.publicToken, normalized).subscribe({
+      next: (result) => {
+        this.embedVerifyResult = result;
+        this.embedVerifying = false;
+      },
+      error: (err) => {
+        this.embedVerifying = false;
+        const reason = typeof err?.error === 'string'
+          ? err.error
+          : (err?.error?.reason ?? err?.error?.message ?? 'Doğrulama başarısız.');
+        this.embedError = reason;
+      }
+    });
+  }
+
+  get embedPreviewUrl(): string | null {
+    if (!this.publicToken) return null;
+    return `${window.location.origin}/p/${this.publicToken}?embed=1`;
+  }
+
+  get embedPreviewSafeUrl(): SafeResourceUrl | null {
+    const url = this.embedPreviewUrl;
+    if (!url) return null;
+    return this.sanitizer.bypassSecurityTrustResourceUrl(url);
+  }
+
+  get embedScriptSourceUrl(): string {
+    const apiRoot = this.getApiRoot();
+    return `${apiRoot}/embed.js`;
+  }
+
+  copyDomainInstruction(value: string | null | undefined) {
+    if (!value) return;
+    navigator.clipboard.writeText(value).then(() => {
+      this.embedMessage = 'Kopyalandı.';
+      this.embedError = null;
+    }).catch(() => {
+      this.embedError = 'Kopyalanamadı.';
+      this.embedMessage = null;
+    });
+  }
+
+  private normalizeOrigin(value: string): string {
+    const input = String(value || '').trim();
+    if (!input) return '';
+    try {
+      const url = new URL(input);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+      return `${url.protocol}//${url.host}`.toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  private getApiRoot(): string {
+    const raw = (environment.apiUrl || '').trim().replace(/\/+$/, '');
+    return raw.endsWith('/api') ? raw.slice(0, -4) : raw;
   }
 
   isCurrentPlan(plan: PlanId): boolean {
