@@ -8,6 +8,18 @@
     return String(value || "").replace(/\/+$/, "");
   }
 
+  function normalizeApiBaseUrl(value) {
+    var trimmed = trimSlash(value || "");
+    if (/\/api$/i.test(trimmed)) {
+      return trimmed.replace(/\/api$/i, "");
+    }
+    return trimmed;
+  }
+
+  function deriveAppBaseUrl(apiBaseUrl) {
+    return normalizeApiBaseUrl(apiBaseUrl || "");
+  }
+
   function resolveScript() {
     if (document.currentScript) return document.currentScript;
     var scripts = document.getElementsByTagName("script");
@@ -23,7 +35,7 @@
     var config = Object.assign(
       {
         token: ds.publicToken || ds.token || "",
-        apiBaseUrl: trimSlash(ds.apiBaseUrl || scriptOrigin),
+        apiBaseUrl: normalizeApiBaseUrl(ds.apiBaseUrl || scriptOrigin),
         appBaseUrl: trimSlash(ds.appBaseUrl || ""),
         target: ds.target || "partalog-embed-root",
         height: ds.height || "780px",
@@ -35,7 +47,8 @@
     );
 
     if (!config.appBaseUrl) {
-      throw new Error("data-app-base-url zorunlu (örn: https://app.partalog.tech).");
+      config.appBaseUrl = deriveAppBaseUrl(config.apiBaseUrl);
+      console.warn("[PartalogEmbed] data-app-base-url verilmedi, api base url'den türetildi:", config.appBaseUrl || "(same-origin)");
     }
 
     if (!config.token) {
@@ -67,7 +80,10 @@
       return res.json();
     }).then(function (payload) {
       if (!payload || payload.allowed !== true) {
-        throw new Error("Bu domain embed için yetkili değil.");
+        var verifyError = new Error("Bu domain embed için yetkili değil.");
+        verifyError.code = payload && payload.reason ? payload.reason : "origin_not_allowed";
+        verifyError.payload = payload || null;
+        throw verifyError;
       }
       return payload;
     });
@@ -81,6 +97,137 @@
     if (verifyPayload && verifyPayload.theme) params.set("theme", verifyPayload.theme);
     if (verifyPayload && verifyPayload.mode) params.set("mode", verifyPayload.mode);
     return base + path + "?" + params.toString();
+  }
+
+  function appendPoweredByBadge(host) {
+    var wrap = document.createElement("div");
+    wrap.style.display = "flex";
+    wrap.style.justifyContent = "flex-end";
+    wrap.style.marginTop = "8px";
+
+    var badge = document.createElement("a");
+    badge.href = "https://partalog.tech";
+    badge.target = "_blank";
+    badge.rel = "noopener noreferrer";
+    badge.textContent = "Powered by Partalog";
+    badge.style.display = "inline-flex";
+    badge.style.alignItems = "center";
+    badge.style.minHeight = "24px";
+    badge.style.padding = "0 9px";
+    badge.style.borderRadius = "999px";
+    badge.style.border = "1px solid rgba(148, 163, 184, 0.35)";
+    badge.style.background = "rgba(248, 250, 252, 0.9)";
+    badge.style.color = "#475569";
+    badge.style.font = "600 11px/1.2 Inter, system-ui, sans-serif";
+    badge.style.textDecoration = "none";
+    badge.style.letterSpacing = "0.01em";
+
+    wrap.appendChild(badge);
+    host.appendChild(wrap);
+  }
+
+  function getFriendlyErrorCopy(err) {
+    var code = err && err.code ? String(err.code) : "";
+    switch (code) {
+      case "plan_upgrade_required":
+        return {
+          title: "Plan yukseltme gerekiyor",
+          text: "Bu isletmenin paketi web sitesi entegrasyonunu desteklemiyor. Embed kullanimi icin Plan 2 veya ustu gerekir."
+        };
+      case "origin_not_allowed":
+        return {
+          title: "Bu domain yetkili degil",
+          text: "Bu site adresi embed icin izinli degil. Panelden domain ekleyip allowlist'e almalisin."
+        };
+      case "invalid_token":
+        return {
+          title: "Gecersiz public link",
+          text: "Kullanilan public token gecersiz veya iptal edilmis. Panelden yeni bir public link uretip tekrar dene."
+        };
+      case "token_required":
+        return {
+          title: "Public token eksik",
+          text: "Embed kodunda data-public-token alani eksik. Panelden guncel embed kodunu tekrar kopyala."
+        };
+      case "origin_required":
+        return {
+          title: "Domain bilgisi okunamadi",
+          text: "Tarayici mevcut site adresini dogrulayamadi. Domain adresini ve embed kurulumunu kontrol et."
+        };
+      case "owner_not_found":
+        return {
+          title: "Magaza bulunamadi",
+          text: "Bu embed kaydi bir isletme ile eslesmedi. Public link ve embed ayarlarini kontrol et."
+        };
+      default:
+        return {
+          title: "Embed yuklenemedi",
+          text: "Partalog vitrinini yuklerken bir sorun olustu. Domain, public link ve API adresini kontrol et."
+        };
+    }
+  }
+
+  function renderErrorState(host, err) {
+    if (!host) return;
+    var copy = getFriendlyErrorCopy(err || {});
+    host.innerHTML = "";
+
+    var card = document.createElement("div");
+    card.style.width = "100%";
+    card.style.minHeight = "220px";
+    card.style.boxSizing = "border-box";
+    card.style.padding = "24px";
+    card.style.border = "1px solid rgba(203, 213, 225, 0.9)";
+    card.style.borderRadius = "18px";
+    card.style.background = "linear-gradient(180deg, rgba(248,250,252,0.98) 0%, rgba(241,245,249,0.98) 100%)";
+    card.style.boxShadow = "0 10px 28px rgba(15, 23, 42, 0.08)";
+    card.style.display = "grid";
+    card.style.alignContent = "center";
+    card.style.gap = "12px";
+    card.style.fontFamily = "Inter, system-ui, sans-serif";
+
+    var badge = document.createElement("div");
+    badge.textContent = "Partalog Embed";
+    badge.style.width = "fit-content";
+    badge.style.minHeight = "28px";
+    badge.style.padding = "0 10px";
+    badge.style.borderRadius = "999px";
+    badge.style.display = "inline-flex";
+    badge.style.alignItems = "center";
+    badge.style.border = "1px solid rgba(148,163,184,0.35)";
+    badge.style.background = "rgba(255,255,255,0.9)";
+    badge.style.color = "#1d4ed8";
+    badge.style.fontSize = "11px";
+    badge.style.fontWeight = "700";
+    badge.style.letterSpacing = "0.02em";
+
+    var title = document.createElement("h3");
+    title.textContent = copy.title;
+    title.style.margin = "0";
+    title.style.color = "#0f172a";
+    title.style.fontSize = "22px";
+    title.style.lineHeight = "1.25";
+
+    var text = document.createElement("p");
+    text.textContent = copy.text;
+    text.style.margin = "0";
+    text.style.color = "#475569";
+    text.style.fontSize = "14px";
+    text.style.lineHeight = "1.6";
+    text.style.maxWidth = "560px";
+
+    var note = document.createElement("p");
+    note.textContent = "Sorun devam ederse panelde Web Sitesine Ekle ekranindan domain ve script ayarlarini tekrar kontrol et.";
+    note.style.margin = "2px 0 0";
+    note.style.color = "#64748b";
+    note.style.fontSize = "12px";
+    note.style.lineHeight = "1.5";
+
+    card.appendChild(badge);
+    card.appendChild(title);
+    card.appendChild(text);
+    card.appendChild(note);
+    host.appendChild(card);
   }
 
   function sendEventToApi(config, detail) {
@@ -165,6 +312,9 @@
 
       var cleanup = forwardEvents(iframe, config);
       host.appendChild(iframe);
+      if (verifyPayload && verifyPayload.whiteLabel !== true) {
+        appendPoweredByBadge(host);
+      }
 
       return {
         iframe: iframe,
@@ -173,6 +323,9 @@
           iframe.remove();
         }
       };
+    }).catch(function (err) {
+      renderErrorState(host, err);
+      throw err;
     });
   }
 

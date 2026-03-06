@@ -185,12 +185,19 @@ JSON
 status="$(call_api POST "$API_URL/api/embed/verify-origin" "$verify_body" "" "$ORIGIN")"
 assert_status "200" "$status" "embed/verify-origin"
 allowed="$(json_field allowed)"
+white_label="$(json_field whiteLabel)"
 if [[ -n "$OWNER_BEARER_TOKEN" && "$allowed" != "True" && "$allowed" != "true" ]]; then
   echo "[FAIL] verify-origin allowed=false döndü. Body:" >&2
   cat "$RESPONSE_FILE" >&2
   exit 1
 fi
 echo "[INFO] verify-origin allowed=$allowed"
+if [[ -z "$white_label" ]]; then
+  echo "[FAIL] verify-origin whiteLabel alanı dönmedi. Body:" >&2
+  cat "$RESPONSE_FILE" >&2
+  exit 1
+fi
+echo "[INFO] verify-origin whiteLabel=$white_label"
 
 echo "[6/8] embed/events ingest"
 event_body='{"eventName":"part:viewed","source":"smoke-script","pageUrl":"'"$APP_URL"'/embed-smoke","payload":{"partCode":"SMOKE-001","partName":"Smoke Part"}}'

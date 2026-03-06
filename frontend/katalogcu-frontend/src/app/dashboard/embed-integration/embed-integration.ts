@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { Router } from '@angular/router';
 import {
   CatalogService,
   EmbedDomainVerification,
@@ -9,6 +10,7 @@ import {
   EmbedVerifyOriginResponse,
   PublicTokenStatus
 } from '../../core/services/catalog.service';
+import { AuthService } from '../../core/services/auth.service';
 import { environment } from '../../../environments/environment';
 
 @Component({
@@ -21,6 +23,8 @@ import { environment } from '../../../environments/environment';
 export class EmbedIntegrationComponent implements OnInit {
   private catalogService = inject(CatalogService);
   private sanitizer = inject(DomSanitizer);
+  private authService = inject(AuthService);
+  private router = inject(Router);
 
   publicToken: string | null = null;
   publicTokenStatus: PublicTokenStatus | null = null;
@@ -43,7 +47,26 @@ export class EmbedIntegrationComponent implements OnInit {
   embedDomainsLoading = false;
   embedDomains: EmbedDomainVerification[] = [];
 
+  get isSnippetReady(): boolean {
+    return !!this.publicToken && this.canUseEmbed;
+  }
+
+  get currentPlan(): number {
+    return this.authService.getCurrentPlan();
+  }
+
+  get canUseEmbed(): boolean {
+    return this.currentPlan >= 2;
+  }
+
+  get showPoweredByBadgeInfo(): boolean {
+    return this.currentPlan === 2;
+  }
+
   ngOnInit(): void {
+    if (!this.canUseEmbed) {
+      return;
+    }
     this.loadPublicLinkState();
     this.loadEmbedSettings();
     this.loadEmbedDomains();
@@ -232,7 +255,7 @@ export class EmbedIntegrationComponent implements OnInit {
     }
 
     const apiRoot = this.getApiRoot();
-    const scriptText = `<div id="partalog-embed-root"></div>\n<script src="${apiRoot}/embed.js"\n  data-public-token="${this.publicToken}"\n  data-api-base-url="${apiRoot}"\n  data-app-base-url="${window.location.origin}"\n  data-target="partalog-embed-root"\n  data-height="780px"></script>`;
+    const scriptText = `<div id="partalog-embed-root"></div>\n<script src="${apiRoot}/embed.js"\n  data-public-token="${this.publicToken}"\n  data-api-base-url="${apiRoot}"\n  data-height="780px"></script>`;
 
     try {
       await navigator.clipboard.writeText(scriptText);
@@ -240,6 +263,26 @@ export class EmbedIntegrationComponent implements OnInit {
       this.embedError = null;
     } catch {
       this.embedError = 'Script kopyalanamadı.';
+      this.embedMessage = null;
+    }
+  }
+
+  async copySnippet(type: 'html' | 'wordpress' | 'shopify') {
+    if (!this.isSnippetReady) {
+      this.embedError = 'Önce public link üretin.';
+      return;
+    }
+    const map = {
+      html: this.htmlSnippet,
+      wordpress: this.wordpressSnippet,
+      shopify: this.shopifySnippet
+    };
+    try {
+      await navigator.clipboard.writeText(map[type]);
+      this.embedMessage = 'Kod panoya kopyalandı.';
+      this.embedError = null;
+    } catch {
+      this.embedError = 'Kod kopyalanamadı.';
       this.embedMessage = null;
     }
   }
@@ -288,6 +331,35 @@ export class EmbedIntegrationComponent implements OnInit {
   get embedScriptSourceUrl(): string {
     const apiRoot = this.getApiRoot();
     return `${apiRoot}/embed.js`;
+  }
+
+  get htmlSnippet(): string {
+    const apiRoot = this.getApiRoot();
+    const token = this.publicToken ?? '<PUBLIC_TOKEN>';
+    return `<div id="partalog-embed-root"></div>
+<script src="${apiRoot}/embed.js"
+  data-public-token="${token}"
+  data-api-base-url="${apiRoot}"
+  data-height="780px"></script>`;
+  }
+
+  get wordpressSnippet(): string {
+    return `<!-- WordPress: Özel HTML bloğuna yapıştır -->
+${this.htmlSnippet}`;
+  }
+
+  get shopifySnippet(): string {
+    return `{%- comment -%} Shopify: theme.liquid dosyasında </body> öncesine ekleyin {%- endcomment -%}
+${this.htmlSnippet}`;
+  }
+
+  goUpgrade() {
+    this.router.navigate(['/upgrade'], {
+      queryParams: {
+        requiredPlan: 2,
+        feature: 'embed'
+      }
+    });
   }
 
   copyDomainInstruction(value: string | null | undefined) {

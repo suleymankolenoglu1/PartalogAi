@@ -68,6 +68,7 @@ export interface EmbedVerifyOriginResponse {
   ownerUserId?: string;
   theme?: string;
   mode?: string;
+  whiteLabel?: boolean;
 }
 
 export interface EmbedDomainInstruction {

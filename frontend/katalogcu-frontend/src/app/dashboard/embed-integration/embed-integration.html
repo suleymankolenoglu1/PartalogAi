@@ -3,11 +3,57 @@
     <div class="header-content">
       <h1>Web Sitesine Entegrasyon</h1>
       <p>Teknik bilgin olmasa da bu sayfadaki adımları sırayla yaparak Partalog vitrini kendi sitene ekleyebilirsin.</p>
+      <div class="hero-badges">
+        <span class="hero-badge">1. Domain ekle</span>
+        <span class="hero-badge">2. Doğrula</span>
+        <span class="hero-badge">3. Kodu yerleştir</span>
+        <span class="hero-badge">4. Canlıda kontrol et</span>
+      </div>
     </div>
   </header>
 
-  <div class="embed-layout">
-    <section class="guide-card">
+  <div class="embed-content-shell" [class.is-locked]="!canUseEmbed">
+    @if (!canUseEmbed) {
+      <section class="embed-locked-banner">
+        <div class="embed-locked-copy">
+          <span class="material-symbols-outlined">lock</span>
+          <div>
+            <h3>Embed kilitli</h3>
+            <p>Bu özellik Plan 2 ve üzerinde kullanılabilir. Planınızı yükseltin.</p>
+          </div>
+        </div>
+        <button type="button" class="btn-primary locked-upgrade-btn" (click)="goUpgrade()">
+          Planı Yükselt
+        </button>
+      </section>
+    }
+
+    <section class="intro-strip">
+      <article class="intro-card">
+        <span class="material-symbols-outlined">public</span>
+        <div>
+          <strong>Domain güvenliği</strong>
+          <p>Sadece izin verdiğin domainlerde katalog çalışır.</p>
+        </div>
+      </article>
+      <article class="intro-card">
+        <span class="material-symbols-outlined">code_blocks</span>
+        <div>
+          <strong>Hazır kodlar</strong>
+          <p>HTML, WordPress ve Shopify için hazır snippet bulunur.</p>
+        </div>
+      </article>
+      <article class="intro-card">
+        <span class="material-symbols-outlined">preview</span>
+        <div>
+          <strong>Önizleme</strong>
+          <p>Kodu eklemeden önce vitrinin nasıl göründüğünü test edebilirsin.</p>
+        </div>
+      </article>
+    </section>
+
+    <div class="embed-workspace">
+      <section class="guide-card guide-card-main">
       <h3>Hızlı Kurulum Rehberi</h3>
       <ol class="guide-steps">
         <li>
@@ -44,9 +90,102 @@
           özel panelde ise "Custom Code" alanına ekleyebilirsin.
         </p>
       </div>
-    </section>
 
-    <section class="embed-card">
+      <div class="platform-guide-panel">
+        <h4>Platforma Göre Nasıl Eklenir?</h4>
+        <p class="hint-text">Kendi sitenin altyapısını seçip aynı yolu izle.</p>
+
+        <article class="platform-guide-card">
+          <div class="platform-guide-head">
+            <strong>WordPress Gutenberg</strong>
+            <span class="guide-chip">Kolay</span>
+          </div>
+          <ol class="platform-guide-list">
+            <li>Sayfayı düzenle ekranını aç.</li>
+            <li>`+` butonundan `Özel HTML` bloğu ekle.</li>
+            <li>Aşağıdaki `Düz HTML / PHP` kodunu yapıştır.</li>
+            <li>Sayfayı güncelle ve yayına al.</li>
+          </ol>
+        </article>
+
+        <article class="platform-guide-card">
+          <div class="platform-guide-head">
+            <strong>WordPress Elementor</strong>
+            <span class="guide-chip">Kolay</span>
+          </div>
+          <ol class="platform-guide-list">
+            <li>Elementor ile düzenle ekranına gir.</li>
+            <li>Sol panelden `HTML` bileşenini sayfaya sürükle.</li>
+            <li>Kopyaladığın embed kodunu HTML alanına yapıştır.</li>
+            <li>`Güncelle` butonuna basıp canlıda kontrol et.</li>
+          </ol>
+        </article>
+
+        <article class="platform-guide-card">
+          <div class="platform-guide-head">
+            <strong>Shopify Tema</strong>
+            <span class="guide-chip">Gelişmiş</span>
+          </div>
+          <ol class="platform-guide-list">
+            <li>`Online Store > Themes > Edit code` bölümüne gir.</li>
+            <li>`theme.liquid` veya ilgili section dosyasını aç.</li>
+            <li>`&lt;/body&gt;` etiketinden hemen önce Shopify kodunu ekle.</li>
+            <li>Kaydet ve mağaza sayfasında kontrol et.</li>
+          </ol>
+        </article>
+
+        <article class="platform-guide-card">
+          <div class="platform-guide-head">
+            <strong>Özel Yazılım / HTML / PHP</strong>
+            <span class="guide-chip">Esnek</span>
+          </div>
+          <ol class="platform-guide-list">
+            <li>Embed görünmesini istediğin sayfanın dosyasını aç.</li>
+            <li>Katalogun görüneceği yere `root` div ve scripti ekle.</li>
+            <li>Dosyayı yayınla.</li>
+            <li>Tarayıcıda sayfayı yenileyip çalıştığını kontrol et.</li>
+          </ol>
+        </article>
+      </div>
+
+      <div class="snippet-panel">
+        <h4>Hazır Kopyala-Yapıştır Kodları</h4>
+        <p class="hint-text">Altyapına göre kodu kopyalayıp direkt kullanabilirsin.</p>
+
+        <article class="snippet-card">
+          <div class="snippet-head">
+            <strong>Düz HTML / PHP</strong>
+            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet('html')">Kopyala</button>
+          </div>
+          <pre><code>{{ htmlSnippet }}</code></pre>
+        </article>
+
+        <article class="snippet-card">
+          <div class="snippet-head">
+            <strong>WordPress</strong>
+            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet('wordpress')">Kopyala</button>
+          </div>
+          <pre><code>{{ wordpressSnippet }}</code></pre>
+        </article>
+
+        <article class="snippet-card">
+          <div class="snippet-head">
+            <strong>Shopify</strong>
+            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet('shopify')">Kopyala</button>
+          </div>
+          <pre><code>{{ shopifySnippet }}</code></pre>
+        </article>
+
+        @if (showPoweredByBadgeInfo) {
+          <div class="guide-note powered-note">
+            <h4>Plan 2 görünümü</h4>
+            <p>Plan 2 embedlerinde iframe altında küçük bir `Powered by Partalog` rozeti görünür. Plan 3'te bu rozet otomatik kaldırılır.</p>
+          </div>
+        }
+      </div>
+      </section>
+
+      <section class="embed-card embed-card-main">
       <div class="embed-header">
         <h3 class="section-title">Entegrasyon Ayarları</h3>
         <span class="public-badge">SDK v1</span>
@@ -194,6 +333,46 @@
       @if (embedError) {
         <p class="public-feedback err">{{ embedError }}</p>
       }
+      </section>
+    </div>
+
+    <section class="faq-section">
+      <div class="faq-header">
+        <h3>Sık Sorulan Sorular</h3>
+        <p>Kurulumda en sık karşılaşılan noktaları burada netleştirdim.</p>
+      </div>
+
+      <div class="faq-grid">
+        <article class="faq-card">
+          <h4>Neden domain doğrulama istiyor?</h4>
+          <p>Başka siteler senin vitrini izinsiz açamasın diye. Sistem yalnızca sana ait ve senin onayladığın domainlerde çalışır.</p>
+        </article>
+
+        <article class="faq-card">
+          <h4>Kodu ekledim ama görünmüyor, ne kontrol etmeliyim?</h4>
+          <p>Önce public linkin aktif olduğuna, domainin allowlist'e alındığına ve kodun sayfada `body` kapanışına yakın yerde olduğuna bak.</p>
+        </article>
+
+        <article class="faq-card">
+          <h4>WordPress'te eklenti gerekir mi?</h4>
+          <p>Hayır. Gutenberg için `Özel HTML`, Elementor için `HTML` bileşeni yeterli. Ekstra eklenti şart değil.</p>
+        </article>
+
+        <article class="faq-card">
+          <h4>Shopify'da tüm siteye mi eklemeliyim?</h4>
+          <p>Gerekmez. İstersen belirli bir sayfaya, istersen `theme.liquid` içine ekleyerek genel kullanıma açabilirsin.</p>
+        </article>
+
+        <article class="faq-card">
+          <h4>Katalog verileri benim siteme mi kopyalanıyor?</h4>
+          <p>Hayır. Senin siten sadece Partalog içeriğini güvenli şekilde gösterir. Veri yönetimi yine panelde kalır.</p>
+        </article>
+
+        <article class="faq-card">
+          <h4>Mobilde de çalışır mı?</h4>
+          <p>Evet. Embed alanı responsive çalışır. Yine de kendi sitende bir kez telefon ekranında kontrol etmen gerekir.</p>
+        </article>
+      </div>
     </section>
   </div>
 </div>

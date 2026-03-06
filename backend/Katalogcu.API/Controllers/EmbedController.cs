@@ -2,10 +2,13 @@ using System.Security.Claims;
 using System.Text.Json;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.API.Services;
+using Katalogcu.Domain.Enums;
+using Katalogcu.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 
 namespace Katalogcu.API.Controllers;
 
@@ -17,17 +20,20 @@ public class EmbedController : ControllerBase
     private readonly IPublicAccessTokenService _publicAccessTokenService;
     private readonly IEmbedAnalyticsService _embedAnalyticsService;
     private readonly IEmbedDomainVerificationService _embedDomainVerificationService;
+    private readonly AppDbContext _dbContext;
 
     public EmbedController(
         IEmbedOriginService embedOriginService,
         IPublicAccessTokenService publicAccessTokenService,
         IEmbedAnalyticsService embedAnalyticsService,
-        IEmbedDomainVerificationService embedDomainVerificationService)
+        IEmbedDomainVerificationService embedDomainVerificationService,
+        AppDbContext dbContext)
     {
         _embedOriginService = embedOriginService;
         _publicAccessTokenService = publicAccessTokenService;
         _embedAnalyticsService = embedAnalyticsService;
         _embedDomainVerificationService = embedDomainVerificationService;
+        _dbContext = dbContext;
     }
 
     [HttpGet("settings")]
@@ -101,6 +107,31 @@ public class EmbedController : ControllerBase
         }
 
         var settings = await _embedOriginService.GetOrCreateAsync(payload.UserId, cancellationToken);
+        var plan = await _dbContext.Users
+            .AsNoTracking()
+            .Where(u => u.Id == payload.UserId)
+            .Select(u => (SubscriptionPlan?)u.SubscriptionPlan)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (plan is null)
+        {
+            return BadRequest(new { allowed = false, reason = "owner_not_found", whiteLabel = false });
+        }
+
+        if (plan == SubscriptionPlan.CatalogOnly)
+        {
+            return Ok(new
+            {
+                allowed = false,
+                reason = "plan_upgrade_required",
+                origin = normalizedOrigin,
+                ownerUserId = payload.UserId,
+                theme = settings.Theme,
+                mode = settings.Mode,
+                whiteLabel = false
+            });
+        }
+
         var allowed = settings.AllowedOrigins.Contains(normalizedOrigin, StringComparer.OrdinalIgnoreCase);
 
         return Ok(new
@@ -110,7 +141,8 @@ public class EmbedController : ControllerBase
             origin = normalizedOrigin,
             ownerUserId = payload.UserId,
             theme = settings.Theme,
-            mode = settings.Mode
+            mode = settings.Mode,
+            whiteLabel = plan == SubscriptionPlan.CatalogWithAIAndEcommerce
         });
     }
 
@@ -300,6 +332,28 @@ public class EmbedController : ControllerBase
 
     private static object MapDomainRow(EmbedDomainVerificationDto row)
     {
+        var instructions = row.Method == "dns_txt"
+            ? new
+            {
+                type = "dns_txt",
+                recordName = $"_partalog-challenge.{row.Domain}",
+                recordType = "TXT",
+                recordValue = row.ChallengeToken,
+                filePath = (string?)null,
+                fileUrl = (string?)null,
+                fileContent = (string?)null
+            }
+            : new
+            {
+                type = "file",
+                recordName = (string?)null,
+                recordType = (string?)null,
+                recordValue = (string?)null,
+                filePath = "/.well-known/partalog-verification.txt",
+                fileUrl = $"{row.Origin}/.well-known/partalog-verification.txt",
+                fileContent = row.ChallengeToken
+            };
+
         return new
         {
             id = row.Id,
@@ -311,21 +365,7 @@ public class EmbedController : ControllerBase
             challengeToken = row.ChallengeToken,
             verifiedAt = row.VerifiedAt,
             lastError = row.LastError,
-            instructions = row.Method == "dns_txt"
-                ? new
-                {
-                    type = "dns_txt",
-                    recordName = $"_partalog-challenge.{row.Domain}",
-                    recordType = "TXT",
-                    recordValue = row.ChallengeToken
-                }
-                : new
-                {
-                    type = "file",
-                    filePath = "/.well-known/partalog-verification.txt",
-                    fileUrl = $"{row.Origin}/.well-known/partalog-verification.txt",
-                    fileContent = row.ChallengeToken
-                }
+            instructions
         };
     }
 
