@@ -3,7 +3,9 @@ using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
 using Katalogcu.Infrastructure.Persistence;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Katalogcu.API.Services;
 
@@ -33,10 +35,16 @@ public interface IEmbedAnalyticsService
 public sealed class EmbedAnalyticsService : IEmbedAnalyticsService
 {
     private readonly AppDbContext _context;
+    private readonly string _connectionString;
 
-    public EmbedAnalyticsService(AppDbContext context)
+    public EmbedAnalyticsService(AppDbContext context, IConfiguration configuration)
     {
         _context = context;
+        _connectionString =
+            Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+            ?? Environment.GetEnvironmentVariable("DB_CONNECTION_STRING")
+            ?? configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection bulunamadı.");
     }
 
     public Task IngestAsync(
@@ -159,13 +167,8 @@ public sealed class EmbedAnalyticsService : IEmbedAnalyticsService
 
     private T ExecuteWithCommand<T>(string sql, Func<DbCommand, T> action)
     {
-        var connection = _context.Database.GetDbConnection();
-        var shouldClose = connection.State != ConnectionState.Open;
-        if (shouldClose)
-        {
-            connection.Open();
-        }
-
+        using var connection = new NpgsqlConnection(_connectionString);
+        connection.Open();
         try
         {
             using var command = connection.CreateCommand();
@@ -174,7 +177,7 @@ public sealed class EmbedAnalyticsService : IEmbedAnalyticsService
         }
         finally
         {
-            if (shouldClose && connection.State == ConnectionState.Open)
+            if (connection.State == ConnectionState.Open)
             {
                 connection.Close();
             }

@@ -58,9 +58,21 @@ public sealed class HotspotRepository : IHotspotRepository
                 cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Hotspot>> GetHotspotsByPageIdAsync(Guid pageId, CancellationToken cancellationToken)
+    {
+        return await _context.Hotspots
+            .Where(h => h.PageId == pageId)
+            .ToListAsync(cancellationToken);
+    }
+
     public void RemoveHotspot(Hotspot hotspot)
     {
         _context.Hotspots.Remove(hotspot);
+    }
+
+    public void RemoveHotspots(IEnumerable<Hotspot> hotspots)
+    {
+        _context.Hotspots.RemoveRange(hotspots);
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken)

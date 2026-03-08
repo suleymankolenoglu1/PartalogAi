@@ -59,6 +59,7 @@ export interface EmbedSettings {
   allowedOrigins: string[];
   theme: string;
   mode: string;
+  storeSlug?: string;
 }
 
 export interface EmbedVerifyOriginResponse {
@@ -69,6 +70,16 @@ export interface EmbedVerifyOriginResponse {
   theme?: string;
   mode?: string;
   whiteLabel?: boolean;
+  publicToken?: string;
+  storeSlug?: string;
+  appBaseUrl?: string;
+}
+
+export interface EmbedStoreSlugCheckResponse {
+  normalized: string;
+  current?: string;
+  available: boolean;
+  suggested: string;
 }
 
 export interface EmbedDomainInstruction {
@@ -199,6 +210,8 @@ export interface Hotspot {
   label: string;
   productId?: string; 
   confidence?: number;
+  aiConfidence?: number;
+  isAiDetected?: boolean;
   left: number; top: number; width: number; height: number; 
   partNumber?: string;  
   description?: string; 
@@ -229,6 +242,29 @@ export interface HotspotUpdateRequest {
   productId?: string | null;
 }
 
+export type CatalogPageReviewStatus = 'NeedsReview' | 'Reviewed';
+
+export interface CatalogPageReviewUpdateRequest {
+  reviewStatus: CatalogPageReviewStatus;
+  reviewNotes?: string;
+}
+
+export interface DetectHotspotsResult {
+  message: string;
+  pageId: string;
+  detectedCount: number;
+  hotspots: Hotspot[];
+}
+
+export interface HotspotLabelReadResult {
+  success: boolean;
+  label?: string | null;
+  confidence: number;
+  message: string;
+  cropWidth: number;
+  cropHeight: number;
+}
+
 export interface CatalogPage {
   id: string;
   catalogId: string;
@@ -239,7 +275,10 @@ export interface CatalogPage {
   height?: number;
   hotspots?: Hotspot[];
   aiDescription?: string; 
-  items?: CatalogPageItem[]; 
+  items?: CatalogPageItem[];
+  reviewStatus?: CatalogPageReviewStatus;
+  reviewNotes?: string | null;
+  reviewedAt?: string | null;
 }
 
 export interface Catalog {
@@ -344,14 +383,20 @@ export class CatalogService {
     return this.http.get<EmbedSettings>(`${this.apiUrl}/embed/settings`);
   }
 
-  updateEmbedSettings(payload: { allowedOrigins: string[]; theme?: string; mode?: string }): Observable<EmbedSettings> {
+  updateEmbedSettings(payload: { allowedOrigins: string[]; theme?: string; mode?: string; storeSlug?: string }): Observable<EmbedSettings> {
     return this.http.put<EmbedSettings>(`${this.apiUrl}/embed/settings`, payload);
   }
 
-  verifyEmbedOrigin(publicToken: string, origin: string): Observable<EmbedVerifyOriginResponse> {
+  checkEmbedStoreSlug(slug: string): Observable<EmbedStoreSlugCheckResponse> {
+    const params = new HttpParams().set('slug', slug);
+    return this.http.get<EmbedStoreSlugCheckResponse>(`${this.apiUrl}/embed/store-slug/check`, { params });
+  }
+
+  verifyEmbedOrigin(params: { publicToken?: string; storeSlug?: string; origin: string }): Observable<EmbedVerifyOriginResponse> {
     return this.http.post<EmbedVerifyOriginResponse>(`${this.apiUrl}/embed/verify-origin`, {
-      publicToken,
-      origin
+      publicToken: params.publicToken,
+      storeSlug: params.storeSlug,
+      origin: params.origin
     });
   }
 
@@ -412,6 +457,10 @@ export class CatalogService {
     return this.http.delete(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageId}/clear`);
   }
 
+  updateCatalogPageReview(catalogId: string, pageId: string, data: CatalogPageReviewUpdateRequest): Observable<CatalogPage> {
+    return this.http.put<CatalogPage>(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageId}/review`, data);
+  }
+
   analyzePage(catalogId: string, data: AnalyzeRequest): Observable<AnalyzeResponse> {
     return this.http.post<AnalyzeResponse>(`${this.apiUrl}/catalogs/${catalogId}/analyze`, data);
   }
@@ -438,8 +487,16 @@ export class CatalogService {
     return this.http.post<Hotspot>(`${this.apiUrl}/hotspots`, hotspotData);
   }
 
+  detectHotspots(pageId: string): Observable<DetectHotspotsResult> {
+    return this.http.post<DetectHotspotsResult>(`${this.apiUrl}/hotspots/detect/${pageId}`, {});
+  }
+
   updateHotspot(id: string, hotspotData: HotspotUpdateRequest): Observable<Hotspot> {
     return this.http.put<Hotspot>(`${this.apiUrl}/hotspots/${id}`, hotspotData);
+  }
+
+  readHotspotLabel(id: string): Observable<HotspotLabelReadResult> {
+    return this.http.post<HotspotLabelReadResult>(`${this.apiUrl}/hotspots/${id}/read-label`, {});
   }
 
   deleteHotspot(id: string): Observable<any> {

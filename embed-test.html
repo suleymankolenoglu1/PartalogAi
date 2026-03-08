@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Partalog Embed Test</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: #edf2f8;
+      color: #203247;
+    }
+
+    .wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    .hero {
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      line-height: 1.1;
+    }
+
+    p {
+      margin: 0;
+      color: #607286;
+      font-size: 15px;
+    }
+
+    .host-box {
+      min-height: 860px;
+      padding: 20px;
+      background: #ffffff;
+      border: 1px solid #d7e0ea;
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(24, 39, 75, 0.08);
+    }
+
+    .note {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: #f7faff;
+      border: 1px solid #d7e7ff;
+      border-radius: 12px;
+      color: #4c5f75;
+      font-size: 13px;
+    }
+
+    code {
+      padding: 2px 6px;
+      background: #eff4f9;
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Partalog Embed Test</h1>
+      <p>Bu sayfa web sitesi entegrasyonunun iframe render testidir.</p>
+    </div>
+
+    <div class="host-box">
+      <div id="partalog-embed-root"></div>
+      <script
+        src="http://localhost:5159/embed.js?v=3"
+        data-store="magaza-kodun"
+        data-api-base-url="http://localhost:5159/api"
+        data-target="#partalog-embed-root"
+        data-height="820px"></script>
+    </div>
+
+    <div class="note">
+      Testten önce <code>magaza-kodun</code> alanını panelde kaydettiğin mağaza kodu ile değiştir.
+    </div>
+  </div>
+</body>
+</html>

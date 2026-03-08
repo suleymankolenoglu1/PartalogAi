@@ -63,6 +63,29 @@ public class PartalogAiService : IPartalogAiService
         }
     }
 
+    public async Task<HotspotLabelReadResultDto> ReadHotspotLabelAsync(IFormFile file)
+    {
+        try
+        {
+            var responseJson = await SendFileStreamAsync(file, "/api/hotspot/read-label");
+            var result = JsonSerializer.Deserialize<HotspotLabelReadResultDto>(responseJson, _jsonOptions);
+            return result ?? new HotspotLabelReadResultDto
+            {
+                Success = false,
+                Message = "OCR cevabı okunamadı."
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Hotspot OCR servisi hatası.");
+            return new HotspotLabelReadResultDto
+            {
+                Success = false,
+                Message = "Hotspot OCR servisine ulaşılamadı."
+            };
+        }
+    }
+
     // --- 2. GEMINI (TABLO OKUMA) ---
     public async Task<List<ProductItemDto>> ExtractTableAsync(byte[] fileBytes, int pageNumber)
     {

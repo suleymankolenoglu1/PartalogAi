@@ -1,4 +1,14 @@
 <div class="cd-shell">
+  @if (toast) {
+    <div class="cd-toast" [ngClass]="toast.type">
+      <span class="material-symbols-outlined">
+        @if (toast.type === 'success') { check_circle }
+        @else if (toast.type === 'error') { error }
+        @else { info }
+      </span>
+      <p>{{ toast.message }}</p>
+    </div>
+  }
   @if (isLoading) {
     <div class="cd-state-wrap">
       <span class="material-symbols-outlined cd-spin">progress_activity</span>
@@ -140,6 +150,11 @@
           Hızlı Analiz
         </button>
 
+        <button type="button" class="cd-btn subtle" [disabled]="!activePage || isRetriggeringHotspots" (click)="redetectHotspots()">
+          <span class="material-symbols-outlined">center_focus_strong</span>
+          @if (isRetriggeringHotspots) { Taranıyor... } @else { Hotspotları Yenile }
+        </button>
+
         <div class="cd-toggle-wrap">
           <span>EDITÖR</span>
           <button
@@ -162,12 +177,12 @@
       <aside class="cd-pages">
         <div class="cd-pages-head">Sayfalar</div>
         <div class="cd-pages-list">
-          @for (page of (catalog.pages || []); track page.id; let i = $index) {
+          @for (page of (catalog.pages ?? []); track page.id) {
             <button
               type="button"
               class="cd-page-btn"
-              [class.active]="i === activePageIndex"
-              (click)="selectPage(i)">
+              [class.active]="page.id === activePage?.id"
+              (click)="selectPageById(page.id)">
               <img [src]="page.imageUrl" alt="Sayfa küçük görseli">
               <div class="cd-page-meta">
                 <strong>Sf {{ page.pageNumber }}</strong>
@@ -179,72 +194,106 @@
       </aside>
 
       <section class="cd-canvas-panel">
-        <div
-          #pageCanvas
-          class="cd-canvas"
-          [ngClass]="isAiMode ? 'busy' : (isEditMode ? 'edit' : '')"
-          (click)="(!isAiMode && activePage) ? onImageClick($event) : null">
+        <div class="cd-canvas-toolbar">
+          <div class="cd-canvas-toolbar-copy">
+            <strong>Teknik Çizim</strong>
+            <span>%{{ (zoomScale * 100).toFixed(0) }} yakınlık</span>
+          </div>
+          <div class="cd-canvas-zoom">
+            <button type="button" class="cd-icon-btn" (click)="zoomOut()" [disabled]="zoomScale <= 1" title="Uzaklaştır">
+              <span class="material-symbols-outlined">remove</span>
+            </button>
+            <button type="button" class="cd-icon-btn" (click)="resetZoom()" [disabled]="zoomScale === 1" title="Sıfırla">
+              <span class="material-symbols-outlined">center_focus_strong</span>
+            </button>
+            <button type="button" class="cd-icon-btn" (click)="zoomIn()" [disabled]="zoomScale >= 3" title="Yakınlaştır">
+              <span class="material-symbols-outlined">add</span>
+            </button>
+          </div>
+        </div>
 
-          @if (activePage) {
-            <img
-              #activePageImage
-              [src]="activePage.imageUrl"
-              (load)="onActiveImageLoad()"
-              class="cd-page-image"
-              alt="Teknik çizim">
+        <div #pageViewport class="cd-canvas-viewport">
+          <div
+            #pageCanvas
+            class="cd-canvas"
+            [ngClass]="isAiMode ? 'busy' : (isEditMode ? 'edit' : '')"
+            [style.width.px]="stageSize.width"
+            [style.height.px]="stageSize.height"
+            (click)="(!isAiMode && activePage) ? onImageClick($event) : null">
 
-            <div
-              class="cd-hotspot-layer"
-              [style.left.px]="imageFrame.left"
-              [style.top.px]="imageFrame.top"
-              [style.width.px]="imageFrame.width"
-              [style.height.px]="imageFrame.height">
+            @if (activePage) {
+              <img
+                #activePageImage
+                [src]="activePage.imageUrl"
+                (load)="onActiveImageLoad()"
+                class="cd-page-image"
+                alt="Teknik çizim">
 
-              @if (!isAiMode && activePage.hotspots) {
-                @for (spot of activePage.hotspots; track spot.id) {
-                  <div
-                    class="cd-hotspot"
-                    (click)="onHotspotClick($event, spot)"
-                    [style.top.%]="spot.top"
-                    [style.left.%]="spot.left"
-                    [style.width.%]="spot.width"
-                    [style.height.%]="spot.height"
-                    [ngClass]="{
-                      'selected': selectedPartRef === spot.label,
-                      'editing': isEditMode,
-                      'active-edit': selectedHotspotId === spot.id
-                    }">
+              <div
+                class="cd-hotspot-layer"
+                [style.left.px]="imageFrame.left"
+                [style.top.px]="imageFrame.top"
+                [style.width.px]="imageFrame.width"
+                [style.height.px]="imageFrame.height">
 
-                    @if (isEditMode) {
-                      <button type="button" class="cd-hotspot-delete" (click)="removeHotspot($event, spot.id)">✕</button>
-                    }
+                @if (!isAiMode && activePage.hotspots) {
+                  @for (spot of activePage.hotspots; track spot.id) {
+                    <div
+                      class="cd-hotspot"
+                      [class.dragging]="hotspotDragState?.hotspotId === spot.id"
+                      (click)="onHotspotClick($event, spot)"
+                      (mousedown)="isEditMode ? startHotspotMove($event, spot) : null"
+                      [style.top.%]="spot.top"
+                      [style.left.%]="spot.left"
+                      [style.width.%]="spot.width"
+                      [style.height.%]="spot.height"
+                      [ngClass]="{
+                        'selected': selectedPartRef === spot.label,
+                        'editing': isEditMode,
+                        'active-edit': selectedHotspotId === spot.id,
+                        'low-confidence': isHotspotLowConfidence(spot)
+                      }">
 
-                    <span class="cd-hotspot-tag">#{{ spot.label }}</span>
-                  </div>
+                      @if (isEditMode) {
+                        <button type="button" class="cd-hotspot-delete" (mousedown)="$event.stopPropagation()" (click)="removeHotspot($event, spot.id)">✕</button>
+                      }
+
+                      <span class="cd-hotspot-tag">#{{ spot.label }}</span>
+
+                      @if (isEditMode) {
+                        <button
+                          type="button"
+                          class="cd-hotspot-resize"
+                          (mousedown)="startHotspotResize($event, spot)">
+                          <span class="material-symbols-outlined">drag_handle</span>
+                        </button>
+                      }
+                    </div>
+                  }
                 }
-              }
 
-              @if (!isAiMode && tempHotspot) {
-                <div
-                  class="cd-temp-hotspot"
-                  [style.top.%]="tempHotspot.y"
-                  [style.left.%]="tempHotspot.x"></div>
-              }
-            </div>
+                @if (!isAiMode && tempHotspot) {
+                  <div
+                    class="cd-temp-hotspot"
+                    [style.top.%]="tempHotspot.y"
+                    [style.left.%]="tempHotspot.x"></div>
+                }
+              </div>
 
-            @if (isAiMode) {
-              <div class="cd-ai-overlay">
-                <span class="material-symbols-outlined cd-spin">autorenew</span>
-                <h3>Yapay Zeka Analizi</h3>
-                <p>Sayfa taranıyor, parça eşleştirmesi hazırlanıyor...</p>
+              @if (isAiMode) {
+                <div class="cd-ai-overlay">
+                  <span class="material-symbols-outlined cd-spin">autorenew</span>
+                  <h3>Yapay Zeka Analizi</h3>
+                  <p>Sayfa taranıyor, parça eşleştirmesi hazırlanıyor...</p>
+                </div>
+              }
+            } @else {
+              <div class="cd-empty-stage">
+                <span class="material-symbols-outlined">image_not_supported</span>
+                <p>Görüntülenecek sayfa bulunamadı.</p>
               </div>
             }
-          } @else {
-            <div class="cd-empty-stage">
-              <span class="material-symbols-outlined">image_not_supported</span>
-              <p>Görüntülenecek sayfa bulunamadı.</p>
-            </div>
-          }
+          </div>
         </div>
 
         @if (catalog.pages && catalog.pages.length > 1) {
@@ -278,6 +327,34 @@
           }
         </div>
 
+        <div class="cd-editor-help-card">
+          <div class="cd-editor-help-head">
+            <div>
+              <h4>Düzeltme Modu</h4>
+              <p>Hotspotu seç, OCR ile oku, etiketi düzelt ve satıra bağla.</p>
+            </div>
+            <span class="cd-editor-help-badge">{{ activePageReviewSummary.lowConfidenceCount }} düşük güven</span>
+          </div>
+          <div class="cd-editor-help-grid">
+            <div class="cd-editor-help-pill">
+              <strong>{{ pageItems.length }}</strong>
+              <span>Sayfa satırı</span>
+            </div>
+            <div class="cd-editor-help-pill">
+              <strong>{{ activePage?.hotspots?.length || 0 }}</strong>
+              <span>Hotspot</span>
+            </div>
+            <div class="cd-editor-help-pill warning">
+              <strong>{{ activePageReviewSummary.lowConfidenceCount }}</strong>
+              <span>OCR kontrolü</span>
+            </div>
+          </div>
+          <div class="cd-editor-help-note">
+            <span class="material-symbols-outlined">info</span>
+            <p>Kuyruk yok. Hata gördüğün hotspotu veya satırı doğrudan editörde düzelt.</p>
+          </div>
+        </div>
+
         @if (isEditMode && selectedHotspotId) {
           <div class="cd-form-card">
             <div class="cd-form-head">
@@ -292,6 +369,59 @@
               <input [(ngModel)]="hotspotForm.width" type="number" step="0.1" placeholder="Width %">
               <input [(ngModel)]="hotspotForm.height" type="number" step="0.1" placeholder="Height %">
             </div>
+
+            <div class="cd-hotspot-tools">
+              <button type="button" class="cd-btn subtle" [disabled]="hotspotOcrState.isReading" (click)="readSelectedHotspotLabel()">
+                @if (hotspotOcrState.isReading) { OCR Okunuyor... } @else { OCR ile Oku }
+              </button>
+              <button type="button" class="cd-btn subtle" (click)="clearSelectedHotspotLink()">Ref Etiketini Temizle</button>
+            </div>
+
+            @if (hotspotOcrState.lastResult) {
+              <div class="cd-ocr-result" [class.success]="hotspotOcrState.lastResult.success" [class.error]="!hotspotOcrState.lastResult.success">
+                <div class="cd-ocr-result-head">
+                  <strong>OCR Sonucu</strong>
+                  <span>{{ hotspotOcrState.lastResult.cropWidth }}x{{ hotspotOcrState.lastResult.cropHeight }} crop</span>
+                </div>
+                <p>{{ hotspotOcrState.lastResult.message }}</p>
+                @if (hotspotOcrState.lastResult.label) {
+                  <small>#{{ hotspotOcrState.lastResult.label }} · Güven {{ (hotspotOcrState.lastResult.confidence * 100).toFixed(0) }}%</small>
+                }
+              </div>
+            }
+
+            @if (selectedHotspotAutoLinkedItem) {
+              <div class="cd-auto-linked">
+                <div class="cd-auto-linked-head">
+                  <span class="material-symbols-outlined">link</span>
+                  <strong>Auto-linked</strong>
+                </div>
+                <p>#{{ selectedHotspotAutoLinkedItem.refNo }} · {{ selectedHotspotAutoLinkedItem.partName }}</p>
+                <small>{{ selectedHotspotAutoLinkedItem.partCode || 'Kod yok' }}</small>
+              </div>
+            }
+
+            @if (selectedHotspotSuggestions.length > 0) {
+              <div class="cd-suggestion-box">
+                <div class="cd-suggestion-head">
+                  <h5>Ref Düzeltme Yardımcısı</h5>
+                  <span>{{ selectedHotspotSuggestions.length }} öneri</span>
+                </div>
+
+                <div class="cd-suggestion-list">
+                  @for (suggestion of selectedHotspotSuggestions; track suggestion.catalogItemId) {
+                    <button type="button" class="cd-suggestion-row" (click)="applySuggestionToSelectedHotspot(suggestion)">
+                      <div class="cd-suggestion-main">
+                        <strong>#{{ suggestion.refNo }}</strong>
+                        <span>{{ suggestion.partName }}</span>
+                        <small>{{ suggestion.partCode }} · {{ suggestion.reason }}</small>
+                      </div>
+                      <span class="cd-suggestion-score">{{ suggestion.score }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
 
             <button type="button" class="cd-btn primary full" (click)="saveSelectedHotspot()">Hotspotu Kaydet</button>
           </div>
@@ -320,7 +450,7 @@
         <div class="cd-part-list">
           @for (item of pageItems; track item.catalogItemId) {
             <article
-              [id]="'part-' + item.refNo"
+              [id]="'part-row-' + item.catalogItemId"
               class="cd-part-row"
               [ngClass]="{
                 'selected': selectedPartRef === item.refNo && !isEditMode,

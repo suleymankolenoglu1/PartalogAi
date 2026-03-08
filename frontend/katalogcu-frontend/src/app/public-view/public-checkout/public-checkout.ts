@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,7 +6,7 @@ import { CartService } from '../../core/services/cart.service';
 import { CustomerService, PublicCustomerOrder, PublicCustomerOrderDetail } from '../../core/services/customer.service';
 import { CatalogService, PublicStorefront } from '../../core/services/catalog.service';
 import { environment } from '../../../environments/environment';
-import { emitEmbedEvent } from '../../core/utils/embed-bridge';
+import { emitEmbedEvent, startEmbedAutoResize } from '../../core/utils/embed-bridge';
 
 type AuthTab = 'login' | 'register';
 type PaymentMethod = 'KapidaOdeme' | 'HavaleEFT';
@@ -26,7 +26,7 @@ interface CheckoutDetails {
   templateUrl: './public-checkout.html',
   styleUrl: './public-checkout.css'
 })
-export class PublicCheckoutComponent implements OnInit {
+export class PublicCheckoutComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   public cartService = inject(CartService);
@@ -69,6 +69,8 @@ export class PublicCheckoutComponent implements OnInit {
   isLoadingOrders = false;
   isRequestingResetCode = false;
   isConfirmingReset = false;
+
+  private stopEmbedAutoResize: (() => void) | null = null;
   showResetPassword = false;
 
   loginMessage: string | null = null;
@@ -99,6 +101,7 @@ export class PublicCheckoutComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.stopEmbedAutoResize = startEmbedAutoResize('checkout');
     if (!this.publicToken) return;
     if (!environment.features.enableEcommerce) {
       this.router.navigate(['/p', this.publicToken]);
@@ -132,6 +135,11 @@ export class PublicCheckoutComponent implements OnInit {
         this.logout();
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.stopEmbedAutoResize?.();
+    this.stopEmbedAutoResize = null;
   }
 
   private loadStorefront() {

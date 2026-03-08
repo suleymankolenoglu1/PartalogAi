@@ -49,6 +49,13 @@ class DetectionResponse(BaseModel):
     hotspots: List[HotspotResult]
 
 
+class ReadLabelResponse(BaseModel):
+    success: bool
+    message: str
+    label: Optional[str] = None
+    confidence: float = 0.0
+
+
 # ============================================
 # MODEL ACCESS
 # ============================================
@@ -169,6 +176,50 @@ async def detect_hotspots(
         labeled_count=labeled_count,
         processing_time_ms=processing_time,
         hotspots=results
+    )
+
+
+@router.post("/read-label", response_model=ReadLabelResponse)
+async def read_hotspot_label(
+    file: UploadFile = File(..., description="Hotspot crop görüntüsü")
+):
+    models = get_models()
+    ocr = models.get("ocr")
+
+    if ocr is None:
+        raise HTTPException(status_code=503, detail="OCR modeli yüklenmemiş.")
+
+    try:
+        contents = await file.read()
+        if len(contents) == 0:
+            raise ValueError("Boş dosya")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Dosya okunamadı: {str(e)}")
+
+    np_arr = np.frombuffer(contents, np.uint8)
+    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if image is None:
+        raise HTTPException(status_code=400, detail="Görüntü decode edilemedi.")
+
+    try:
+        label, confidence = ocr.read_number_with_confidence(image)
+    except Exception as e:
+        logger.error(f"OCR read-label hatası: {e}")
+        raise HTTPException(status_code=500, detail=f"OCR hatası: {str(e)}")
+
+    if not label:
+        return ReadLabelResponse(
+            success=False,
+            message="Hotspot etiketi okunamadı.",
+            label=None,
+            confidence=0.0
+        )
+
+    return ReadLabelResponse(
+        success=True,
+        message="Hotspot etiketi OCR ile okundu.",
+        label=label,
+        confidence=round(confidence, 4)
     )
 
 

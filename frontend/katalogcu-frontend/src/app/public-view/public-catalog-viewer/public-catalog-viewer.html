@@ -214,11 +214,12 @@
 
               <div class="part-main">
                 <div class="part-head">
-                  <div class="part-name" [innerHTML]="highlightMatch(item.localName || item.partName || 'Parça')"></div>
+                  <div class="part-identity">
+                    <div class="part-code" [innerHTML]="highlightMatch(item.partCode || '-')"></div>
+                    <div class="part-name" [innerHTML]="highlightMatch(item.localName || item.partName || 'Parça')"></div>
+                  </div>
                   <span [class]="getStockBadgeClass(item)">{{ getStockLabel(item) }}</span>
                 </div>
-
-                <div class="part-code" [innerHTML]="'Kod: ' + highlightMatch(item.partCode || '-')"></div>
 
                 <div class="part-meta">
                   @if (item.price) {

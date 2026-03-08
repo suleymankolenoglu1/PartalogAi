@@ -342,6 +342,123 @@
     color: var(--pt-text-muted);
 }
 
+
+.pv-main-chat-active {
+    padding-top: 12px !important;
+}
+
+.pv-section-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.pv-section-kicker {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--pt-blue-hover);
+}
+
+.pv-section-badges {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pv-section-badge {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--pt-blue-border);
+    border-radius: 999px;
+    background: var(--pt-blue-light);
+    color: var(--pt-blue-hover);
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.pv-library-stack {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    align-items: start;
+    gap: 22px;
+    transition: var(--pt-transition-slow);
+}
+
+.pv-library-stack-no-folders {
+    grid-template-columns: 1fr;
+}
+
+.pv-library-stack-shifted {
+    margin-top: 6px;
+}
+
+.pv-library-block {
+    border: 1px solid var(--pt-border);
+    border-radius: 22px;
+    background: linear-gradient(180deg, var(--pt-bg-card) 0%, color-mix(in srgb, var(--pt-bg-subtle) 68%, white) 100%);
+    box-shadow: var(--pt-shadow-sm);
+    padding: 20px;
+}
+
+.pv-library-block-folders {
+    position: sticky;
+    top: 92px;
+}
+
+.pv-library-block-head {
+    margin-bottom: 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pv-library-block-head h3 {
+    margin: 4px 0 0;
+    color: var(--pt-text-heading);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.pv-library-block-kicker {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--pt-text-muted);
+}
+
+.pv-library-block-sub {
+    margin: 8px 0 0;
+    color: var(--pt-text-muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.pv-library-block-count {
+    min-width: 40px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--pt-navy);
+    color: var(--pt-text-inverse);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.pv-catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
 .pv-main {
     background: transparent;
 }
@@ -421,19 +538,18 @@
 
 .pv-folder-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: 1fr;
     gap: 12px;
-    margin-bottom: 16px;
 }
 
 .pv-folder-card {
     border: 1px solid var(--pt-border);
     background: var(--pt-bg-card);
-    border-radius: var(--pt-radius-lg);
-    padding: 12px;
+    border-radius: 18px;
+    padding: 18px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 14px;
     cursor: pointer;
     text-align: left;
     transition: var(--pt-transition);
@@ -446,8 +562,8 @@
 }
 
 .pv-folder-icon {
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    height: 48px;
     border-radius: 10px;
     border: 1px solid var(--pt-blue-border);
     background: var(--pt-blue-light);
@@ -459,7 +575,7 @@
 }
 
 .pv-folder-icon .material-symbols-outlined {
-    font-size: 20px;
+    font-size: 24px;
 }
 
 .pv-folder-text {
@@ -471,7 +587,7 @@
 }
 
 .pv-folder-text strong {
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 800;
     color: var(--pt-text-heading);
     white-space: nowrap;
@@ -480,7 +596,7 @@
 }
 
 .pv-folder-text span {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--pt-text-muted);
 }
 
@@ -563,6 +679,7 @@
     background: var(--pt-bg-card);
     border: 1px solid var(--border);
     box-shadow: var(--pt-shadow-sm);
+    min-height: 100%;
 }
 
 .pv-catalog-card:hover {
@@ -573,6 +690,7 @@
 .pv-catalog-cover {
     background: var(--pt-bg-subtle);
     border-bottom: 1px solid var(--border);
+    min-height: 220px;
 }
 
 .pv-catalog-title {
@@ -1322,10 +1440,35 @@ input::placeholder {
         margin-bottom: 12px;
     }
 
-    .pv-folder-grid {
+    .pv-section-badges {
+        gap: 8px;
+    }
+
+    .pv-library-stack {
         grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .pv-library-block {
+        padding: 16px;
+    }
+
+    .pv-library-block-folders {
+        position: static;
+    }
+
+    .pv-library-block-head h3 {
+        font-size: 20px;
+    }
+
+    .pv-folder-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
-        margin-bottom: 12px;
+    }
+
+    .pv-catalog-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
     }
 
     .pv-section-head {
@@ -1440,9 +1583,9 @@ input::placeholder {
         bottom: 0;
     }
 
-    .pv-main .grid {
-        grid-template-columns: 1fr !important;
-        gap: 12px !important;
+    .pv-catalog-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
     }
 
     .pv-breadcrumbs button {
@@ -1546,5 +1689,93 @@ input::placeholder {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+    }
+}
+
+.pv-catalog-body {
+    display: grid;
+    gap: 10px;
+}
+
+.pv-catalog-title {
+    font-size: 18px;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+}
+
+.pv-catalog-desc {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.pv-catalog-cta {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--pt-blue-hover);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.pv-catalog-cta .material-symbols-outlined {
+    font-size: 16px;
+}
+
+@media (max-width: 768px) {
+    .pv-library-stack {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .pv-library-block {
+        border-radius: 18px;
+        padding: 14px;
+    }
+
+    .pv-library-block-folders {
+        position: static;
+    }
+
+    .pv-library-block-head {
+        margin-bottom: 12px;
+    }
+
+    .pv-library-block-head h3 {
+        font-size: 18px;
+    }
+
+    .pv-section-badges {
+        width: 100%;
+    }
+
+    .pv-section-badge {
+        min-height: 30px;
+        font-size: 11px;
+    }
+
+    .pv-folder-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pv-folder-card {
+        padding: 14px;
+    }
+
+    .pv-folder-icon {
+        width: 42px;
+        height: 42px;
+    }
+
+    .pv-folder-text strong {
+        font-size: 15px;
+    }
+
+    .pv-catalog-cover {
+        min-height: 180px;
+    }
+
+    .pv-catalog-title {
+        font-size: 16px;
     }
 }

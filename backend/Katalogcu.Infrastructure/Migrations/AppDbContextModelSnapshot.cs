@@ -68,6 +68,10 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("text");
 
+                    b.Property<string>("PublicStoreSlug")
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
                     b.Property<DateTime?>("PlanActivatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -93,6 +97,10 @@ namespace Katalogcu.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PublicStoreSlug")
+                        .IsUnique()
+                        .HasFilter("\"PublicStoreSlug\" IS NOT NULL");
 
                     b.ToTable("Users");
                 });
@@ -296,6 +304,20 @@ namespace Katalogcu.Infrastructure.Migrations
 
                     b.Property<int>("PageNumber")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewNotes")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("ReviewStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("NeedsReview");
 
                     b.Property<DateTime?>("UpdatedDate")
                         .HasColumnType("timestamp with time zone");

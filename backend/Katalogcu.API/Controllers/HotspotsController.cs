@@ -1,4 +1,5 @@
 using FluentValidation;
+using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Features.Hotspots.Commands.CreateHotspot;
 using Katalogcu.Application.Features.Hotspots.Commands.DeleteHotspot;
 using Katalogcu.Application.Features.Hotspots.Commands.DetectHotspots;
@@ -6,6 +7,8 @@ using Katalogcu.Application.Features.Hotspots.Commands.UpdateHotspot;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
 using System.Security.Claims;
 
 namespace Katalogcu.API.Controllers
@@ -17,11 +20,22 @@ namespace Katalogcu.API.Controllers
     {
         private readonly ISender _sender;
         private readonly ILogger<HotspotsController> _logger;
+        private readonly IHotspotRepository _hotspotRepository;
+        private readonly IPartalogAiService _partalogAiService;
+        private readonly IWebHostEnvironment _env;
 
-        public HotspotsController(ISender sender, ILogger<HotspotsController> logger)
+        public HotspotsController(
+            ISender sender,
+            ILogger<HotspotsController> logger,
+            IHotspotRepository hotspotRepository,
+            IPartalogAiService partalogAiService,
+            IWebHostEnvironment env)
         {
             _sender = sender;
             _logger = logger;
+            _hotspotRepository = hotspotRepository;
+            _partalogAiService = partalogAiService;
+            _env = env;
         }
 
         [HttpPost("detect/{pageId}")]
@@ -177,6 +191,77 @@ namespace Katalogcu.API.Controllers
             }
         }
 
+        [HttpPost("{id}/read-label")]
+        public async Task<IActionResult> ReadLabel(Guid id, CancellationToken cancellationToken)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+            {
+                return Unauthorized();
+            }
+
+            var hotspot = await _hotspotRepository.GetHotspotByIdForUserAsync(id, userId, cancellationToken);
+            if (hotspot?.Page is null)
+            {
+                return NotFound(new { error = "Hotspot bulunamadı." });
+            }
+
+            if (string.IsNullOrWhiteSpace(hotspot.Page.ImageUrl))
+            {
+                return BadRequest(new { error = "Sayfa görseli bulunamadı." });
+            }
+
+            var filePath = GetPhysicalPath(hotspot.Page.ImageUrl);
+            if (!System.IO.File.Exists(filePath))
+            {
+                return NotFound(new { error = "Sayfa görseli sunucuda bulunamadı." });
+            }
+
+            try
+            {
+                await using var pageStream = System.IO.File.OpenRead(filePath);
+                using var image = await Image.LoadAsync(pageStream, cancellationToken);
+
+                var cropX = ClampToInt(image.Width * (hotspot.Left / 100.0), 0, image.Width - 1);
+                var cropY = ClampToInt(image.Height * (hotspot.Top / 100.0), 0, image.Height - 1);
+                var cropWidth = Math.Max(8, ClampToInt(image.Width * (hotspot.Width / 100.0), 1, image.Width));
+                var cropHeight = Math.Max(8, ClampToInt(image.Height * (hotspot.Height / 100.0), 1, image.Height));
+                var padding = Math.Max(6, (int)Math.Round(Math.Max(cropWidth, cropHeight) * 0.22));
+
+                var rectX = Math.Max(0, cropX - padding);
+                var rectY = Math.Max(0, cropY - padding);
+                var rectWidth = Math.Min(image.Width - rectX, cropWidth + (padding * 2));
+                var rectHeight = Math.Min(image.Height - rectY, cropHeight + (padding * 2));
+
+                using var cropped = image.Clone(ctx => ctx.Crop(new Rectangle(rectX, rectY, rectWidth, rectHeight)));
+                await using var memory = new MemoryStream();
+                await cropped.SaveAsPngAsync(memory, cancellationToken);
+                memory.Position = 0;
+
+                var formFile = new FormFile(memory, 0, memory.Length, "file", $"{hotspot.Id}.png")
+                {
+                    Headers = new HeaderDictionary(),
+                    ContentType = "image/png"
+                };
+
+                var result = await _partalogAiService.ReadHotspotLabelAsync(formFile);
+                return Ok(new ReadHotspotLabelResponse
+                {
+                    Success = result.Success,
+                    Label = result.Label,
+                    Confidence = result.Confidence,
+                    Message = result.Message,
+                    CropWidth = rectWidth,
+                    CropHeight = rectHeight
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Hotspot OCR okunamadı. HotspotId={HotspotId}", id);
+                return StatusCode(500, new { error = "Hotspot OCR sırasında beklenmeyen bir hata oluştu." });
+            }
+        }
+
         public sealed class CreateHotspotRequest
         {
             public Guid PageId { get; set; }
@@ -200,6 +285,16 @@ namespace Katalogcu.API.Controllers
             public Guid? ProductId { get; set; }
         }
 
+        public sealed class ReadHotspotLabelResponse
+        {
+            public bool Success { get; set; }
+            public string? Label { get; set; }
+            public double Confidence { get; set; }
+            public string Message { get; set; } = string.Empty;
+            public int CropWidth { get; set; }
+            public int CropHeight { get; set; }
+        }
+
         private Guid GetCurrentUserId()
         {
             var idString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -209,6 +304,24 @@ namespace Katalogcu.API.Controllers
             }
 
             return Guid.Empty;
+        }
+
+        private static int ClampToInt(double value, int min, int max)
+        {
+            return Math.Clamp((int)Math.Round(value), min, max);
+        }
+
+        private string GetPhysicalPath(string url)
+        {
+            var fileName = Path.GetFileName(url);
+
+            var pathPages = Path.Combine(_env.WebRootPath, "uploads", "pages", fileName);
+            if (System.IO.File.Exists(pathPages)) return pathPages;
+
+            var pathRoot = Path.Combine(_env.WebRootPath, "uploads", fileName);
+            if (System.IO.File.Exists(pathRoot)) return pathRoot;
+
+            return pathPages;
         }
     }
 }

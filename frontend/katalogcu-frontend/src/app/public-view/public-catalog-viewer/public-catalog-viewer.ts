@@ -5,7 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { CatalogService, Catalog, CatalogPage, CatalogPageItem } from '../../core/services/catalog.service';
 import { CartService } from '../../core/services/cart.service';
 import { environment } from '../../../environments/environment';
-import { emitEmbedEvent } from '../../core/utils/embed-bridge';
+import { emitEmbedEvent, startEmbedAutoResize, emitEmbedResize } from '../../core/utils/embed-bridge';
 
 interface ViewerGroup {
   pageIndex: number;
@@ -116,7 +116,11 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     return this.partsSheetCurrentHeightPx;
   }
 
+  private stopEmbedAutoResize: (() => void) | null = null;
+
   ngOnDestroy(): void {
+    this.stopEmbedAutoResize?.();
+    this.stopEmbedAutoResize = null;
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
@@ -124,6 +128,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.stopEmbedAutoResize = startEmbedAutoResize('catalog-viewer');
     // 🔥 DÜZELTME: ID'yi URL'den alıp hemen değişkene atıyoruz.
     this.catalogId = this.route.snapshot.paramMap.get('id');
     const pageIndexStr = this.route.snapshot.paramMap.get('pageIndex');

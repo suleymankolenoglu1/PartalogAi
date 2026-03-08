@@ -36,6 +36,44 @@ export class AdminLayoutComponent implements OnDestroy {
   currentUser: AuthUserInfo | null = null;
   openLockedMenuKey: string | null = null;
 
+  get extraModules(): Array<{
+    key: string;
+    label: string;
+    icon: string;
+    minPlan: number;
+    route: string;
+    feature: string;
+    badge?: string | null;
+  }> {
+    const modules: Array<{
+      key: string;
+      label: string;
+      icon: string;
+      minPlan: number;
+      route: string;
+      feature: string;
+      badge?: string | null;
+    }> = [];
+
+    if (this.supportsAiFeature) {
+      modules.push(
+        { key: 'ai', label: 'AI Ayarları', icon: 'auto_awesome', minPlan: 2, route: '/dashboard/ai', feature: 'ai', badge: this.hasPlan(2) ? null : 'PRO' },
+        { key: 'ai-quality', label: 'AI Kalite', icon: 'monitoring', minPlan: 2, route: '/dashboard/chat-quality', feature: 'ai-quality', badge: this.hasPlan(2) ? null : 'PRO' },
+        { key: 'visual-feedback', label: 'Görsel Feedback', icon: 'image_search', minPlan: 2, route: '/dashboard/visual-feedback', feature: 'visual-feedback', badge: this.hasPlan(2) ? null : 'PRO' },
+      );
+    }
+
+    if (this.supportsEcommerceFeature) {
+      modules.push(
+        { key: 'ecommerce', label: 'Ürünler', icon: 'inventory_2', minPlan: 3, route: '/dashboard/ecommerce', feature: 'ecommerce', badge: this.hasPlan(3) ? null : 'ENT' },
+        { key: 'orders', label: 'Siparişler', icon: 'receipt_long', minPlan: 3, route: '/dashboard/orders', feature: 'orders', badge: this.hasPlan(3) ? (this.unreadOrderCount > 0 ? (this.unreadOrderCount > 99 ? '99+' : String(this.unreadOrderCount)) : null) : 'ENT' },
+        { key: 'customers', label: 'Müşteriler', icon: 'groups', minPlan: 3, route: '/dashboard/customers', feature: 'customers', badge: this.hasPlan(3) ? null : 'ENT' },
+      );
+    }
+
+    return modules;
+  }
+
   constructor() {
     this.loadCurrentUser();
     this.loadPublicLinkState();
@@ -123,6 +161,16 @@ export class AdminLayoutComponent implements OnDestroy {
         ...(feature ? { feature } : {})
       }
     });
+  }
+
+  openExtraModule(module: { minPlan: number; route: string; feature: string }) {
+    this.openLockedMenuKey = null;
+    if (this.hasPlan(module.minPlan)) {
+      this.router.navigate([module.route]);
+      return;
+    }
+
+    this.goUpgrade(module.minPlan, module.feature);
   }
 
   get currentPlanLabel(): string {

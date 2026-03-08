@@ -16,6 +16,7 @@ public record PublicLinkPayload(Guid UserId, List<Guid> CatalogIds);
 public interface IPublicLinkService
 {
     string CreateToken(Guid userId, int publicLinkVersion, IEnumerable<Guid>? catalogIds = null);
+    string GetOrCreateToken(Guid userId, int publicLinkVersion, IEnumerable<Guid>? catalogIds = null);
     PublicLinkPayload? Validate(string token);
 }
 
@@ -53,24 +54,22 @@ public class PublicLinkService : IPublicLinkService
     {
         EnsureStorageSchema();
 
-        var ids = catalogIds?.Where(x => x != Guid.Empty).Distinct().ToList() ?? new List<Guid>();
-        var catalogIdsCsv = ids.Count > 0 ? string.Join(",", ids) : null;
-        var expiresAtUtc = DateTime.UtcNow.AddDays(_expiryDays);
+        var catalogIdsCsv = NormalizeCatalogIdsCsv(catalogIds);
+        return CreateNewToken(userId, publicLinkVersion, catalogIdsCsv);
+    }
 
-        for (var attempt = 0; attempt < 5; attempt++)
+    public string GetOrCreateToken(Guid userId, int publicLinkVersion, IEnumerable<Guid>? catalogIds = null)
+    {
+        EnsureStorageSchema();
+
+        var catalogIdsCsv = NormalizeCatalogIdsCsv(catalogIds);
+        var activeToken = GetReusableToken(userId, publicLinkVersion, catalogIdsCsv);
+        if (!string.IsNullOrWhiteSpace(activeToken))
         {
-            var token = $"{DbTokenPrefix}{Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(18))}";
-            var tokenHash = ComputeTokenHash(token);
-            if (TokenHashExists(tokenHash))
-            {
-                continue;
-            }
-
-            InsertTokenRecord(tokenHash, userId, publicLinkVersion, catalogIdsCsv, expiresAtUtc);
-            return token;
+            return activeToken;
         }
 
-        throw new InvalidOperationException("Public link token oluşturulamadı. Lütfen tekrar deneyin.");
+        return CreateNewToken(userId, publicLinkVersion, catalogIdsCsv);
     }
 
     public PublicLinkPayload? Validate(string token)
@@ -224,6 +223,26 @@ public class PublicLinkService : IPublicLinkService
         return true;
     }
 
+    private string CreateNewToken(Guid userId, int publicLinkVersion, string? catalogIdsCsv)
+    {
+        var expiresAtUtc = DateTime.UtcNow.AddDays(_expiryDays);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var token = $"{DbTokenPrefix}{Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(18))}";
+            var tokenHash = ComputeTokenHash(token);
+            if (TokenHashExists(tokenHash) || TokenExists(token))
+            {
+                continue;
+            }
+
+            InsertTokenRecord(token, tokenHash, userId, publicLinkVersion, catalogIdsCsv, expiresAtUtc);
+            return token;
+        }
+
+        throw new InvalidOperationException("Public link token oluşturulamadı. Lütfen tekrar deneyin.");
+    }
+
     private bool TokenHashExists(string tokenHash)
     {
         return ExecuteWithCommand(
@@ -241,18 +260,36 @@ public class PublicLinkService : IPublicLinkService
             });
     }
 
-    private void InsertTokenRecord(string tokenHash, Guid userId, int publicLinkVersion, string? catalogIdsCsv, DateTime expiresAtUtc)
+    private bool TokenExists(string token)
+    {
+        return ExecuteWithCommand(
+            """
+            SELECT 1
+            FROM "PublicAccessLinks"
+            WHERE "Token" = @token
+            LIMIT 1
+            """,
+            command =>
+            {
+                AddParameter(command, "token", token);
+                var scalar = command.ExecuteScalar();
+                return scalar != null && scalar != DBNull.Value;
+            });
+    }
+
+    private void InsertTokenRecord(string token, string tokenHash, Guid userId, int publicLinkVersion, string? catalogIdsCsv, DateTime expiresAtUtc)
     {
         ExecuteWithCommand(
             """
             INSERT INTO "PublicAccessLinks"
-                ("Id", "TokenHash", "UserId", "PublicLinkVersion", "CatalogIds", "ExpiresAtUtc", "IsRevoked", "CreatedDate", "UpdatedDate")
+                ("Id", "Token", "TokenHash", "UserId", "PublicLinkVersion", "CatalogIds", "ExpiresAtUtc", "IsRevoked", "CreatedDate", "UpdatedDate")
             VALUES
-                (@id, @tokenHash, @userId, @publicLinkVersion, @catalogIds, @expiresAtUtc, FALSE, @createdDate, NULL)
+                (@id, @token, @tokenHash, @userId, @publicLinkVersion, @catalogIds, @expiresAtUtc, FALSE, @createdDate, NULL)
             """,
             command =>
             {
                 AddParameter(command, "id", Guid.NewGuid());
+                AddParameter(command, "token", token);
                 AddParameter(command, "tokenHash", tokenHash);
                 AddParameter(command, "userId", userId);
                 AddParameter(command, "publicLinkVersion", publicLinkVersion);
@@ -260,6 +297,35 @@ public class PublicLinkService : IPublicLinkService
                 AddParameter(command, "expiresAtUtc", expiresAtUtc);
                 AddParameter(command, "createdDate", DateTime.UtcNow);
                 command.ExecuteNonQuery();
+            });
+    }
+
+    private string? GetReusableToken(Guid userId, int publicLinkVersion, string? catalogIdsCsv)
+    {
+        return ExecuteWithCommand(
+            """
+            SELECT "Token"
+            FROM "PublicAccessLinks"
+            WHERE "UserId" = @userId
+              AND "PublicLinkVersion" = @publicLinkVersion
+              AND "IsRevoked" = FALSE
+              AND "ExpiresAtUtc" >= @minExpiresAtUtc
+              AND (
+                    ("CatalogIds" IS NULL AND @catalogIds IS NULL)
+                    OR "CatalogIds" = @catalogIds
+                  )
+              AND "Token" IS NOT NULL
+            ORDER BY "CreatedDate" DESC
+            LIMIT 1
+            """,
+            command =>
+            {
+                AddParameter(command, "userId", userId);
+                AddParameter(command, "publicLinkVersion", publicLinkVersion);
+                AddParameter(command, "catalogIds", (object?)catalogIdsCsv ?? DBNull.Value);
+                AddParameter(command, "minExpiresAtUtc", DateTime.UtcNow.AddMinutes(10));
+                var scalar = command.ExecuteScalar();
+                return scalar == null || scalar is DBNull ? null : Convert.ToString(scalar);
             });
     }
 
@@ -359,12 +425,24 @@ public class PublicLinkService : IPublicLinkService
         return result;
     }
 
+    private static string? NormalizeCatalogIdsCsv(IEnumerable<Guid>? catalogIds)
+    {
+        var ids = catalogIds?
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList() ?? new List<Guid>();
+
+        return ids.Count > 0 ? string.Join(",", ids) : null;
+    }
+
     private void EnsureStorageSchema()
     {
         ExecuteWithCommand(
             """
             CREATE TABLE IF NOT EXISTS "PublicAccessLinks" (
                 "Id" uuid NOT NULL,
+                "Token" text NULL,
                 "TokenHash" text NOT NULL,
                 "UserId" uuid NOT NULL,
                 "PublicLinkVersion" integer NOT NULL,
@@ -382,8 +460,23 @@ public class PublicLinkService : IPublicLinkService
 
         ExecuteWithCommand(
             """
+            ALTER TABLE "PublicAccessLinks"
+            ADD COLUMN IF NOT EXISTS "Token" text NULL;
+            """,
+            command => command.ExecuteNonQuery());
+
+        ExecuteWithCommand(
+            """
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_PublicAccessLinks_TokenHash"
             ON "PublicAccessLinks" ("TokenHash");
+            """,
+            command => command.ExecuteNonQuery());
+
+        ExecuteWithCommand(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_PublicAccessLinks_Token"
+            ON "PublicAccessLinks" ("Token")
+            WHERE "Token" IS NOT NULL;
             """,
             command => command.ExecuteNonQuery());
 

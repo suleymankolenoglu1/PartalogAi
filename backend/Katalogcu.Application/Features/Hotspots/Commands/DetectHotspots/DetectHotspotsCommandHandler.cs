@@ -45,6 +45,14 @@ public sealed class DetectHotspotsCommandHandler : IRequestHandler<DetectHotspot
 
         if (detectedHotspots.Count == 0)
         {
+            var existingAiHotspots = await _hotspotRepository.GetHotspotsByPageIdAsync(page.Id, cancellationToken);
+            var aiHotspotsToRemove = existingAiHotspots.Where(h => h.IsAiDetected).ToList();
+            if (aiHotspotsToRemove.Count > 0)
+            {
+                _hotspotRepository.RemoveHotspots(aiHotspotsToRemove);
+                await _hotspotRepository.SaveChangesAsync(cancellationToken);
+            }
+
             return OperationResult<DetectHotspotsResponse>.Success(new DetectHotspotsResponse
             {
                 PageId = page.Id,
@@ -52,6 +60,13 @@ public sealed class DetectHotspotsCommandHandler : IRequestHandler<DetectHotspot
                 Message = "Hiç hotspot tespit edilemedi",
                 Hotspots = []
             });
+        }
+
+        var existingHotspots = await _hotspotRepository.GetHotspotsByPageIdAsync(page.Id, cancellationToken);
+        var existingAiDetected = existingHotspots.Where(h => h.IsAiDetected).ToList();
+        if (existingAiDetected.Count > 0)
+        {
+            _hotspotRepository.RemoveHotspots(existingAiDetected);
         }
 
         await _hotspotRepository.AddHotspotsAsync(detectedHotspots, cancellationToken);

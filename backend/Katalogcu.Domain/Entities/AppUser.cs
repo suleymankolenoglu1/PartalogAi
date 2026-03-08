@@ -20,5 +20,6 @@ namespace Katalogcu.Domain.Entities
         public int MaxPagePerCatalog { get; set; } = 100;
         public int PublicLinkVersion { get; set; } = 1;
         public bool PublicLinkEnabled { get; set; } = true;
+        public string? PublicStoreSlug { get; set; }
     }
 }

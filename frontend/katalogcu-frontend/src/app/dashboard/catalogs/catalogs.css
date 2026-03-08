@@ -535,6 +535,131 @@
 }
 .card-title:hover { color: var(--accent-blue); }
 
+.review-summary {
+    margin-bottom: 12px;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 12px;
+    background: #F8FAFC;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.review-summary.healthy {
+    border-color: #BBF7D0;
+    background: #F0FDF4;
+}
+
+.review-summary.warning {
+    border-color: #FDE68A;
+    background: #FFFBEB;
+}
+
+.review-summary.critical {
+    border-color: #FECACA;
+    background: #FEF2F2;
+}
+
+.review-summary.error {
+    border-color: #FECACA;
+    background: #FFF1F2;
+}
+
+.review-summary-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.review-icon {
+    font-size: 16px;
+    color: var(--accent-blue);
+}
+
+.review-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.review-summary-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.review-chip {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+}
+
+.review-chip.neutral {
+    background: #EFF6FF;
+    border-color: #BFDBFE;
+    color: #1D4ED8;
+}
+
+.review-chip.success {
+    background: #DCFCE7;
+    border-color: #BBF7D0;
+    color: #166534;
+}
+
+.review-chip.warning {
+    background: #FEF3C7;
+    border-color: #FDE68A;
+    color: #92400E;
+}
+
+.review-chip.danger {
+    background: #FEE2E2;
+    border-color: #FECACA;
+    color: #991B1B;
+}
+
+.review-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.review-stat {
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 8px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.review-stat .value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.review-stat .label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
 .delete-btn {
     background: none;
     border: none;

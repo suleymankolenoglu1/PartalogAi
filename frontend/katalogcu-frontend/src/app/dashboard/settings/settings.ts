@@ -334,8 +334,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
 <script src="${apiRoot}/embed.js"
   data-public-token="${this.publicToken}"
   data-api-base-url="${apiRoot}"
-  data-app-base-url="${window.location.origin}"
-  data-target="partalog-embed-root"
   data-height="780px"></script>`;
 
     try {
@@ -363,7 +361,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.embedVerifying = true;
     this.embedVerifyResult = null;
     this.embedError = null;
-    this.catalogService.verifyEmbedOrigin(this.publicToken, normalized).subscribe({
+    this.catalogService.verifyEmbedOrigin({
+      publicToken: this.publicToken,
+      origin: normalized
+    }).subscribe({
       next: (result) => {
         this.embedVerifyResult = result;
         this.embedVerifying = false;

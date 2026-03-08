@@ -15,4 +15,9 @@ public sealed class PublicCatalogLinkService : IPublicCatalogLinkService
     {
         return _publicLinkService.CreateToken(userId, publicLinkVersion, catalogIds);
     }
+
+    public string GetOrCreateToken(Guid userId, int publicLinkVersion, IEnumerable<Guid>? catalogIds = null)
+    {
+        return _publicLinkService.GetOrCreateToken(userId, publicLinkVersion, catalogIds);
+    }
 }

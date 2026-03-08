@@ -10,6 +10,9 @@ namespace Katalogcu.Domain.Entities
 
         public string AiDescription { get; set; } = string.Empty;
         public bool? IsTechnicalDrawing { get; set; }
+        public string ReviewStatus { get; set; } = "NeedsReview";
+        public string? ReviewNotes { get; set; }
+        public DateTime? ReviewedAt { get; set; }
         
         public Guid CatalogId { get; set; }
         

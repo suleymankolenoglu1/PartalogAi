@@ -20,177 +20,30 @@
                 <span class="label">Kataloglarım</span>
             </a>
 
-            @if (supportsAiFeature) {
-                <div class="nav-row">
-                    <a [routerLink]="hasPlan(2) ? '/dashboard/ai' : '/upgrade'"
-                    [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai' }"
-                    routerLinkActive="active"
-                    class="nav-item"
-                    [class.nav-item-locked]="!hasPlan(2)">
-                        <span class="material-symbols-outlined icon">auto_awesome</span>
-                        <span class="label">AI Ayarları</span>
-                        @if (!hasPlan(2) && showUpgradePrompts) {
-                            <span class="nav-badge">PRO</span>
-                        }
-                    </a>
-                    @if (!hasPlan(2) && showUpgradePrompts) {
-                        <div class="nav-item-menu-wrap">
-                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('ai', $event)" aria-label="AI Ayarları menüsü">
-                                <span class="material-symbols-outlined">more_horiz</span>
-                            </button>
-                            @if (openLockedMenuKey === 'ai') {
-                                <div class="nav-popover-menu">
-                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(2, 'ai')">
-                                        AI Ayarları için Upgrade
+            @if (extraModules.length > 0) {
+                <div class="nav-row nav-row-bottom-menu">
+                    <button type="button" class="nav-item nav-item-compact" (click)="toggleLockedMenu('more-modules', $event)">
+                        <span class="material-symbols-outlined icon">more_horiz</span>
+                        <span class="label">Diğer Modüller</span>
+                    </button>
+                    <div class="nav-item-menu-wrap nav-item-menu-wrap-bottom">
+                        <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('more-modules', $event)" aria-label="Diğer modüller menüsü">
+                            <span class="material-symbols-outlined">more_horiz</span>
+                        </button>
+                        @if (openLockedMenuKey === 'more-modules') {
+                            <div class="nav-popover-menu nav-popover-menu-wide">
+                                @for (module of extraModules; track module.key) {
+                                    <button type="button" class="nav-popover-item nav-popover-item-rich" (click)="openExtraModule(module)">
+                                        <span class="nav-popover-item-icon material-symbols-outlined">{{ module.icon }}</span>
+                                        <span class="nav-popover-item-label">{{ module.label }}</span>
+                                        @if (module.badge) {
+                                            <span class="nav-badge nav-badge-inline">{{ module.badge }}</span>
+                                        }
                                     </button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-
-                <div class="nav-row">
-                    <a [routerLink]="hasPlan(2) ? '/dashboard/chat-quality' : '/upgrade'"
-                    [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'ai-quality' }"
-                    routerLinkActive="active"
-                    class="nav-item"
-                    [class.nav-item-locked]="!hasPlan(2)">
-                        <span class="material-symbols-outlined icon">monitoring</span>
-                        <span class="label">AI Kalite</span>
-                        @if (!hasPlan(2) && showUpgradePrompts) {
-                            <span class="nav-badge">PRO</span>
+                                }
+                            </div>
                         }
-                    </a>
-                    @if (!hasPlan(2) && showUpgradePrompts) {
-                        <div class="nav-item-menu-wrap">
-                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('ai-quality', $event)" aria-label="AI Kalite menüsü">
-                                <span class="material-symbols-outlined">more_horiz</span>
-                            </button>
-                            @if (openLockedMenuKey === 'ai-quality') {
-                                <div class="nav-popover-menu">
-                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(2, 'ai-quality')">
-                                        AI Kalite için Upgrade
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-
-                <div class="nav-row">
-                    <a [routerLink]="hasPlan(2) ? '/dashboard/visual-feedback' : '/upgrade'"
-                    [queryParams]="hasPlan(2) ? null : { requiredPlan: 2, feature: 'visual-feedback' }"
-                    routerLinkActive="active"
-                    class="nav-item"
-                    [class.nav-item-locked]="!hasPlan(2)">
-                        <span class="material-symbols-outlined icon">image_search</span>
-                        <span class="label">Görsel Feedback</span>
-                        @if (!hasPlan(2) && showUpgradePrompts) {
-                            <span class="nav-badge">PRO</span>
-                        }
-                    </a>
-                    @if (!hasPlan(2) && showUpgradePrompts) {
-                        <div class="nav-item-menu-wrap">
-                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('visual-feedback', $event)" aria-label="Görsel Feedback menüsü">
-                                <span class="material-symbols-outlined">more_horiz</span>
-                            </button>
-                            @if (openLockedMenuKey === 'visual-feedback') {
-                                <div class="nav-popover-menu">
-                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(2, 'visual-feedback')">
-                                        Görsel Feedback için Upgrade
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-            }
-
-            @if (supportsEcommerceFeature) {
-                <div class="nav-row">
-                    <a [routerLink]="hasPlan(3) ? '/dashboard/ecommerce' : '/upgrade'"
-                    [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'ecommerce' }"
-                    routerLinkActive="active"
-                    class="nav-item"
-                    [class.nav-item-locked]="!hasPlan(3)">
-                        <span class="material-symbols-outlined icon">inventory_2</span>
-                        <span class="label">Ürünler</span>
-                        @if (!hasPlan(3) && showUpgradePrompts) {
-                            <span class="nav-badge">ENT</span>
-                        }
-                    </a>
-                    @if (!hasPlan(3) && showUpgradePrompts) {
-                        <div class="nav-item-menu-wrap">
-                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('ecommerce', $event)" aria-label="Ürünler menüsü">
-                                <span class="material-symbols-outlined">more_horiz</span>
-                            </button>
-                            @if (openLockedMenuKey === 'ecommerce') {
-                                <div class="nav-popover-menu">
-                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(3, 'ecommerce')">
-                                        Ürünler için Upgrade
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-
-                <div class="nav-row">
-                    <a [routerLink]="hasPlan(3) ? '/dashboard/orders' : '/upgrade'"
-                    [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'orders' }"
-                    routerLinkActive="active"
-                    class="nav-item"
-                    [class.nav-item-locked]="!hasPlan(3)">
-                        <span class="material-symbols-outlined icon">receipt_long</span>
-                        <span class="label">Siparişler</span>
-                        @if (!hasPlan(3) && showUpgradePrompts) {
-                            <span class="nav-badge">ENT</span>
-                        } @else if (hasPlan(3) && unreadOrderCount > 0) {
-                            <span class="nav-badge">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</span>
-                        }
-                    </a>
-                    @if (!hasPlan(3) && showUpgradePrompts) {
-                        <div class="nav-item-menu-wrap">
-                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('orders', $event)" aria-label="Siparişler menüsü">
-                                <span class="material-symbols-outlined">more_horiz</span>
-                            </button>
-                            @if (openLockedMenuKey === 'orders') {
-                                <div class="nav-popover-menu">
-                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(3, 'orders')">
-                                        Siparişler için Upgrade
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-
-                <div class="nav-row">
-                    <a [routerLink]="hasPlan(3) ? '/dashboard/customers' : '/upgrade'"
-                    [queryParams]="hasPlan(3) ? null : { requiredPlan: 3, feature: 'customers' }"
-                    routerLinkActive="active"
-                    class="nav-item"
-                    [class.nav-item-locked]="!hasPlan(3)">
-                        <span class="material-symbols-outlined icon">groups</span>
-                        <span class="label">Müşteriler</span>
-                        @if (!hasPlan(3) && showUpgradePrompts) {
-                            <span class="nav-badge">ENT</span>
-                        }
-                    </a>
-                    @if (!hasPlan(3) && showUpgradePrompts) {
-                        <div class="nav-item-menu-wrap">
-                            <button type="button" class="nav-more-btn" (click)="toggleLockedMenu('customers', $event)" aria-label="Müşteriler menüsü">
-                                <span class="material-symbols-outlined">more_horiz</span>
-                            </button>
-                            @if (openLockedMenuKey === 'customers') {
-                                <div class="nav-popover-menu">
-                                    <button type="button" class="nav-popover-item" (click)="goUpgrade(3, 'customers')">
-                                        Müşteriler için Upgrade
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    }
+                    </div>
                 </div>
             }
 

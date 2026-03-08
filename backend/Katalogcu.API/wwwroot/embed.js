@@ -35,9 +35,11 @@
     var config = Object.assign(
       {
         token: ds.publicToken || ds.token || "",
+        storeSlug: ds.store || ds.storeSlug || "",
         apiBaseUrl: normalizeApiBaseUrl(ds.apiBaseUrl || scriptOrigin),
         appBaseUrl: trimSlash(ds.appBaseUrl || ""),
-        target: ds.target || "partalog-embed-root",
+        target: ds.target || "",
+        scriptElement: script,
         height: ds.height || "780px",
         autoMount: (ds.autoMount || "true").toLowerCase() !== "false",
         iframeClass: ds.iframeClass || "",
@@ -46,13 +48,8 @@
       options || {}
     );
 
-    if (!config.appBaseUrl) {
-      config.appBaseUrl = deriveAppBaseUrl(config.apiBaseUrl);
-      console.warn("[PartalogEmbed] data-app-base-url verilmedi, api base url'den türetildi:", config.appBaseUrl || "(same-origin)");
-    }
-
-    if (!config.token) {
-      throw new Error("data-public-token zorunlu.");
+    if (!config.token && !config.storeSlug) {
+      throw new Error("data-public-token veya data-store zorunlu.");
     }
 
     return config;
@@ -65,6 +62,18 @@
     return target && target.nodeType === 1 ? target : null;
   }
 
+  function resolveHost(config) {
+    var host = findHost(config.target);
+    if (host) return host;
+
+    var script = config && config.scriptElement;
+    if (script && script.parentElement) {
+      return script.parentElement;
+    }
+
+    return null;
+  }
+
   function verifyOrigin(config) {
     var endpoint = trimSlash(config.apiBaseUrl) + "/api/embed/verify-origin";
     return fetch(endpoint, {
@@ -72,6 +81,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         publicToken: config.token,
+        storeSlug: config.storeSlug,
         origin: window.location.origin
       }),
       credentials: "omit"
@@ -89,9 +99,24 @@
     });
   }
 
+  function resolveAppBaseUrl(config, verifyPayload) {
+    if (config.appBaseUrl) {
+      return trimSlash(config.appBaseUrl);
+    }
+
+    if (verifyPayload && verifyPayload.appBaseUrl) {
+      return trimSlash(verifyPayload.appBaseUrl);
+    }
+
+    var derived = deriveAppBaseUrl(config.apiBaseUrl);
+    console.warn("[PartalogEmbed] app base url verify-origin cevabinda gelmedi, api base url'den türetildi:", derived || "(same-origin)");
+    return trimSlash(derived);
+  }
+
   function buildIframeUrl(config, verifyPayload) {
-    var base = trimSlash(config.appBaseUrl);
-    var path = "/p/" + encodeURIComponent(config.token);
+    var base = resolveAppBaseUrl(config, verifyPayload);
+    var effectiveToken = (verifyPayload && verifyPayload.publicToken) || config.token;
+    var path = "/p/" + encodeURIComponent(effectiveToken);
     var params = new URLSearchParams();
     params.set("embed", "1");
     if (verifyPayload && verifyPayload.theme) params.set("theme", verifyPayload.theme);
@@ -145,9 +170,15 @@
           text: "Kullanilan public token gecersiz veya iptal edilmis. Panelden yeni bir public link uretip tekrar dene."
         };
       case "token_required":
+      case "token_or_store_required":
         return {
-          title: "Public token eksik",
-          text: "Embed kodunda data-public-token alani eksik. Panelden guncel embed kodunu tekrar kopyala."
+          title: "Embed kimligi eksik",
+          text: "Embed kodunda data-public-token veya data-store alani eksik. Panelden guncel embed kodunu tekrar kopyala."
+        };
+      case "invalid_store":
+        return {
+          title: "Magaza kodu gecersiz",
+          text: "Kullanilan data-store degeri taninmadi. Paneldeki magaza kodunu kontrol edip tekrar kopyala."
         };
       case "origin_required":
         return {
@@ -233,6 +264,7 @@
   function sendEventToApi(config, detail) {
     if (!config.analytics) return;
     if (!config.apiBaseUrl || !config.token) return;
+    if (!detail || detail.name === 'embed:resize') return;
 
     var endpoint = trimSlash(config.apiBaseUrl) + "/api/embed/events?token=" + encodeURIComponent(config.token);
     var body = {
@@ -264,6 +296,12 @@
   }
 
   function forwardEvents(iframe, config) {
+    function applyResizeHeight(height) {
+      var numeric = Number(height || 0);
+      if (!numeric || !isFinite(numeric)) return;
+      iframe.style.height = Math.max(320, Math.round(numeric)) + 'px';
+    }
+
     function onMessage(event) {
       if (!iframe || event.source !== iframe.contentWindow) return;
       var data = event.data || {};
@@ -274,6 +312,11 @@
         payload: data.payload || {},
         timestamp: data.timestamp || new Date().toISOString()
       };
+
+      if (data.event === 'embed:resize') {
+        applyResizeHeight(detail.payload && detail.payload.height);
+        return;
+      }
 
       document.dispatchEvent(new CustomEvent(data.event, { detail: detail }));
       document.dispatchEvent(new CustomEvent(SCRIPT_NS + ":event", { detail: detail }));
@@ -292,10 +335,15 @@
 
   function mount(options) {
     var config = readConfig(options);
-    var host = findHost(config.target);
-    if (!host) throw new Error("Embed mount hedefi bulunamadı: " + config.target);
+    var host = resolveHost(config);
+    if (!host) {
+      throw new Error("Embed mount hedefi bulunamadı.");
+    }
 
     return verifyOrigin(config).then(function (verifyPayload) {
+      if (!config.token && verifyPayload && verifyPayload.publicToken) {
+        config.token = verifyPayload.publicToken;
+      }
       host.innerHTML = "";
 
       var iframe = document.createElement("iframe");

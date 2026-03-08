@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -6,7 +6,7 @@ import { CatalogService, Catalog, CatalogPageItem, PublicFolderSummary, PublicSt
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
 import { environment } from '../../environments/environment';
-import { emitEmbedEvent } from '../core/utils/embed-bridge';
+import { emitEmbedEvent, startEmbedAutoResize } from '../core/utils/embed-bridge';
 
 // 🔥 Yanıt Tipi Tanımı (HTML ile uyumlu olması için)
 interface AiResponse {
@@ -47,7 +47,7 @@ interface PublicBreadcrumb {
   templateUrl: './public-view.html',
   styleUrls: ['./public-view.css']
 })
-export class PublicViewComponent implements OnInit {
+export class PublicViewComponent implements OnInit, OnDestroy {
   private catalogService = inject(CatalogService);
   public cartService = inject(CartService); 
   private aiService = inject(AiService);
@@ -86,6 +86,7 @@ export class PublicViewComponent implements OnInit {
   savingFeedbackCode: string | null = null;
   savedFeedbackKeys = new Set<string>();
   private pendingAutoScroll = false;
+  private stopEmbedAutoResize: (() => void) | null = null;
 
   // --- Veri Havuzu ---
   allCatalogs: Catalog[] = [];
@@ -132,6 +133,7 @@ export class PublicViewComponent implements OnInit {
   }
 
   ngOnInit() {
+    this.stopEmbedAutoResize = startEmbedAutoResize('public-view');
     this.publicToken = this.route.snapshot.paramMap.get('publicToken');
     if (!this.publicToken) {
       console.error('Public token bulunamadı.');
@@ -167,6 +169,11 @@ export class PublicViewComponent implements OnInit {
     this.loadPublicData();
     this.loadStorefront();
     this.loadPublicFolders();
+  }
+
+  ngOnDestroy(): void {
+    this.stopEmbedAutoResize?.();
+    this.stopEmbedAutoResize = null;
   }
 
   loadStorefront() {

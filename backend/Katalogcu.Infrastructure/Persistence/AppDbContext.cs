@@ -110,6 +110,24 @@ namespace Katalogcu.Infrastructure.Persistence
                 .Property(u => u.MaxPagePerCatalog)
                 .HasDefaultValue(100);
 
+            modelBuilder.Entity<AppUser>()
+                .Property(u => u.PublicStoreSlug)
+                .HasMaxLength(96);
+
+            modelBuilder.Entity<AppUser>()
+                .HasIndex(u => u.PublicStoreSlug)
+                .IsUnique()
+                .HasFilter("\"PublicStoreSlug\" IS NOT NULL");
+
+            modelBuilder.Entity<CatalogPage>()
+                .Property(p => p.ReviewStatus)
+                .HasMaxLength(32)
+                .HasDefaultValue("NeedsReview");
+
+            modelBuilder.Entity<CatalogPage>()
+                .Property(p => p.ReviewNotes)
+                .HasMaxLength(1024);
+
             modelBuilder.Entity<Customer>()
                 .Property(c => c.TotalSpent)
                 .HasPrecision(18, 2);

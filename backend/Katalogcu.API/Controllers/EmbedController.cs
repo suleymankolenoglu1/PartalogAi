@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.API.Services;
 using Katalogcu.Domain.Enums;
@@ -20,20 +22,26 @@ public class EmbedController : ControllerBase
     private readonly IPublicAccessTokenService _publicAccessTokenService;
     private readonly IEmbedAnalyticsService _embedAnalyticsService;
     private readonly IEmbedDomainVerificationService _embedDomainVerificationService;
+    private readonly IPublicCatalogLinkService _publicCatalogLinkService;
     private readonly AppDbContext _dbContext;
+    private readonly IConfiguration _configuration;
 
     public EmbedController(
         IEmbedOriginService embedOriginService,
         IPublicAccessTokenService publicAccessTokenService,
         IEmbedAnalyticsService embedAnalyticsService,
         IEmbedDomainVerificationService embedDomainVerificationService,
-        AppDbContext dbContext)
+        IPublicCatalogLinkService publicCatalogLinkService,
+        AppDbContext dbContext,
+        IConfiguration configuration)
     {
         _embedOriginService = embedOriginService;
         _publicAccessTokenService = publicAccessTokenService;
         _embedAnalyticsService = embedAnalyticsService;
         _embedDomainVerificationService = embedDomainVerificationService;
+        _publicCatalogLinkService = publicCatalogLinkService;
         _dbContext = dbContext;
+        _configuration = configuration;
     }
 
     [HttpGet("settings")]
@@ -45,13 +53,15 @@ public class EmbedController : ControllerBase
             return Unauthorized();
         }
 
+        var storeSlug = await EnsureUserStoreSlugAsync(userId, cancellationToken);
         var settings = await _embedOriginService.GetOrCreateAsync(userId, cancellationToken);
         return Ok(new
         {
             userId = settings.UserId,
             allowedOrigins = settings.AllowedOrigins,
             theme = settings.Theme,
-            mode = settings.Mode
+            mode = settings.Mode,
+            storeSlug
         });
     }
 
@@ -64,20 +74,29 @@ public class EmbedController : ControllerBase
             return Unauthorized();
         }
 
-        var updated = await _embedOriginService.UpsertAsync(
-            userId,
-            request.AllowedOrigins ?? [],
-            request.Theme,
-            request.Mode,
-            cancellationToken);
-
-        return Ok(new
+        try
         {
-            userId = updated.UserId,
-            allowedOrigins = updated.AllowedOrigins,
-            theme = updated.Theme,
-            mode = updated.Mode
-        });
+            var storeSlug = await UpsertStoreSlugAsync(userId, request.StoreSlug, cancellationToken);
+            var updated = await _embedOriginService.UpsertAsync(
+                userId,
+                request.AllowedOrigins ?? [],
+                request.Theme,
+                request.Mode,
+                cancellationToken);
+
+            return Ok(new
+            {
+                userId = updated.UserId,
+                allowedOrigins = updated.AllowedOrigins,
+                theme = updated.Theme,
+                mode = updated.Mode,
+                storeSlug
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { success = false, message = ex.Message });
+        }
     }
 
     [HttpPost("verify-origin")]
@@ -85,15 +104,15 @@ public class EmbedController : ControllerBase
     [EnableRateLimiting("public-embed-events")]
     public async Task<IActionResult> VerifyOrigin([FromBody] VerifyOriginRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.PublicToken))
+        if (string.IsNullOrWhiteSpace(request.PublicToken) && string.IsNullOrWhiteSpace(request.StoreSlug))
         {
-            return BadRequest(new { allowed = false, reason = "token_required" });
+            return BadRequest(new { allowed = false, reason = "token_or_store_required" });
         }
 
-        var payload = _publicAccessTokenService.Validate(request.PublicToken.Trim());
-        if (payload == null || payload.UserId == Guid.Empty)
+        var resolved = await ResolveEmbedTargetAsync(request.PublicToken, request.StoreSlug, cancellationToken);
+        if (resolved == null)
         {
-            return BadRequest(new { allowed = false, reason = "invalid_token" });
+            return BadRequest(new { allowed = false, reason = string.IsNullOrWhiteSpace(request.StoreSlug) ? "invalid_token" : "invalid_store" });
         }
 
         var rawOrigin = string.IsNullOrWhiteSpace(request.Origin)
@@ -106,32 +125,7 @@ public class EmbedController : ControllerBase
             return BadRequest(new { allowed = false, reason = "origin_required" });
         }
 
-        var settings = await _embedOriginService.GetOrCreateAsync(payload.UserId, cancellationToken);
-        var plan = await _dbContext.Users
-            .AsNoTracking()
-            .Where(u => u.Id == payload.UserId)
-            .Select(u => (SubscriptionPlan?)u.SubscriptionPlan)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (plan is null)
-        {
-            return BadRequest(new { allowed = false, reason = "owner_not_found", whiteLabel = false });
-        }
-
-        if (plan == SubscriptionPlan.CatalogOnly)
-        {
-            return Ok(new
-            {
-                allowed = false,
-                reason = "plan_upgrade_required",
-                origin = normalizedOrigin,
-                ownerUserId = payload.UserId,
-                theme = settings.Theme,
-                mode = settings.Mode,
-                whiteLabel = false
-            });
-        }
-
+        var settings = await _embedOriginService.GetOrCreateAsync(resolved.UserId, cancellationToken);
         var allowed = settings.AllowedOrigins.Contains(normalizedOrigin, StringComparer.OrdinalIgnoreCase);
 
         return Ok(new
@@ -139,10 +133,13 @@ public class EmbedController : ControllerBase
             allowed,
             reason = allowed ? "ok" : "origin_not_allowed",
             origin = normalizedOrigin,
-            ownerUserId = payload.UserId,
+            ownerUserId = resolved.UserId,
             theme = settings.Theme,
             mode = settings.Mode,
-            whiteLabel = plan == SubscriptionPlan.CatalogWithAIAndEcommerce
+            whiteLabel = resolved.Plan == SubscriptionPlan.CatalogWithAIAndEcommerce,
+            publicToken = resolved.PublicToken,
+            storeSlug = resolved.StoreSlug,
+            appBaseUrl = ResolveAppBaseUrl()
         });
     }
 
@@ -235,6 +232,53 @@ public class EmbedController : ControllerBase
         {
             return BadRequest(new { success = false, message = ex.Message });
         }
+    }
+
+    [HttpGet("store-slug/check")]
+    [Authorize]
+    public async Task<IActionResult> CheckStoreSlug([FromQuery] string? slug, CancellationToken cancellationToken)
+    {
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                u.Id,
+                u.CompanyName,
+                u.FirstName,
+                u.LastName,
+                u.PublicStoreSlug
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (user == null)
+        {
+            return NotFound(new { success = false, message = "Kullanıcı bulunamadı." });
+        }
+
+        var normalized = NormalizeStoreSlug(slug);
+        var suggested = string.IsNullOrWhiteSpace(normalized)
+            ? await BuildUniqueStoreSlugAsync(user.CompanyName, $"{user.FirstName} {user.LastName}", user.Id, cancellationToken)
+            : normalized;
+
+        var takenByAnother = !string.IsNullOrWhiteSpace(normalized) && await _dbContext.Users
+            .AsNoTracking()
+            .AnyAsync(u => u.Id != userId && u.PublicStoreSlug == normalized, cancellationToken);
+
+        return Ok(new
+        {
+            normalized,
+            current = user.PublicStoreSlug,
+            available = string.IsNullOrWhiteSpace(normalized) || !takenByAnother || string.Equals(user.PublicStoreSlug, normalized, StringComparison.Ordinal),
+            suggested = takenByAnother
+                ? await BuildUniqueStoreSlugAsync(normalized, normalized, user.Id, cancellationToken)
+                : suggested
+        });
     }
 
     [HttpPost("domains/{id:guid}/verify-now")]
@@ -372,6 +416,7 @@ public class EmbedController : ControllerBase
     public sealed class VerifyOriginRequest
     {
         public string PublicToken { get; set; } = string.Empty;
+        public string? StoreSlug { get; set; }
         public string? Origin { get; set; }
     }
 
@@ -380,6 +425,7 @@ public class EmbedController : ControllerBase
         public string[]? AllowedOrigins { get; set; }
         public string? Theme { get; set; }
         public string? Mode { get; set; }
+        public string? StoreSlug { get; set; }
     }
 
     public sealed class EmbedEventIngestRequest
@@ -396,4 +442,179 @@ public class EmbedController : ControllerBase
         public string Origin { get; set; } = string.Empty;
         public string Method { get; set; } = "dns_txt";
     }
+
+    private async Task<ResolvedEmbedTarget?> ResolveEmbedTargetAsync(string? publicToken, string? storeSlug, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(publicToken))
+        {
+            var token = publicToken.Trim();
+            var payload = _publicAccessTokenService.Validate(token);
+            if (payload == null || payload.UserId == Guid.Empty)
+            {
+                return null;
+            }
+
+            var owner = await _dbContext.Users
+                .AsNoTracking()
+                .Where(u => u.Id == payload.UserId)
+                .Select(u => new { u.Id, u.SubscriptionPlan, u.PublicStoreSlug })
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (owner == null)
+            {
+                return null;
+            }
+
+            return new ResolvedEmbedTarget(owner.Id, token, owner.PublicStoreSlug, owner.SubscriptionPlan);
+        }
+
+        var normalizedSlug = NormalizeStoreSlug(storeSlug);
+        if (string.IsNullOrWhiteSpace(normalizedSlug))
+        {
+            return null;
+        }
+
+        var user = await _dbContext.Users
+            .Where(u => u.PublicStoreSlug == normalizedSlug)
+            .Select(u => new { u.Id, u.PublicStoreSlug, u.SubscriptionPlan, u.PublicLinkEnabled, u.PublicLinkVersion })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (user == null || !user.PublicLinkEnabled)
+        {
+            return null;
+        }
+
+        var generatedToken = _publicCatalogLinkService.GetOrCreateToken(user.Id, user.PublicLinkVersion);
+        return new ResolvedEmbedTarget(user.Id, generatedToken, user.PublicStoreSlug, user.SubscriptionPlan);
+    }
+
+    private async Task<string> EnsureUserStoreSlugAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var user = await _dbContext.Users.SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user == null)
+        {
+            throw new InvalidOperationException("Kullanıcı bulunamadı.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(user.PublicStoreSlug))
+        {
+            return user.PublicStoreSlug;
+        }
+
+        user.PublicStoreSlug = await BuildUniqueStoreSlugAsync(user.CompanyName, $"{user.FirstName} {user.LastName}", user.Id, cancellationToken);
+        user.UpdatedDate = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return user.PublicStoreSlug;
+    }
+
+    private async Task<string> UpsertStoreSlugAsync(Guid userId, string? requestedStoreSlug, CancellationToken cancellationToken)
+    {
+        var user = await _dbContext.Users.SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user == null)
+        {
+            throw new InvalidOperationException("Kullanıcı bulunamadı.");
+        }
+
+        var normalizedRequested = NormalizeStoreSlug(requestedStoreSlug);
+        if (string.IsNullOrWhiteSpace(normalizedRequested))
+        {
+            normalizedRequested = await BuildUniqueStoreSlugAsync(user.CompanyName, $"{user.FirstName} {user.LastName}", user.Id, cancellationToken);
+        }
+        else
+        {
+            var ownerExists = await _dbContext.Users
+                .AsNoTracking()
+                .AnyAsync(u => u.Id != userId && u.PublicStoreSlug == normalizedRequested, cancellationToken);
+
+            if (ownerExists)
+            {
+                throw new InvalidOperationException("Bu mağaza kodu zaten kullanımda. Başka bir slug seçin.");
+            }
+        }
+
+        user.PublicStoreSlug = normalizedRequested;
+        user.UpdatedDate = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return normalizedRequested;
+    }
+
+    private async Task<string> BuildUniqueStoreSlugAsync(string? companyName, string? fallbackName, Guid userId, CancellationToken cancellationToken)
+    {
+        var baseSlug = NormalizeStoreSlug(companyName);
+        if (string.IsNullOrWhiteSpace(baseSlug))
+        {
+            baseSlug = NormalizeStoreSlug(fallbackName);
+        }
+
+        if (string.IsNullOrWhiteSpace(baseSlug))
+        {
+            baseSlug = $"magaza-{userId.ToString("N")[..6]}";
+        }
+
+        var candidate = baseSlug;
+        var suffix = 2;
+        while (await _dbContext.Users.AsNoTracking().AnyAsync(u => u.Id != userId && u.PublicStoreSlug == candidate, cancellationToken))
+        {
+            candidate = $"{baseSlug}-{suffix}";
+            suffix++;
+        }
+
+        return candidate;
+    }
+
+    private static string NormalizeStoreSlug(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var normalized = raw.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+
+        foreach (var ch in normalized)
+        {
+            var category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch);
+            if (category == System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+            {
+                builder.Append(ch);
+            }
+            else
+            {
+                builder.Append('-');
+            }
+        }
+
+        var slug = Regex.Replace(builder.ToString(), "-{2,}", "-").Trim('-');
+        if (slug.Length > 96)
+        {
+            slug = slug[..96].Trim('-');
+        }
+
+        return slug;
+    }
+
+    private string ResolveAppBaseUrl()
+    {
+        var configured = _configuration["Frontend:BaseUrl"]?.Trim().TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        if (HttpContext.Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || HttpContext.Request.Host.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        {
+            return "http://localhost:4200";
+        }
+
+        return $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
+    }
+
+    private sealed record ResolvedEmbedTarget(Guid UserId, string PublicToken, string? StoreSlug, SubscriptionPlan Plan);
 }

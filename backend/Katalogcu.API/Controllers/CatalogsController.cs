@@ -28,10 +28,12 @@ using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Text;
+using Katalogcu.Infrastructure.Persistence;
 
 namespace Katalogcu.API.Controllers
 {
@@ -45,6 +47,7 @@ namespace Katalogcu.API.Controllers
         private readonly IAiUsageQuotaService _aiUsageQuotaService;
         private readonly IEmbedAnalyticsService _embedAnalyticsService;
         private readonly IProductFeaturePolicy _productFeaturePolicy;
+        private readonly AppDbContext _dbContext;
         private readonly ISender _sender;
 
         public CatalogsController(
@@ -53,6 +56,7 @@ namespace Katalogcu.API.Controllers
             IAiUsageQuotaService aiUsageQuotaService,
             IEmbedAnalyticsService embedAnalyticsService,
             IProductFeaturePolicy productFeaturePolicy,
+            AppDbContext dbContext,
             ISender sender)
         {
             _logger = logger;
@@ -60,6 +64,7 @@ namespace Katalogcu.API.Controllers
             _aiUsageQuotaService = aiUsageQuotaService;
             _embedAnalyticsService = embedAnalyticsService;
             _productFeaturePolicy = productFeaturePolicy;
+            _dbContext = dbContext;
             _sender = sender;
         }
 
@@ -647,6 +652,54 @@ namespace Katalogcu.API.Controllers
 
             return Ok(new { message = result.Value!.Message });
         }
+
+        [HttpPut("{id}/pages/{pageId}/review")]
+        public async Task<IActionResult> UpdatePageReview(Guid id, Guid pageId, [FromBody] UpdateCatalogPageReviewRequest request)
+        {
+            var userId = GetCurrentUserId();
+            var normalizedStatus = NormalizeReviewStatus(request.ReviewStatus);
+            if (normalizedStatus == null)
+            {
+                return BadRequest("Geçersiz review durumu.");
+            }
+
+            var page = await _dbContext.CatalogPages
+                .Include(p => p.Catalog)
+                .FirstOrDefaultAsync(p => p.Id == pageId && p.CatalogId == id, HttpContext.RequestAborted);
+
+            if (page == null || page.Catalog?.UserId != userId)
+            {
+                return NotFound("Sayfa bulunamadı.");
+            }
+
+            page.ReviewStatus = normalizedStatus;
+            page.ReviewNotes = string.IsNullOrWhiteSpace(request.ReviewNotes)
+                ? null
+                : request.ReviewNotes.Trim();
+            page.ReviewedAt = normalizedStatus == "Reviewed" ? DateTime.UtcNow : null;
+            page.UpdatedDate = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync(HttpContext.RequestAborted);
+
+            return Ok(new
+            {
+                reviewStatus = page.ReviewStatus,
+                reviewNotes = page.ReviewNotes,
+                reviewedAt = page.ReviewedAt,
+                updatedDate = page.UpdatedDate
+            });
+        }
+
+        private static string? NormalizeReviewStatus(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            return value.Trim().ToLowerInvariant() switch
+            {
+                "needsreview" => "NeedsReview",
+                "reviewed" => "Reviewed",
+                _ => null
+            };
+        }
     }
 
     // --- DTO ---
@@ -663,5 +716,13 @@ namespace Katalogcu.API.Controllers
         public string? ImageUrl { get; set; }
         public string? PdfUrl { get; set; }
         public Guid? FolderId { get; set; }
+    }
+
+    public sealed class UpdateCatalogPageReviewRequest
+    {
+        [Required]
+        public string ReviewStatus { get; set; } = string.Empty;
+        [MaxLength(1024)]
+        public string? ReviewNotes { get; set; }
     }
 }

@@ -7,7 +7,10 @@ import {
   Catalog,
   Folder,
   CatalogAiJobItem,
-  CatalogAiJobSummary
+  CatalogAiJobSummary,
+  CatalogPage,
+  CatalogPageItem,
+  Hotspot
 } from '../../core/services/catalog.service';
 import { Subscription } from 'rxjs';
 
@@ -53,6 +56,7 @@ export class CatalogsComponent implements OnInit, OnDestroy {
   // Ekranda gösterilenler
   visibleFolders: Folder[] = [];
   visibleCatalogs: Catalog[] = [];
+  catalogReviewStats: Record<string, CatalogReviewSnapshot> = {};
 
   // ✨ Sürükle Bırak için
   draggedCatalogId: string | null = null;
@@ -244,6 +248,7 @@ export class CatalogsComponent implements OnInit, OnDestroy {
     // 2. Hangi Katalogları Göstereceğiz?
     // Catalog.folderId ile CurrentFolderId eşleşmeli (null ise null, doluysa dolu)
     this.visibleCatalogs = this.allCatalogs.filter(c => c.folderId === this.currentFolderId || (this.currentFolderId === null && !c.folderId));
+    this.ensureVisibleCatalogReviewStats();
   }
 
   updateFolderCounts() {
@@ -332,6 +337,7 @@ export class CatalogsComponent implements OnInit, OnDestroy {
       this.catalogService.deleteCatalog(id).subscribe({
         next: () => {
           this.allCatalogs = this.allCatalogs.filter(c => c.id !== id);
+          delete this.catalogReviewStats[id];
           this.updateFolderCounts();
           this.refreshView();
         },
@@ -381,4 +387,196 @@ export class CatalogsComponent implements OnInit, OnDestroy {
     if (s === 'failed') return 'Başarısız';
     return status || 'Bilinmiyor';
   }
+
+  getCatalogReviewSnapshot(catalogId: string): CatalogReviewSnapshot | null {
+    return this.catalogReviewStats[catalogId] ?? null;
+  }
+
+  getCatalogReviewTone(catalogId: string): 'healthy' | 'warning' | 'critical' | 'loading' | 'error' {
+    const snapshot = this.catalogReviewStats[catalogId];
+    if (!snapshot) return 'loading';
+    if (snapshot.loading) return 'loading';
+    if (snapshot.error) return 'error';
+    if (snapshot.highSeverityIssueCount > 0) return 'critical';
+    if (snapshot.issueCount > 0 || snapshot.needsReviewPageCount > 0) return 'warning';
+    return 'healthy';
+  }
+
+  getCatalogReviewLabel(catalogId: string): string {
+    const snapshot = this.catalogReviewStats[catalogId];
+    if (!snapshot || snapshot.loading) return 'Kontrol özeti yükleniyor';
+    if (snapshot.error) return 'Kontrol özeti alınamadı';
+    if (snapshot.pageCount === 0) return 'Henüz sayfa yok';
+    if (snapshot.issueCount === 0 && snapshot.needsReviewPageCount === 0) return 'Kontrol kuyruğu temiz';
+    if (snapshot.highSeverityIssueCount > 0) return `${snapshot.highSeverityIssueCount} kritik kontrol`;
+    return `${snapshot.needsReviewPageCount} sayfa bekliyor`;
+  }
+
+  private ensureVisibleCatalogReviewStats() {
+    this.visibleCatalogs.slice(0, 24).forEach((catalog) => {
+      const existing = this.catalogReviewStats[catalog.id];
+      if (existing && (existing.loading || existing.loaded)) {
+        return;
+      }
+
+      this.catalogReviewStats[catalog.id] = {
+        loading: true,
+        loaded: false,
+        pageCount: 0,
+        reviewedPageCount: 0,
+        needsReviewPageCount: 0,
+        issueCount: 0,
+        highSeverityIssueCount: 0,
+        lowConfidenceCount: 0
+      };
+
+      this.catalogService.getCatalogById(catalog.id).subscribe({
+        next: (detail) => {
+          this.catalogReviewStats[catalog.id] = this.buildCatalogReviewSnapshot(detail);
+        },
+        error: () => {
+          this.catalogReviewStats[catalog.id] = {
+            loading: false,
+            loaded: false,
+            error: 'Kontrol özeti yüklenemedi.',
+            pageCount: 0,
+            reviewedPageCount: 0,
+            needsReviewPageCount: 0,
+            issueCount: 0,
+            highSeverityIssueCount: 0,
+            lowConfidenceCount: 0
+          };
+        }
+      });
+    });
+  }
+
+  private buildCatalogReviewSnapshot(catalog: Catalog): CatalogReviewSnapshot {
+    const pages = catalog.pages ?? [];
+    let reviewedPageCount = 0;
+    let needsReviewPageCount = 0;
+    let issueCount = 0;
+    let highSeverityIssueCount = 0;
+    let lowConfidenceCount = 0;
+
+    pages.forEach((page) => {
+      const issues = this.buildPageReviewIssues(page, page.items ?? []);
+      issueCount += issues.length;
+      highSeverityIssueCount += issues.filter((issue) => issue.severity === 'high').length;
+      lowConfidenceCount += issues.filter((issue) => issue.type === 'low-confidence').length;
+
+      if ((page.reviewStatus ?? 'NeedsReview') === 'Reviewed' && issues.length === 0) {
+        reviewedPageCount += 1;
+      } else {
+        needsReviewPageCount += 1;
+      }
+    });
+
+    return {
+      loading: false,
+      loaded: true,
+      pageCount: pages.length,
+      reviewedPageCount,
+      needsReviewPageCount,
+      issueCount,
+      highSeverityIssueCount,
+      lowConfidenceCount
+    };
+  }
+
+  private buildPageReviewIssues(page?: CatalogPage, pageItems: CatalogPageItem[] = []): CatalogReviewIssue[] {
+    if (!page) return [];
+
+    const hotspots = page.hotspots ?? [];
+    const issues: CatalogReviewIssue[] = [];
+    const hotspotMap = new Map<string, Hotspot[]>();
+    const itemMap = new Map<string, CatalogPageItem[]>();
+
+    hotspots.forEach((hotspot) => {
+      const label = this.normalizeRef(hotspot.label);
+      if (!label) return;
+      const group = hotspotMap.get(label) ?? [];
+      group.push(hotspot);
+      hotspotMap.set(label, group);
+    });
+
+    pageItems.forEach((item) => {
+      const refNo = this.normalizeRef(item.refNo);
+      if (refNo) {
+        const group = itemMap.get(refNo) ?? [];
+        group.push(item);
+        itemMap.set(refNo, group);
+      }
+
+      if (!refNo || !item.partCode?.trim() || !item.partName?.trim()) {
+        issues.push({ type: 'incomplete-item', severity: 'medium' });
+      }
+    });
+
+    itemMap.forEach((group) => {
+      if (group.length > 1) {
+        group.forEach(() => issues.push({ type: 'duplicate-item', severity: 'medium' }));
+      }
+    });
+
+    hotspotMap.forEach((group) => {
+      if (group.length > 1) {
+        group.forEach(() => issues.push({ type: 'duplicate-hotspot', severity: 'medium' }));
+      }
+    });
+
+    pageItems.forEach((item) => {
+      const refNo = this.normalizeRef(item.refNo);
+      if (!refNo) return;
+      if (hotspotMap.has(refNo)) return;
+      issues.push({ type: 'missing-hotspot', severity: 'high' });
+    });
+
+    hotspots.forEach((hotspot) => {
+      const refNo = this.normalizeRef(hotspot.label);
+      if (refNo && itemMap.has(refNo)) return;
+      issues.push({ type: 'unlinked-hotspot', severity: 'high' });
+    });
+
+    hotspots.forEach((hotspot) => {
+      if (!this.isHotspotLowConfidence(hotspot)) return;
+      issues.push({ type: 'low-confidence', severity: 'medium' });
+    });
+
+    return issues;
+  }
+
+  private isHotspotLowConfidence(hotspot: Hotspot): boolean {
+    const confidence = hotspot.aiConfidence ?? hotspot.confidence ?? 1;
+    return confidence < 0.72;
+  }
+
+  private normalizeRef(value?: string | null): string {
+    return (value ?? '').trim().toLowerCase();
+  }
+}
+
+type CatalogReviewIssueType =
+  | 'missing-hotspot'
+  | 'unlinked-hotspot'
+  | 'duplicate-item'
+  | 'duplicate-hotspot'
+  | 'incomplete-item'
+  | 'low-confidence';
+
+interface CatalogReviewIssue {
+  type: CatalogReviewIssueType;
+  severity: 'high' | 'medium';
+}
+
+interface CatalogReviewSnapshot {
+  loading: boolean;
+  loaded: boolean;
+  error?: string;
+  pageCount: number;
+  reviewedPageCount: number;
+  needsReviewPageCount: number;
+  issueCount: number;
+  highSeverityIssueCount: number;
+  lowConfidenceCount: number;
 }

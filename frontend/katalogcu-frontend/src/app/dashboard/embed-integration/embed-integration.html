@@ -12,21 +12,20 @@
     </div>
   </header>
 
-  <div class="embed-content-shell" [class.is-locked]="!canUseEmbed">
-    @if (!canUseEmbed) {
-      <section class="embed-locked-banner">
-        <div class="embed-locked-copy">
-          <span class="material-symbols-outlined">lock</span>
-          <div>
-            <h3>Embed kilitli</h3>
-            <p>Bu özellik Plan 2 ve üzerinde kullanılabilir. Planınızı yükseltin.</p>
-          </div>
-        </div>
-        <button type="button" class="btn-primary locked-upgrade-btn" (click)="goUpgrade()">
-          Planı Yükselt
-        </button>
-      </section>
-    }
+  <div class="embed-content-shell">
+    <section class="embed-plan-note">
+      <div>
+        <h3>Tum planlarda kullanilabilir</h3>
+        <p>Catalog paketinde de web sitene katalog vitrini ekleyebilirsin. Ust planlarda ek olarak white-label ve diger gelismis moduller acilir.</p>
+      </div>
+      <div class="embed-plan-chips">
+        <span class="hero-badge">Plan 1: Katalog embed</span>
+        <span class="hero-badge">Plan 2: Powered by Partalog</span>
+        <span class="hero-badge">Plan 3: White-label</span>
+      </div>
+    </section>
+
+
 
     <section class="intro-strip">
       <article class="intro-card">
@@ -39,17 +38,69 @@
       <article class="intro-card">
         <span class="material-symbols-outlined">code_blocks</span>
         <div>
-          <strong>Hazır kodlar</strong>
-          <p>HTML, WordPress ve Shopify için hazır snippet bulunur.</p>
+          <strong>Hazir kodlar</strong>
+          <p>Catalog planinda bile HTML, WordPress ve Shopify icin hazir snippet kullanabilirsin.</p>
         </div>
       </article>
       <article class="intro-card">
         <span class="material-symbols-outlined">preview</span>
         <div>
-          <strong>Önizleme</strong>
-          <p>Kodu eklemeden önce vitrinin nasıl göründüğünü test edebilirsin.</p>
+          <strong>Onizleme</strong>
+          <p>Kodu eklemeden once kendi domainin icin origin testi yapip sonucu burada gorebilirsin.</p>
         </div>
       </article>
+    </section>
+
+    <section class="embed-health-strip">
+      <div class="embed-health-head">
+        <div>
+          <h3>Canlı Test Özeti</h3>
+          <p>Domain, magaza kodu ve snippet durumunu tek ekranda kontrol et.</p>
+        </div>
+      </div>
+      <div class="embed-health-grid">
+        @for (item of embedReadinessItems; track item.label) {
+          <article class="embed-health-card" [class.ok]="item.ok" [class.err]="!item.ok">
+            <div class="embed-health-icon">
+              <span class="material-symbols-outlined">
+                {{ item.ok ? 'check_circle' : 'pending' }}
+              </span>
+            </div>
+            <div class="embed-health-copy">
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.text }}</p>
+            </div>
+          </article>
+        }
+      </div>
+      @if (lastVerifySummary) {
+        <article class="embed-last-check-card" [class.ok]="lastVerifySummary.ok" [class.err]="!lastVerifySummary.ok">
+          <div class="embed-last-check-head">
+            <strong>{{ lastVerifySummary.title }}</strong>
+            <span class="material-symbols-outlined">
+              {{ lastVerifySummary.ok ? 'verified' : 'error' }}
+            </span>
+          </div>
+          <div class="embed-last-check-lines">
+            @for (line of lastVerifySummary.lines; track line) {
+              <p>{{ line }}</p>
+            }
+          </div>
+          <div class="embed-last-check-actions">
+            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copyTestSnippet('local')">
+              Local Test Snippet
+            </button>
+            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copyTestSnippet('prod')">
+              Prod Test Snippet
+            </button>
+          </div>
+          <div class="embed-last-check-help">
+            <p><strong>WordPress:</strong> `Özel HTML` bloğuna yapıştır.</p>
+            <p><strong>Shopify:</strong> `theme.liquid` içinde `&lt;/body&gt;` öncesine ekle.</p>
+            <p><strong>Özel yazılım:</strong> sayfada embed görünmesini istediğin alana veya `&lt;/body&gt;` öncesine yerleştir.</p>
+          </div>
+        </article>
+      }
     </section>
 
     <div class="embed-workspace">
@@ -79,15 +130,15 @@
       </ol>
 
       <div class="guide-tip">
-        <strong>Basit anlatım:</strong>
-        <p>Bu sistem, senin sitene küçük bir kod ekleyerek Partalog vitrini canlı gösterir. Katalog içerikleri yine Partalog'da kalır.</p>
+        <strong>Basit anlatim:</strong>
+        <p>Bu sistem senin sitene kucuk bir script ekler. Script, Partalog vitrininin iframe icinde acilmasini saglar. Katalog verisi senin sitene kopyalanmaz; Partalog tarafinda yayinlanir ve oradan gosterilir.</p>
       </div>
 
       <div class="guide-note">
         <h4>Kodu nereye ekleyeceğim?</h4>
         <p>
-          HTML/PHP projede `footer` dosyasına, WordPress'te tema footer alanına,
-          özel panelde ise "Custom Code" alanına ekleyebilirsin.
+          HTML/PHP projede sayfanin ilgili alanina veya `&lt;/body&gt;` oncesine, WordPress'te Ozel HTML bloguna ya da tema footer alanina,
+          ozel panel kullaniyorsan Custom Code alanina ekleyebilirsin.
         </p>
       </div>
 
@@ -148,6 +199,50 @@
         </article>
       </div>
 
+      <section class="smoke-panel">
+        <div class="smoke-panel-head">
+          <div>
+            <h4>Gercek Site Smoke Testleri</h4>
+            <p class="hint-text">Panelden cikip dagilmadan hangi ortamda neyi test etmen gerektigini buradan takip et.</p>
+          </div>
+          <span class="smoke-progress">{{ smokeProgress.done }}/{{ smokeProgress.total }} adim tamam</span>
+        </div>
+
+        <div class="smoke-suite-grid">
+          @for (suite of smokeSuites; track suite.key) {
+            <article class="smoke-suite-card">
+              <div class="smoke-suite-head">
+                <div>
+                  <strong>{{ suite.title }}</strong>
+                  <p>{{ suite.summary }}</p>
+                </div>
+                <span class="smoke-suite-count">{{ getSmokeSuiteDoneCount(suite.key) }}/{{ suite.steps.length }}</span>
+              </div>
+
+              <div class="smoke-suite-actions">
+                <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet(suite.snippetType)">
+                  Snippet Kopyala
+                </button>
+                @if (suite.key === 'html') {
+                  <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copyTestSnippet('local')">
+                    Local Test Kodu
+                  </button>
+                }
+              </div>
+
+              <div class="smoke-step-list">
+                @for (step of suite.steps; track step; let i = $index) {
+                  <button type="button" class="smoke-step-item" [class.done]="isSmokeStepDone(suite.key, i)" (click)="toggleSmokeStep(suite.key, i)">
+                    <span class="material-symbols-outlined">{{ isSmokeStepDone(suite.key, i) ? 'check_circle' : 'radio_button_unchecked' }}</span>
+                    <span>{{ step }}</span>
+                  </button>
+                }
+              </div>
+            </article>
+          }
+        </div>
+      </section>
+
       <div class="snippet-panel">
         <h4>Hazır Kopyala-Yapıştır Kodları</h4>
         <p class="hint-text">Altyapına göre kodu kopyalayıp direkt kullanabilirsin.</p>
@@ -179,7 +274,7 @@
         @if (showPoweredByBadgeInfo) {
           <div class="guide-note powered-note">
             <h4>Plan 2 görünümü</h4>
-            <p>Plan 2 embedlerinde iframe altında küçük bir `Powered by Partalog` rozeti görünür. Plan 3'te bu rozet otomatik kaldırılır.</p>
+            <p>Plan 1 ve Plan 2 embedlerinde iframe altında küçük bir `Powered by Partalog` rozeti görünür. Plan 3'te bu rozet otomatik kaldırılır.</p>
           </div>
         }
       </div>
@@ -196,6 +291,30 @@
       } @else {
         <div class="embed-grid">
           <div class="embed-column">
+            <h4>0) Mağaza Kodu</h4>
+            <p class="hint-text">Müşterine vereceğin embed kodunda uzun token yerine bu kısa mağaza kodu kullanılır.</p>
+            <div class="embed-origin-input">
+              <input
+                type="text"
+                class="form-input"
+                placeholder="ornek: galeri-makina"
+                [(ngModel)]="storeSlug"
+                (ngModelChange)="onStoreSlugChange()">
+              <button type="button" class="btn-secondary small" [disabled]="storeSlugChecking" (click)="checkStoreSlug()">
+                @if (storeSlugChecking) { Kontrol... } @else { Kontrol Et }
+              </button>
+            </div>
+            <p class="hint-text">Sadece küçük harf, rakam ve kısa çizgi kullan. Boş bırakırsan sistem otomatik üretir.</p>
+            @if (storeSlugCheck) {
+              <p class="public-feedback" [class.ok]="storeSlugCheck.available" [class.err]="!storeSlugCheck.available">
+                @if (storeSlugCheck.available) {
+                  Kullanılabilir. Normalized: <strong>{{ storeSlugCheck.normalized || storeSlugCheck.suggested }}</strong>
+                } @else {
+                  Bu mağaza kodu dolu. Öneri: <strong>{{ storeSlugCheck.suggested }}</strong>
+                }
+              </p>
+            }
+
             <h4>1) İzinli Domainler</h4>
             <p class="hint-text">Sadece burada tanımlı domainlerden embed açılabilir.</p>
             <div class="embed-origin-input">
@@ -255,14 +374,14 @@
 
           <div class="embed-column">
             <h4>4) Script Kodu</h4>
-            <p class="hint-text">Bu scripti sitene eklersen katalog görünür.</p>
+            <p class="hint-text">Bu scripti sitene eklersen katalog görünür. Artık uzun token yerine mağaza kodu kullanılabilir.</p>
             <div class="embed-code-box">
               <code>
-                &lt;script src="{{ embedScriptSourceUrl }}" data-public-token="..."&gt;&lt;/script&gt;
+                &lt;script src="{{ embedScriptSourceUrl }}" data-store="{{ normalizedStoreSlug || 'magaza-kodun' }}"&gt;&lt;/script&gt;
               </code>
             </div>
             <div class="embed-actions">
-              <button type="button" class="btn-secondary" [disabled]="!publicToken" (click)="copyEmbedScript()">
+              <button type="button" class="btn-secondary" [disabled]="!publicToken && !normalizedStoreSlug" (click)="copyEmbedScript()">
                 Scripti Kopyala
               </button>
               <button type="button" class="btn-primary" [disabled]="embedSaving" (click)="saveEmbedSettings()">

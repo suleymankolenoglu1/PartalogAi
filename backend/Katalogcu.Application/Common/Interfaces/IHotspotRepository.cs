@@ -16,7 +16,11 @@ public interface IHotspotRepository
 
     Task<Hotspot?> GetHotspotByIdForUserAsync(Guid hotspotId, Guid userId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<Hotspot>> GetHotspotsByPageIdAsync(Guid pageId, CancellationToken cancellationToken);
+
     void RemoveHotspot(Hotspot hotspot);
+
+    void RemoveHotspots(IEnumerable<Hotspot> hotspots);
 
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
