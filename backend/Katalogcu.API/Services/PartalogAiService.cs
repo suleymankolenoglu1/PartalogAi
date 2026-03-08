@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text; // Encoding için gerekli
+using Katalogcu.Application.Common.Exceptions;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Features.Ai.Common;
 using Katalogcu.Domain.Entities; 
@@ -32,15 +33,24 @@ public class PartalogAiService : IPartalogAiService
     }
 
     // --- 1. YOLO (HOTSPOT TESPİTİ) ---
-    public async Task<List<Hotspot>> DetectHotspotsAsync(IFormFile file, Guid pageId)
+    public async Task<List<Hotspot>> DetectHotspotsAsync(IFormFile file, Guid pageId, bool throwOnFailure = false)
     {
         try
         {
             var responseJson = await SendFileStreamAsync(file, "/api/hotspot/detect");
             var result = JsonSerializer.Deserialize<YoloResponseDto>(responseJson, _jsonOptions);
             
-            if (result == null || !result.Success || result.Hotspots == null) 
+            if (result == null || !result.Success || result.Hotspots == null)
+            {
+                if (throwOnFailure)
+                {
+                    throw new CatalogAiRetryableException(
+                        "YOLOv8 hotspot detection",
+                        "YOLO servisi geçersiz veya eksik cevap döndürdü.");
+                }
+
                 return new List<Hotspot>();
+            }
 
             return result.Hotspots.Select(d => new Hotspot
             {
@@ -56,10 +66,19 @@ public class PartalogAiService : IPartalogAiService
                 CreatedDate = DateTime.UtcNow
             }).ToList();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!throwOnFailure)
         {
             _logger.LogError(ex, "YOLO servisi hatası.");
             return new List<Hotspot>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "YOLO servisi hatası.");
+            throw ex as CatalogAiRetryableException
+                ?? new CatalogAiRetryableException(
+                    "YOLOv8 hotspot detection",
+                    "YOLO servisi çağrısı başarısız oldu.",
+                    ex);
         }
     }
 
@@ -87,7 +106,7 @@ public class PartalogAiService : IPartalogAiService
     }
 
     // --- 2. GEMINI (TABLO OKUMA) ---
-    public async Task<List<ProductItemDto>> ExtractTableAsync(byte[] fileBytes, int pageNumber)
+    public async Task<List<ProductItemDto>> ExtractTableAsync(byte[] fileBytes, int pageNumber, bool throwOnFailure = false)
     {
         try
         {
@@ -97,20 +116,48 @@ public class PartalogAiService : IPartalogAiService
             content.Add(fileContent, "file", "page.jpg");
             
             var response = await _httpClient.PostAsync($"/api/table/extract?page_number={pageNumber}", content);
-            if (!response.IsSuccessStatusCode) return new List<ProductItemDto>();
+            if (!response.IsSuccessStatusCode)
+            {
+                if (throwOnFailure)
+                {
+                    throw new CatalogAiRetryableException(
+                        "OCR table extraction",
+                        $"Tablo okuma servisi başarısız döndü: {(int)response.StatusCode}");
+                }
+
+                return new List<ProductItemDto>();
+            }
 
             var responseJson = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<TableResponseDto>(responseJson, _jsonOptions);
             
-            if (result == null || !result.Success || result.Tables == null) 
+            if (result == null || !result.Success || result.Tables == null)
+            {
+                if (throwOnFailure)
+                {
+                    throw new CatalogAiRetryableException(
+                        "OCR table extraction",
+                        "Tablo okuma servisi geçersiz veya eksik cevap döndürdü.");
+                }
+
                 return new List<ProductItemDto>();
+            }
 
             return result.Tables.SelectMany(t => t.Products ?? new List<ProductItemDto>()).ToList();
+        }
+        catch (Exception ex) when (!throwOnFailure)
+        {
+            _logger.LogError(ex, "Tablo okuma servisi hatası.");
+            return new List<ProductItemDto>();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Tablo okuma servisi hatası.");
-            return new List<ProductItemDto>();
+            throw ex as CatalogAiRetryableException
+                ?? new CatalogAiRetryableException(
+                    "OCR table extraction",
+                    "Tablo okuma servisi çağrısı başarısız oldu.",
+                    ex);
         }
     }
 

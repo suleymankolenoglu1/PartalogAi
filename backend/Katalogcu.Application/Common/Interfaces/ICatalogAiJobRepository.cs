@@ -7,13 +7,13 @@ public interface ICatalogAiJobRepository
 {
     Task UpsertPendingAsync(Guid catalogId, int maxAttempts, CancellationToken cancellationToken);
 
-    Task<CatalogAiJob?> LeaseDueJobAsync(DateTime utcNow, TimeSpan leaseDuration, CancellationToken cancellationToken);
+    Task MarkProcessingAsync(Guid catalogId, int attemptCount, CancellationToken cancellationToken);
 
-    Task MarkSucceededAsync(Guid jobId, CancellationToken cancellationToken);
+    Task MarkSucceededAsync(Guid catalogId, CancellationToken cancellationToken);
 
-    Task MarkRetryAsync(Guid jobId, DateTime nextAttemptAt, string? error, CancellationToken cancellationToken);
+    Task MarkRetryAsync(Guid catalogId, int attemptCount, DateTime nextAttemptAt, string? error, CancellationToken cancellationToken);
 
-    Task MarkFailedAsync(Guid jobId, string? error, CancellationToken cancellationToken);
+    Task MarkFailedAsync(Guid catalogId, int attemptCount, string? error, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<CatalogAiJobItemDto>> GetJobsByUserAsync(Guid userId, int take, CancellationToken cancellationToken);
 

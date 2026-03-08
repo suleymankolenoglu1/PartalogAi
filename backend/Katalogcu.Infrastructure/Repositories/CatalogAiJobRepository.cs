@@ -55,38 +55,29 @@ public sealed class CatalogAiJobRepository : ICatalogAiJobRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<CatalogAiJob?> LeaseDueJobAsync(DateTime utcNow, TimeSpan leaseDuration, CancellationToken cancellationToken)
+    public async Task MarkProcessingAsync(Guid catalogId, int attemptCount, CancellationToken cancellationToken)
     {
+        var utcNow = DateTime.UtcNow;
         var job = await _context.CatalogAiJobs
-            .OrderBy(x => x.NextAttemptAt)
-            .ThenBy(x => x.CreatedDate)
-            .FirstOrDefaultAsync(
-                x =>
-                    x.NextAttemptAt <= utcNow &&
-                    (
-                        x.Status == CatalogAiJob.Pending ||
-                        (x.Status == CatalogAiJob.Processing && x.LockedUntil.HasValue && x.LockedUntil.Value <= utcNow)
-                    ),
-                cancellationToken);
-
+            .FirstOrDefaultAsync(x => x.CatalogId == catalogId, cancellationToken);
         if (job == null)
         {
-            return null;
+            return;
         }
 
         job.Status = CatalogAiJob.Processing;
-        job.AttemptCount = Math.Max(0, job.AttemptCount) + 1;
+        job.AttemptCount = Math.Max(1, attemptCount);
         job.LastAttemptAt = utcNow;
-        job.LockedUntil = utcNow.Add(leaseDuration);
+        job.NextAttemptAt = utcNow;
+        job.LockedUntil = null;
         job.UpdatedDate = utcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
-        return job;
     }
 
-    public async Task MarkSucceededAsync(Guid jobId, CancellationToken cancellationToken)
+    public async Task MarkSucceededAsync(Guid catalogId, CancellationToken cancellationToken)
     {
-        var job = await _context.CatalogAiJobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken);
+        var job = await _context.CatalogAiJobs.FirstOrDefaultAsync(x => x.CatalogId == catalogId, cancellationToken);
         if (job == null)
         {
             return;
@@ -100,15 +91,16 @@ public sealed class CatalogAiJobRepository : ICatalogAiJobRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task MarkRetryAsync(Guid jobId, DateTime nextAttemptAt, string? error, CancellationToken cancellationToken)
+    public async Task MarkRetryAsync(Guid catalogId, int attemptCount, DateTime nextAttemptAt, string? error, CancellationToken cancellationToken)
     {
-        var job = await _context.CatalogAiJobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken);
+        var job = await _context.CatalogAiJobs.FirstOrDefaultAsync(x => x.CatalogId == catalogId, cancellationToken);
         if (job == null)
         {
             return;
         }
 
         job.Status = CatalogAiJob.Pending;
+        job.AttemptCount = Math.Max(1, attemptCount);
         job.NextAttemptAt = nextAttemptAt;
         job.LockedUntil = null;
         job.LastError = TrimError(error);
@@ -117,15 +109,16 @@ public sealed class CatalogAiJobRepository : ICatalogAiJobRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task MarkFailedAsync(Guid jobId, string? error, CancellationToken cancellationToken)
+    public async Task MarkFailedAsync(Guid catalogId, int attemptCount, string? error, CancellationToken cancellationToken)
     {
-        var job = await _context.CatalogAiJobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken);
+        var job = await _context.CatalogAiJobs.FirstOrDefaultAsync(x => x.CatalogId == catalogId, cancellationToken);
         if (job == null)
         {
             return;
         }
 
         job.Status = CatalogAiJob.Failed;
+        job.AttemptCount = Math.Max(1, attemptCount);
         job.LockedUntil = null;
         job.LastError = TrimError(error);
         job.UpdatedDate = DateTime.UtcNow;

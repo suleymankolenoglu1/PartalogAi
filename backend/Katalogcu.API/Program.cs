@@ -2,6 +2,8 @@ using Katalogcu.Infrastructure.Persistence;
 using Katalogcu.Application;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Infrastructure;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 using System.Text;
@@ -49,8 +51,18 @@ builder.Services.Configure<KestrelServerOptions>(options =>
 // Genel HttpClient Fabrikası
 builder.Services.AddHttpClient(); 
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<CatalogAiProcessingOptions>(builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName));
 builder.Services.Configure<ProductFeatureOptions>(builder.Configuration.GetSection("ProductFeatures"));
 builder.Services.AddSingleton<IProductFeaturePolicy, ProductFeaturePolicy>();
+
+var catalogAiProcessingOptions = builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName).Get<CatalogAiProcessingOptions>()
+    ?? new CatalogAiProcessingOptions();
+
+var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(defaultConnection))
+{
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection zorunludur.");
+}
 
 // Yardımcı Servisler
 builder.Services.AddScoped<PdfService>();
@@ -72,21 +84,11 @@ builder.Services.AddScoped<ICatalogPageFileService, CatalogPageFileService>();
 builder.Services.AddScoped<ICatalogCoverMetadataService, CatalogCoverMetadataService>();
 builder.Services.AddScoped<IChatFeedbackStore, ChatFeedbackJsonlStore>();
 builder.Services.AddScoped<ICatalogAiBackgroundProcessor, CatalogAiBackgroundProcessor>();
+builder.Services.AddScoped<CatalogAiHangfireJob>();
 builder.Services.AddScoped<IAiUsageQuotaService, AiUsageQuotaService>();
+builder.Services.AddSingleton<CatalogAiHangfireFilter>();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructureServices();
-
-// 🔥 KUYRUK SİSTEMİ (BACKGROUND JOB) 🔥
-// 1. Kuyruğu Singleton yapıyoruz (Tüm uygulama aynı sırayı kullansın)
-builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => 
-{
-    return new BackgroundTaskQueue(100); // Kapasite: 100 Dosya
-});
-
-// 2. Arka Plan İşçisini (Worker) başlatıyoruz
-builder.Services.AddHostedService<QueuedHostedService>();
-builder.Services.AddHostedService<CatalogAiOutboxWorker>();
-
 
 // 🔥 AI SERVİS ENTEGRASYONU (POLLY İLE GÜÇLENDİRİLDİ) 🔥
 var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"] ?? "http://127.0.0.1:8000";
@@ -118,10 +120,27 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 // 🔥 VERİTABANI BAĞLANTISI (PostgreSQL + Vektör Desteği) 🔥
 builder.Services.AddDbContext<AppDbContext>(options =>
     options
-        .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), x =>
+        .UseNpgsql(defaultConnection, x =>
         {
             x.UseVector();
         }));
+
+builder.Services.AddHangfire(configuration => configuration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(defaultConnection)));
+
+builder.Services.AddHangfireServer(options =>
+{
+    options.Queues =
+    [
+        CatalogAiHangfireJob.QueueName,
+        "default"
+    ];
+    options.WorkerCount = catalogAiProcessingOptions.GetNormalizedWorkerCount();
+});
+
 builder.Services.AddHealthChecks();
 
 // JWT Authentication Ayarları
@@ -133,7 +152,6 @@ if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Trim().Length < 32)
 }
 
 var publicLinkSecret = builder.Configuration["PublicLink:SecretKey"];
-var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 if (builder.Environment.IsProduction())
 {
     if (jwtSecret.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
@@ -364,6 +382,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<CatalogAiHangfireFilter>());
 
 var featurePolicy = app.Services.GetRequiredService<IProductFeaturePolicy>();
 app.Logger.LogInformation(

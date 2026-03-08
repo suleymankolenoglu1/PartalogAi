@@ -1,3 +1,4 @@
+using Katalogcu.Application.Common.Exceptions;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Common.Models;
 using Katalogcu.Application.Features.Ai.Common;
@@ -100,7 +101,10 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
 
                 if (analysis.IsPartsList)
                 {
-                    var extractedItems = await _partalogAiService.ExtractTableAsync(fileBytes, page.PageNumber);
+                    var extractedItems = await _partalogAiService.ExtractTableAsync(
+                        fileBytes,
+                        page.PageNumber,
+                        throwOnFailure: true);
                     await _catalogProcessingRepository.DeleteCatalogItemsByCatalogAndPageNumberAsync(
                         request.CatalogId,
                         page.PageNumber.ToString(),
@@ -136,7 +140,8 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
                     var hotspots = await _hotspotDetectionService.DetectHotspotsForPageAsync(
                         page.ImageUrl,
                         page.Id,
-                        cancellationToken);
+                        cancellationToken,
+                        throwOnFailure: true);
 
                     if (hotspots.Count > 0)
                     {
@@ -147,6 +152,17 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
 
                 await _catalogProcessingRepository.SaveChangesAsync(cancellationToken);
                 processedPageCount++;
+            }
+            catch (CatalogAiRetryableException ex)
+            {
+                failedPageCount++;
+                _logger.LogWarning(
+                    ex,
+                    "♻️ Retryable OCR/YOLO hatası: {CatalogId} | Sayfa {PageNumber} | Operation={Operation}",
+                    request.CatalogId,
+                    page.PageNumber,
+                    ex.Operation);
+                throw;
             }
             catch (Exception ex)
             {

@@ -18,7 +18,8 @@ public sealed class HotspotDetectionService : IHotspotDetectionService
     public async Task<IReadOnlyList<Hotspot>> DetectHotspotsForPageAsync(
         string pageImageUrl,
         Guid pageId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool throwOnFailure = false)
     {
         var filePath = GetPhysicalPath(pageImageUrl);
         if (!File.Exists(filePath))
@@ -34,7 +35,7 @@ public sealed class HotspotDetectionService : IHotspotDetectionService
             ContentType = ResolveContentType(fileName)
         };
 
-        return await _aiService.DetectHotspotsAsync(formFile, pageId);
+        return await _aiService.DetectHotspotsAsync(formFile, pageId, throwOnFailure);
     }
 
     private static string ResolveContentType(string fileName)

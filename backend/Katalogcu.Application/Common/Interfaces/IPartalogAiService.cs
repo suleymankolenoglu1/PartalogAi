@@ -6,9 +6,9 @@ namespace Katalogcu.Application.Common.Interfaces;
 
 public interface IPartalogAiService
 {
-    Task<List<Hotspot>> DetectHotspotsAsync(IFormFile file, Guid pageId);
+    Task<List<Hotspot>> DetectHotspotsAsync(IFormFile file, Guid pageId, bool throwOnFailure = false);
     Task<HotspotLabelReadResultDto> ReadHotspotLabelAsync(IFormFile file);
-    Task<List<ProductItemDto>> ExtractTableAsync(byte[] fileBytes, int pageNumber);
+    Task<List<ProductItemDto>> ExtractTableAsync(byte[] fileBytes, int pageNumber, bool throwOnFailure = false);
     Task<PageAnalysisResult> AnalyzePageAsync(byte[] fileBytes);
     Task<AiChatResponseDto> GetExpertChatResponseAsync(AiChatRequestDto request);
     Task<VisualFeedbackResponseDto> SaveVisualFeedbackAsync(VisualFeedbackRequestDto request);
