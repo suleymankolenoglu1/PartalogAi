@@ -1,4 +1,12 @@
-export type EmbedEventName = 'part:viewed' | 'cart:add' | 'checkout:start' | 'embed:resize';
+export type EmbedEventName =
+  | 'part:viewed'
+  | 'cart:add'
+  | 'checkout:start'
+  | 'embed:resize'
+  | 'part:add-to-cart'
+  | 'part:availability-request'
+  | 'part:view-product'
+  | 'part:search';
 
 interface EmbedEventEnvelope {
   source: 'partalog-embed-client';

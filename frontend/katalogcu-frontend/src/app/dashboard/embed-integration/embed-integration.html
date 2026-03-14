@@ -1,411 +1,169 @@
 <div class="apple-page-wrapper">
   <header class="page-header">
     <div class="header-content">
-      <h1>Web Sitesine Entegrasyon</h1>
-      <p>Teknik bilgin olmasa da bu sayfadaki adımları sırayla yaparak Partalog vitrini kendi sitene ekleyebilirsin.</p>
+      <h1>Web Sitesi Entegrasyonu</h1>
+      <p>Bu ekrandan hangi katalogu sitene koyacağını seçersin, hangi domainde çalışacağını belirlersin ve geliştiricine göndereceğin kodu tek yerde alırsın.</p>
       <div class="hero-badges">
-        <span class="hero-badge">1. Domain ekle</span>
-        <span class="hero-badge">2. Doğrula</span>
-        <span class="hero-badge">3. Kodu yerleştir</span>
-        <span class="hero-badge">4. Canlıda kontrol et</span>
+        <span class="hero-badge">1. Domaini ekle</span>
+        <span class="hero-badge">2. Embed oluştur</span>
+        <span class="hero-badge">3. Kodu paylaş</span>
       </div>
     </div>
   </header>
 
-  <div class="embed-content-shell">
-    <section class="embed-plan-note">
+  <section class="embed-health-strip">
+    <div class="embed-health-head">
       <div>
-        <h3>Tum planlarda kullanilabilir</h3>
-        <p>Catalog paketinde de web sitene katalog vitrini ekleyebilirsin. Ust planlarda ek olarak white-label ve diger gelismis moduller acilir.</p>
+        <h3>Hazırlık Durumu</h3>
+        <p>Canlıya geçmeden önce temel ihtiyaçların hazır mı buradan gör.</p>
       </div>
-      <div class="embed-plan-chips">
-        <span class="hero-badge">Plan 1: Katalog embed</span>
-        <span class="hero-badge">Plan 2: Powered by Partalog</span>
-        <span class="hero-badge">Plan 3: White-label</span>
-      </div>
-    </section>
-
-
-
-    <section class="intro-strip">
-      <article class="intro-card">
-        <span class="material-symbols-outlined">public</span>
-        <div>
-          <strong>Domain güvenliği</strong>
-          <p>Sadece izin verdiğin domainlerde katalog çalışır.</p>
-        </div>
-      </article>
-      <article class="intro-card">
-        <span class="material-symbols-outlined">code_blocks</span>
-        <div>
-          <strong>Hazir kodlar</strong>
-          <p>Catalog planinda bile HTML, WordPress ve Shopify icin hazir snippet kullanabilirsin.</p>
-        </div>
-      </article>
-      <article class="intro-card">
-        <span class="material-symbols-outlined">preview</span>
-        <div>
-          <strong>Onizleme</strong>
-          <p>Kodu eklemeden once kendi domainin icin origin testi yapip sonucu burada gorebilirsin.</p>
-        </div>
-      </article>
-    </section>
-
-    <section class="embed-health-strip">
-      <div class="embed-health-head">
-        <div>
-          <h3>Canlı Test Özeti</h3>
-          <p>Domain, magaza kodu ve snippet durumunu tek ekranda kontrol et.</p>
-        </div>
-      </div>
-      <div class="embed-health-grid">
-        @for (item of embedReadinessItems; track item.label) {
-          <article class="embed-health-card" [class.ok]="item.ok" [class.err]="!item.ok">
-            <div class="embed-health-icon">
-              <span class="material-symbols-outlined">
-                {{ item.ok ? 'check_circle' : 'pending' }}
-              </span>
-            </div>
-            <div class="embed-health-copy">
-              <strong>{{ item.label }}</strong>
-              <p>{{ item.text }}</p>
-            </div>
-          </article>
-        }
-      </div>
-      @if (lastVerifySummary) {
-        <article class="embed-last-check-card" [class.ok]="lastVerifySummary.ok" [class.err]="!lastVerifySummary.ok">
-          <div class="embed-last-check-head">
-            <strong>{{ lastVerifySummary.title }}</strong>
-            <span class="material-symbols-outlined">
-              {{ lastVerifySummary.ok ? 'verified' : 'error' }}
-            </span>
+    </div>
+    <div class="embed-health-grid">
+      @for (item of embedReadinessItems; track item.label) {
+        <article class="embed-health-card" [class.ok]="item.ok" [class.err]="!item.ok">
+          <div class="embed-health-icon">
+            <span class="material-symbols-outlined">{{ item.ok ? 'check_circle' : 'pending' }}</span>
           </div>
-          <div class="embed-last-check-lines">
-            @for (line of lastVerifySummary.lines; track line) {
-              <p>{{ line }}</p>
-            }
-          </div>
-          <div class="embed-last-check-actions">
-            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copyTestSnippet('local')">
-              Local Test Snippet
-            </button>
-            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copyTestSnippet('prod')">
-              Prod Test Snippet
-            </button>
-          </div>
-          <div class="embed-last-check-help">
-            <p><strong>WordPress:</strong> `Özel HTML` bloğuna yapıştır.</p>
-            <p><strong>Shopify:</strong> `theme.liquid` içinde `&lt;/body&gt;` öncesine ekle.</p>
-            <p><strong>Özel yazılım:</strong> sayfada embed görünmesini istediğin alana veya `&lt;/body&gt;` öncesine yerleştir.</p>
+          <div class="embed-health-copy">
+            <strong>{{ item.label }}</strong>
+            <p>{{ item.text }}</p>
           </div>
         </article>
       }
+    </div>
+  </section>
+
+  @if (embedMessage) {
+    <p class="public-feedback ok">{{ embedMessage }}</p>
+  }
+  @if (embedError) {
+    <p class="public-feedback err">{{ embedError }}</p>
+  }
+  @if (targetMessage) {
+    <p class="public-feedback ok">{{ targetMessage }}</p>
+  }
+  @if (targetError) {
+    <p class="public-feedback err">{{ targetError }}</p>
+  }
+
+  @if (showEmptyStartState) {
+    <section class="empty-start-panel">
+      <div class="empty-start-copy">
+        <h3>Ilk embedini 3 adimda hazirla</h3>
+        <p>Bu sayfayi ilk kez kullaniyorsan once domaini dogrula, sonra bir katalog sec ve en son gelistiricine embed kodunu gonder.</p>
+      </div>
+      <div class="empty-start-steps">
+        <article class="empty-start-step">
+          <strong>1. Domain</strong>
+          <p>Site adresini ekle ve dogrulama kaydi baslat.</p>
+        </article>
+        <article class="empty-start-step">
+          <strong>2. Katalog</strong>
+          <p>Tek katalog veya tek diyagram sec.</p>
+        </article>
+        <article class="empty-start-step">
+          <strong>3. Kod</strong>
+          <p>Embed ve gerekirse host adapter kodunu paylas.</p>
+        </article>
+      </div>
     </section>
+  }
 
-    <div class="embed-workspace">
-      <section class="guide-card guide-card-main">
-      <h3>Hızlı Kurulum Rehberi</h3>
-      <ol class="guide-steps">
-        <li>
-          <strong>Domainini ekle</strong>
-          <p>Site adresini `https://www.siten.com` formatında gir ve listene ekle.</p>
-        </li>
-        <li>
-          <strong>Domain sahipliğini doğrula</strong>
-          <p>DNS TXT veya dosya yöntemi seç. Verilen değeri sitene ekleyip <em>Şimdi Doğrula</em> butonuna bas.</p>
-        </li>
-        <li>
-          <strong>Allowlist'e al</strong>
-          <p>Durum <em>verified</em> olunca <em>Allowlist'e Ekle</em> butonuna bas.</p>
-        </li>
-        <li>
-          <strong>Script kodunu kopyala</strong>
-          <p><em>Scripti Kopyala</em> ile kodu al, sitende `&lt;/body&gt;` etiketinden hemen önce yapıştır.</p>
-        </li>
-        <li>
-          <strong>Son testi yap</strong>
-          <p>Kendi siteni aç, katalogun gömülü olarak göründüğünü kontrol et.</p>
-        </li>
-      </ol>
+  <section class="workspace-nav-shell">
+    <div class="workspace-nav">
+      @for (panel of workspacePanels; track panel.id) {
+        <button
+          type="button"
+          class="workspace-nav-btn"
+          [class.active]="activeWorkspacePanel === panel.id"
+          [class.locked]="panel.locked"
+          [disabled]="panel.locked"
+          (click)="setActiveWorkspacePanel(panel.id)">
+          <strong>{{ panel.label }}</strong>
+          <span>{{ panel.hint }}</span>
+        </button>
+      }
+    </div>
+  </section>
 
-      <div class="guide-tip">
-        <strong>Basit anlatim:</strong>
-        <p>Bu sistem senin sitene kucuk bir script ekler. Script, Partalog vitrininin iframe icinde acilmasini saglar. Katalog verisi senin sitene kopyalanmaz; Partalog tarafinda yayinlanir ve oradan gosterilir.</p>
-      </div>
-
-      <div class="guide-note">
-        <h4>Kodu nereye ekleyeceğim?</h4>
-        <p>
-          HTML/PHP projede sayfanin ilgili alanina veya `&lt;/body&gt;` oncesine, WordPress'te Ozel HTML bloguna ya da tema footer alanina,
-          ozel panel kullaniyorsan Custom Code alanina ekleyebilirsin.
-        </p>
-      </div>
-
-      <div class="platform-guide-panel">
-        <h4>Platforma Göre Nasıl Eklenir?</h4>
-        <p class="hint-text">Kendi sitenin altyapısını seçip aynı yolu izle.</p>
-
-        <article class="platform-guide-card">
-          <div class="platform-guide-head">
-            <strong>WordPress Gutenberg</strong>
-            <span class="guide-chip">Kolay</span>
-          </div>
-          <ol class="platform-guide-list">
-            <li>Sayfayı düzenle ekranını aç.</li>
-            <li>`+` butonundan `Özel HTML` bloğu ekle.</li>
-            <li>Aşağıdaki `Düz HTML / PHP` kodunu yapıştır.</li>
-            <li>Sayfayı güncelle ve yayına al.</li>
-          </ol>
-        </article>
-
-        <article class="platform-guide-card">
-          <div class="platform-guide-head">
-            <strong>WordPress Elementor</strong>
-            <span class="guide-chip">Kolay</span>
-          </div>
-          <ol class="platform-guide-list">
-            <li>Elementor ile düzenle ekranına gir.</li>
-            <li>Sol panelden `HTML` bileşenini sayfaya sürükle.</li>
-            <li>Kopyaladığın embed kodunu HTML alanına yapıştır.</li>
-            <li>`Güncelle` butonuna basıp canlıda kontrol et.</li>
-          </ol>
-        </article>
-
-        <article class="platform-guide-card">
-          <div class="platform-guide-head">
-            <strong>Shopify Tema</strong>
-            <span class="guide-chip">Gelişmiş</span>
-          </div>
-          <ol class="platform-guide-list">
-            <li>`Online Store > Themes > Edit code` bölümüne gir.</li>
-            <li>`theme.liquid` veya ilgili section dosyasını aç.</li>
-            <li>`&lt;/body&gt;` etiketinden hemen önce Shopify kodunu ekle.</li>
-            <li>Kaydet ve mağaza sayfasında kontrol et.</li>
-          </ol>
-        </article>
-
-        <article class="platform-guide-card">
-          <div class="platform-guide-head">
-            <strong>Özel Yazılım / HTML / PHP</strong>
-            <span class="guide-chip">Esnek</span>
-          </div>
-          <ol class="platform-guide-list">
-            <li>Embed görünmesini istediğin sayfanın dosyasını aç.</li>
-            <li>Katalogun görüneceği yere `root` div ve scripti ekle.</li>
-            <li>Dosyayı yayınla.</li>
-            <li>Tarayıcıda sayfayı yenileyip çalıştığını kontrol et.</li>
-          </ol>
-        </article>
-      </div>
-
-      <section class="smoke-panel">
-        <div class="smoke-panel-head">
-          <div>
-            <h4>Gercek Site Smoke Testleri</h4>
-            <p class="hint-text">Panelden cikip dagilmadan hangi ortamda neyi test etmen gerektigini buradan takip et.</p>
-          </div>
-          <span class="smoke-progress">{{ smokeProgress.done }}/{{ smokeProgress.total }} adim tamam</span>
+  <div class="simple-panel-grid">
+    @if (activeWorkspacePanel === 'domains') {
+    <section class="embed-targets-panel">
+      <div class="embed-targets-head">
+        <div>
+          <h3>1. Domain Guvenligi</h3>
+          <p>Embed'in hangi sitelerde acilacagini buradan belirle.</p>
         </div>
+      </div>
 
-        <div class="smoke-suite-grid">
-          @for (suite of smokeSuites; track suite.key) {
-            <article class="smoke-suite-card">
-              <div class="smoke-suite-head">
-                <div>
-                  <strong>{{ suite.title }}</strong>
-                  <p>{{ suite.summary }}</p>
-                </div>
-                <span class="smoke-suite-count">{{ getSmokeSuiteDoneCount(suite.key) }}/{{ suite.steps.length }}</span>
-              </div>
+      <div class="embed-target-grid">
+        <article class="embed-target-card">
+          <h4>Domain Ekle</h4>
+          <p class="hint-text">Site adresini ekle, sonra dogrulama kaydi olustur.</p>
 
-              <div class="smoke-suite-actions">
-                <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet(suite.snippetType)">
-                  Snippet Kopyala
-                </button>
-                @if (suite.key === 'html') {
-                  <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copyTestSnippet('local')">
-                    Local Test Kodu
-                  </button>
-                }
-              </div>
+          <label class="form-label">Website Domaini</label>
+          <div class="embed-origin-input">
+            <input
+              type="text"
+              class="form-input"
+              placeholder="https://www.site.com"
+              [(ngModel)]="embedOriginInput">
+            <button type="button" class="btn-secondary small" (click)="addEmbedOrigin()">Listeye Ekle</button>
+          </div>
 
-              <div class="smoke-step-list">
-                @for (step of suite.steps; track step; let i = $index) {
-                  <button type="button" class="smoke-step-item" [class.done]="isSmokeStepDone(suite.key, i)" (click)="toggleSmokeStep(suite.key, i)">
-                    <span class="material-symbols-outlined">{{ isSmokeStepDone(suite.key, i) ? 'check_circle' : 'radio_button_unchecked' }}</span>
-                    <span>{{ step }}</span>
-                  </button>
-                }
-              </div>
-            </article>
+          <div class="origin-chip-list">
+            @for (origin of embedAllowedOrigins; track origin) {
+              <span class="origin-chip">
+                {{ origin }}
+                <button type="button" (click)="removeEmbedOrigin(origin)">×</button>
+              </span>
+            }
+            @if (embedAllowedOrigins.length === 0) {
+              <p class="hint-text">Henüz izinli domain eklenmedi.</p>
+            }
+          </div>
+
+          <label class="form-label">Dogrulama Sekli</label>
+          <div class="embed-domain-row">
+            <select class="form-input" [(ngModel)]="embedDomainMethod">
+              <option value="dns_txt">DNS TXT</option>
+              <option value="file">Dosya (.well-known)</option>
+            </select>
+            <button type="button" class="btn-secondary small" [disabled]="embedSaving" (click)="createEmbedDomainChallenge()">
+              Dogrulama Kaydi Ac
+            </button>
+          </div>
+
+          <div class="embed-origin-input">
+            <input
+              type="text"
+              class="form-input"
+              placeholder="https://www.site.com"
+              [(ngModel)]="embedVerifyOriginInput">
+            <button type="button" class="btn-secondary small" [disabled]="embedVerifying" (click)="verifyEmbedOrigin()">
+              @if (embedVerifying) { Kontrol... } @else { Test Et }
+            </button>
+          </div>
+
+          @if (embedVerifyResult) {
+            <p class="public-feedback" [class.ok]="embedVerifyResult.allowed" [class.err]="!embedVerifyResult.allowed">
+              {{ embedVerifyResult.allowed ? 'Bu site icin embed hazir.' : 'Bu site henuz hazir degil.' }}
+            </p>
           }
-        </div>
-      </section>
 
-      <div class="snippet-panel">
-        <h4>Hazır Kopyala-Yapıştır Kodları</h4>
-        <p class="hint-text">Altyapına göre kodu kopyalayıp direkt kullanabilirsin.</p>
-
-        <article class="snippet-card">
-          <div class="snippet-head">
-            <strong>Düz HTML / PHP</strong>
-            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet('html')">Kopyala</button>
-          </div>
-          <pre><code>{{ htmlSnippet }}</code></pre>
+          <button type="button" class="btn-primary" [disabled]="embedSaving" (click)="saveEmbedSettings()">
+            @if (embedSaving) { Kaydediliyor... } @else { Domainleri Kaydet }
+          </button>
         </article>
 
-        <article class="snippet-card">
-          <div class="snippet-head">
-            <strong>WordPress</strong>
-            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet('wordpress')">Kopyala</button>
-          </div>
-          <pre><code>{{ wordpressSnippet }}</code></pre>
-        </article>
+        <article class="embed-target-card">
+          <h4>Dogrulama Kayitlari</h4>
+          <p class="hint-text">Her sitenin durumunu ve sonraki adimi burada gorursun.</p>
 
-        <article class="snippet-card">
-          <div class="snippet-head">
-            <strong>Shopify</strong>
-            <button type="button" class="btn-secondary small" [disabled]="!isSnippetReady" (click)="copySnippet('shopify')">Kopyala</button>
-          </div>
-          <pre><code>{{ shopifySnippet }}</code></pre>
-        </article>
-
-        @if (showPoweredByBadgeInfo) {
-          <div class="guide-note powered-note">
-            <h4>Plan 2 görünümü</h4>
-            <p>Plan 1 ve Plan 2 embedlerinde iframe altında küçük bir `Powered by Partalog` rozeti görünür. Plan 3'te bu rozet otomatik kaldırılır.</p>
-          </div>
-        }
-      </div>
-      </section>
-
-      <section class="embed-card embed-card-main">
-      <div class="embed-header">
-        <h3 class="section-title">Entegrasyon Ayarları</h3>
-        <span class="public-badge">SDK v1</span>
-      </div>
-
-      @if (embedLoading) {
-        <p class="hint-text">Embed ayarları yükleniyor...</p>
-      } @else {
-        <div class="embed-grid">
-          <div class="embed-column">
-            <h4>0) Mağaza Kodu</h4>
-            <p class="hint-text">Müşterine vereceğin embed kodunda uzun token yerine bu kısa mağaza kodu kullanılır.</p>
-            <div class="embed-origin-input">
-              <input
-                type="text"
-                class="form-input"
-                placeholder="ornek: galeri-makina"
-                [(ngModel)]="storeSlug"
-                (ngModelChange)="onStoreSlugChange()">
-              <button type="button" class="btn-secondary small" [disabled]="storeSlugChecking" (click)="checkStoreSlug()">
-                @if (storeSlugChecking) { Kontrol... } @else { Kontrol Et }
-              </button>
-            </div>
-            <p class="hint-text">Sadece küçük harf, rakam ve kısa çizgi kullan. Boş bırakırsan sistem otomatik üretir.</p>
-            @if (storeSlugCheck) {
-              <p class="public-feedback" [class.ok]="storeSlugCheck.available" [class.err]="!storeSlugCheck.available">
-                @if (storeSlugCheck.available) {
-                  Kullanılabilir. Normalized: <strong>{{ storeSlugCheck.normalized || storeSlugCheck.suggested }}</strong>
-                } @else {
-                  Bu mağaza kodu dolu. Öneri: <strong>{{ storeSlugCheck.suggested }}</strong>
-                }
-              </p>
-            }
-
-            <h4>1) İzinli Domainler</h4>
-            <p class="hint-text">Sadece burada tanımlı domainlerden embed açılabilir.</p>
-            <div class="embed-origin-input">
-              <input
-                type="text"
-                class="form-input"
-                placeholder="https://www.site.com"
-                [(ngModel)]="embedOriginInput">
-              <button type="button" class="btn-secondary small" (click)="addEmbedOrigin()">Ekle</button>
-            </div>
-            <div class="origin-chip-list">
-              @for (origin of embedAllowedOrigins; track origin) {
-                <span class="origin-chip">
-                  {{ origin }}
-                  <button type="button" (click)="removeEmbedOrigin(origin)">×</button>
-                </span>
-              }
-              @if (embedAllowedOrigins.length === 0) {
-                <p class="hint-text">Henüz domain eklenmedi.</p>
-              }
-            </div>
-
-            <div class="embed-verify-box">
-              <h4>2) Domain Ownership Doğrulama</h4>
-              <p class="hint-text">DNS TXT veya dosya yöntemiyle domainin sana ait olduğunu kanıtla.</p>
-              <div class="embed-domain-row">
-                <select class="form-input" [(ngModel)]="embedDomainMethod">
-                  <option value="dns_txt">DNS TXT</option>
-                  <option value="file">Dosya (.well-known)</option>
-                </select>
-                <button type="button" class="btn-secondary small" [disabled]="embedSaving" (click)="createEmbedDomainChallenge()">
-                  Challenge Oluştur
-                </button>
-              </div>
-            </div>
-
-            <div class="embed-verify-box">
-              <h4>3) Hızlı Origin Testi</h4>
-              <p class="hint-text">Domainin allowlist'te mi hızlıca kontrol eder.</p>
-              <div class="embed-origin-input">
-                <input
-                  type="text"
-                  class="form-input"
-                  placeholder="https://www.site.com"
-                  [(ngModel)]="embedVerifyOriginInput">
-                <button type="button" class="btn-secondary small" [disabled]="embedVerifying" (click)="verifyEmbedOrigin()">
-                  @if (embedVerifying) { Kontrol... } @else { Kontrol Et }
-                </button>
-              </div>
-              @if (embedVerifyResult) {
-                <p class="public-feedback" [class.ok]="embedVerifyResult.allowed" [class.err]="!embedVerifyResult.allowed">
-                  {{ embedVerifyResult.allowed ? 'Origin izinli.' : 'Origin izinli değil.' }}
-                </p>
-              }
-            </div>
-          </div>
-
-          <div class="embed-column">
-            <h4>4) Script Kodu</h4>
-            <p class="hint-text">Bu scripti sitene eklersen katalog görünür. Artık uzun token yerine mağaza kodu kullanılabilir.</p>
-            <div class="embed-code-box">
-              <code>
-                &lt;script src="{{ embedScriptSourceUrl }}" data-store="{{ normalizedStoreSlug || 'magaza-kodun' }}"&gt;&lt;/script&gt;
-              </code>
-            </div>
-            <div class="embed-actions">
-              <button type="button" class="btn-secondary" [disabled]="!publicToken && !normalizedStoreSlug" (click)="copyEmbedScript()">
-                Scripti Kopyala
-              </button>
-              <button type="button" class="btn-primary" [disabled]="embedSaving" (click)="saveEmbedSettings()">
-                @if (embedSaving) { Kaydediliyor... } @else { Ayarları Kaydet }
-              </button>
-            </div>
-
-            <h4>5) Önizleme</h4>
-            @if (embedPreviewSafeUrl) {
-              <div class="embed-preview-frame">
-                <iframe [src]="embedPreviewSafeUrl" title="Embed Preview"></iframe>
-              </div>
-            } @else {
-              <p class="hint-text">Önizleme için önce Public Link üretmelisin.</p>
-            }
-          </div>
-        </div>
-
-        <div class="embed-domain-list">
-          <h4>Domain Doğrulama Kayıtları</h4>
           @if (embedDomainsLoading) {
-            <p class="hint-text">Domain kayıtları yükleniyor...</p>
+            <p class="hint-text">Kayitlar yukleniyor...</p>
           } @else if (embedDomains.length === 0) {
-            <p class="hint-text">Henüz domain doğrulama kaydı yok.</p>
+            <p class="hint-text">Henuz dogrulama kaydi yok.</p>
           } @else {
             <div class="embed-domain-cards">
               @for (row of embedDomains; track row.id) {
@@ -421,13 +179,11 @@
                   </div>
 
                   @if (row.instructions.type === 'dns_txt') {
-                    <p class="hint-text">Record: <code>{{ row.instructions.recordName }}</code></p>
-                    <p class="hint-text">Value: <code>{{ row.instructions.recordValue }}</code></p>
-                    <button type="button" class="btn-secondary small" (click)="copyDomainInstruction(row.instructions.recordValue)">TXT değeri kopyala</button>
+                    <p class="hint-text">TXT: <code>{{ row.instructions.recordValue }}</code></p>
+                    <button type="button" class="btn-secondary small" (click)="copyDomainInstruction(row.instructions.recordValue)">TXT Kopyala</button>
                   } @else {
                     <p class="hint-text">Dosya: <code>{{ row.instructions.filePath }}</code></p>
-                    <p class="hint-text">İçerik: <code>{{ row.instructions.fileContent }}</code></p>
-                    <button type="button" class="btn-secondary small" (click)="copyDomainInstruction(row.instructions.fileContent)">Dosya içeriği kopyala</button>
+                    <button type="button" class="btn-secondary small" (click)="copyDomainInstruction(row.instructions.fileContent)">Icerik Kopyala</button>
                   }
 
                   @if (row.lastError) {
@@ -435,63 +191,476 @@
                   }
 
                   <div class="embed-actions">
-                    <button type="button" class="btn-secondary small" (click)="verifyDomainNow(row)">Şimdi Doğrula</button>
-                    <button type="button" class="btn-secondary small" [disabled]="row.status !== 'verified'" (click)="activateDomain(row)">Allowlist'e Ekle</button>
+                    <button type="button" class="btn-secondary small" (click)="verifyDomainNow(row)">Simdi Kontrol Et</button>
+                    <button type="button" class="btn-secondary small" [disabled]="row.status !== 'verified'" (click)="activateDomain(row)">Izin Ver</button>
                     <button type="button" class="btn-secondary small danger" (click)="deleteDomain(row)">Sil</button>
                   </div>
                 </article>
               }
             </div>
           }
-        </div>
-      }
-
-      @if (embedMessage) {
-        <p class="public-feedback ok">{{ embedMessage }}</p>
-      }
-      @if (embedError) {
-        <p class="public-feedback err">{{ embedError }}</p>
-      }
-      </section>
-    </div>
-
-    <section class="faq-section">
-      <div class="faq-header">
-        <h3>Sık Sorulan Sorular</h3>
-        <p>Kurulumda en sık karşılaşılan noktaları burada netleştirdim.</p>
-      </div>
-
-      <div class="faq-grid">
-        <article class="faq-card">
-          <h4>Neden domain doğrulama istiyor?</h4>
-          <p>Başka siteler senin vitrini izinsiz açamasın diye. Sistem yalnızca sana ait ve senin onayladığın domainlerde çalışır.</p>
-        </article>
-
-        <article class="faq-card">
-          <h4>Kodu ekledim ama görünmüyor, ne kontrol etmeliyim?</h4>
-          <p>Önce public linkin aktif olduğuna, domainin allowlist'e alındığına ve kodun sayfada `body` kapanışına yakın yerde olduğuna bak.</p>
-        </article>
-
-        <article class="faq-card">
-          <h4>WordPress'te eklenti gerekir mi?</h4>
-          <p>Hayır. Gutenberg için `Özel HTML`, Elementor için `HTML` bileşeni yeterli. Ekstra eklenti şart değil.</p>
-        </article>
-
-        <article class="faq-card">
-          <h4>Shopify'da tüm siteye mi eklemeliyim?</h4>
-          <p>Gerekmez. İstersen belirli bir sayfaya, istersen `theme.liquid` içine ekleyerek genel kullanıma açabilirsin.</p>
-        </article>
-
-        <article class="faq-card">
-          <h4>Katalog verileri benim siteme mi kopyalanıyor?</h4>
-          <p>Hayır. Senin siten sadece Partalog içeriğini güvenli şekilde gösterir. Veri yönetimi yine panelde kalır.</p>
-        </article>
-
-        <article class="faq-card">
-          <h4>Mobilde de çalışır mı?</h4>
-          <p>Evet. Embed alanı responsive çalışır. Yine de kendi sitende bir kez telefon ekranında kontrol etmen gerekir.</p>
         </article>
       </div>
     </section>
+    }
+
+    @if (activeWorkspacePanel === 'builder') {
+    <section class="embed-targets-panel">
+      <div class="embed-targets-head">
+        <div>
+          <h3>2. Embed Olustur</h3>
+          <p>Bu embed bir vitrin degil, sectiğin katalogu veya diyagram sayfasini doğrudan açar.</p>
+        </div>
+      </div>
+
+      <div class="embed-target-grid">
+        <article class="embed-target-card">
+          <h4>Yeni Embed</h4>
+          <p class="hint-text">Onerilen varsayilan: <strong>{{ recommendedStrategyLabel }}</strong></p>
+          <label class="form-label">Embed Adi</label>
+          <input class="form-input" type="text" [(ngModel)]="targetForm.name" placeholder="Ornek: Motor Katalogu">
+
+          <div class="embed-target-form-grid">
+            <div>
+              <label class="form-label">Embed Turu</label>
+              <select class="form-input" [(ngModel)]="targetForm.type" (ngModelChange)="onTargetTypeChange()">
+                <option value="catalog">Tek Katalog</option>
+                <option value="catalog_page">Tek Sayfa / Diyagram</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label">Commerce Modu</label>
+              <select class="form-input" [(ngModel)]="targetForm.commerceMode" (ngModelChange)="onTargetCommerceModeChange()">
+                <option value="catalog_only">Sadece Katalog</option>
+                <option value="host_cart">Host Site Islemi</option>
+                <option value="host_availability_cart">Host Stok/Fiyat + Islem</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label">Embed Bitis Tarihi</label>
+              <input class="form-input" type="datetime-local" [(ngModel)]="targetForm.accessExpiresAt">
+              <p class="hint-text">Opsiyonel. Bu tarihten sonra embed acilmaz.</p>
+            </div>
+          </div>
+
+          <label class="form-label">Katalog</label>
+          <select class="form-input" [(ngModel)]="targetForm.catalogId" (ngModelChange)="onTargetCatalogChange()">
+            <option value="">Katalog sec</option>
+            @for (catalog of publishedCatalogs; track catalog.id) {
+              <option [value]="catalog.id">{{ catalog.name }}</option>
+            }
+          </select>
+
+          @if (targetForm.type === 'catalog_page') {
+            <label class="form-label">Sayfa / Diyagram</label>
+            <select class="form-input" [(ngModel)]="targetForm.catalogPageId">
+              <option [ngValue]="null">Sayfa sec</option>
+              @for (page of selectedTargetPages; track page.id) {
+                <option [ngValue]="page.id">Sayfa {{ page.pageNumber }} @if (page.aiDescription) { - {{ page.aiDescription }} }</option>
+              }
+            </select>
+          }
+
+          @if (targetForm.commerceMode !== 'catalog_only') {
+            <label class="form-label">Host Aksiyon Stratejisi</label>
+            <div class="strategy-pills">
+              <button type="button" class="strategy-pill" [class.active]="targetForm.hostActionMode === 'search_redirect'" (click)="useRecommendedStrategy('search_redirect')">Onerilen: Sitede Ara</button>
+              <button type="button" class="strategy-pill" [class.active]="targetForm.hostActionMode === 'product_redirect'" (click)="useRecommendedStrategy('product_redirect')">Urun Sayfasi</button>
+              <button type="button" class="strategy-pill" [class.active]="targetForm.hostActionMode === 'existing_cart_api'" (click)="useRecommendedStrategy('existing_cart_api')">Mevcut Cart API</button>
+            </div>
+            <select class="form-input" [(ngModel)]="targetForm.hostActionMode" (ngModelChange)="onTargetHostActionModeChange()">
+              <option value="search_redirect">Sitede Ara</option>
+              <option value="product_redirect">Urun Sayfasina Git</option>
+              <option value="existing_cart_api">Mevcut Cart API</option>
+              <option value="existing_cart_js">Mevcut JS Fonksiyonu</option>
+              <option value="custom">Custom Handler</option>
+            </select>
+
+            @if (targetForm.hostActionMode === 'search_redirect') {
+              <label class="form-label">Arama URL Sablonu</label>
+              <input class="form-input" type="text" [(ngModel)]="targetForm.searchUrlTemplate" placeholder="/search?q={partCode}">
+            }
+
+            @if (targetForm.hostActionMode === 'product_redirect') {
+              <label class="form-label">Urun URL Sablonu</label>
+              <input class="form-input" type="text" [(ngModel)]="targetForm.productUrlTemplate" placeholder="/urun/{partCode}">
+            }
+
+            @if (targetForm.hostActionMode === 'existing_cart_api') {
+              <label class="form-label">Cart API Ayari</label>
+              <div class="embed-target-form-grid">
+                <input class="form-input" type="text" [(ngModel)]="targetForm.existingCartUrl" placeholder="/cart/add.js">
+                <select class="form-input" [(ngModel)]="targetForm.existingCartMethod">
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </div>
+            }
+          }
+
+          <article class="mode-guide-card selected">
+            <div class="mode-guide-head">
+              <div>
+                <span class="mode-guide-kicker">Secilen Mod</span>
+                <h5>{{ selectedModeGuide.title }}</h5>
+              </div>
+              <span class="mode-guide-level">{{ selectedModeGuide.codeLevel }} kod ihtiyaci</span>
+            </div>
+            <p class="mode-guide-summary">{{ selectedModeGuide.summary }}</p>
+            <div class="mode-guide-grid">
+              <div class="mode-guide-point">
+                <strong>Isletme ne yapar?</strong>
+                <p>{{ selectedModeGuide.businessTask }}</p>
+              </div>
+              <div class="mode-guide-point">
+                <strong>Gelistirici ne yapar?</strong>
+                <p>{{ selectedModeGuide.developerTask }}</p>
+              </div>
+              <div class="mode-guide-point">
+                <strong>Ne zaman secilir?</strong>
+                <p>{{ selectedModeGuide.recommendedFor }}</p>
+              </div>
+            </div>
+          </article>
+
+          <button type="button" class="btn-primary" [disabled]="targetSaving" (click)="saveEmbedTarget()">
+            @if (targetSaving) { Kaydediliyor... } @else { Embed Kaydini Olustur }
+          </button>
+        </article>
+
+        <article class="embed-target-card">
+          <h4>Entegrasyon Modlari</h4>
+          <div class="mode-guide-list">
+            @for (guide of integrationModeGuides; track guide.mode) {
+              <article class="mode-guide-card" [class.selected]="guide.title === selectedModeGuide.title">
+                <div class="mode-guide-head">
+                  <div>
+                    <span class="mode-guide-kicker">Mod</span>
+                    <h5>{{ guide.title }}</h5>
+                  </div>
+                  <span class="mode-guide-level">{{ guide.codeLevel }}</span>
+                </div>
+                <p class="mode-guide-summary">{{ guide.summary }}</p>
+                <div class="mode-guide-grid compact">
+                  <div class="mode-guide-point">
+                    <strong>Isletme</strong>
+                    <p>{{ guide.businessTask }}</p>
+                  </div>
+                  <div class="mode-guide-point">
+                    <strong>Gelistirici</strong>
+                    <p>{{ guide.developerTask }}</p>
+                  </div>
+                  <div class="mode-guide-point">
+                    <strong>Kime uygun?</strong>
+                    <p>{{ guide.recommendedFor }}</p>
+                  </div>
+                </div>
+              </article>
+            }
+          </div>
+          <p class="hint-text">Yeni endpoint yazmak zorunlu degil. Once mevcut arama, urun ve cart akisini kullan.</p>
+        </article>
+      </div>
+    </section>
+    }
+
+    @if (activeWorkspacePanel === 'packages') {
+    <section class="embed-targets-panel">
+      <div class="embed-targets-head">
+        <div>
+          <h3>3. Embedler ve Gelistirici Paketi</h3>
+          <p>Olusturdugun kayitlari buradan kopyalar, onizler ve gelistiricine gonderirsin.</p>
+        </div>
+        <span class="hero-badge">{{ embedTargets.length }} kayit</span>
+      </div>
+
+      <article class="platform-pack-card">
+        <div class="platform-pack-head">
+          <div>
+            <span class="platform-pack-kicker">Hazir Paket</span>
+            <h4>WooCommerce Eklentisi</h4>
+            <p class="hint-text">WooCommerce kullanan musteriler icin hazir plugin paketi. Kod yazmadan kurulum akisini hizlandirir.</p>
+          </div>
+          <div class="platform-pack-actions">
+            <a class="btn-primary" [href]="getWooCommercePluginDownloadUrl()" target="_blank" rel="noopener noreferrer">Plugini Indir</a>
+            <button type="button" class="btn-secondary" (click)="copyWooCommerceGuide()">Kurulum Metnini Kopyala</button>
+          </div>
+        </div>
+
+        <div class="developer-guide-grid">
+          <div class="developer-guide-block">
+            <strong>Musteri ne yapar?</strong>
+            <ul class="developer-guide-list">
+              <li>Zip paketini indirir ve geliştiricisine iletir.</li>
+              <li>Panelden Embed Key bilgisini paylaşır.</li>
+              <li>Hangi sayfada katalog gösterileceğini belirler.</li>
+            </ul>
+          </div>
+
+          <div class="developer-guide-block">
+            <strong>Gelistirici ne yapar?</strong>
+            <ol class="developer-guide-list ordered">
+              @for (step of wooCommerceInstallSteps; track step) {
+                <li>{{ step }}</li>
+              }
+            </ol>
+          </div>
+        </div>
+      </article>
+
+      <article class="platform-pack-card">
+        <div class="platform-pack-head">
+          <div>
+            <span class="platform-pack-kicker">Platform Notlari</span>
+            <h4>Hazir Altyapi Notlari</h4>
+            <p class="hint-text">Yaygin e-ticaret altyapilari icin hangi modla baslanmasi gerektigini bu bolumde gorebilirsin.</p>
+          </div>
+        </div>
+
+        <div class="mode-guide-list">
+          @for (note of platformNotes; track note.key) {
+            <article class="mode-guide-card">
+              <div class="mode-guide-head">
+                <div>
+                  <span class="mode-guide-kicker">{{ note.title }}</span>
+                  <h5>{{ note.recommendedMode }}</h5>
+                </div>
+                <span class="mode-guide-level">{{ note.status === 'ready' ? 'Hazir' : 'Kontrol Gerekir' }}</span>
+              </div>
+              <p class="mode-guide-summary">{{ note.summary }}</p>
+              <div class="mode-guide-grid compact">
+                <div class="mode-guide-point">
+                  <strong>Isletme icin</strong>
+                  <p>{{ note.businessNote }}</p>
+                </div>
+                <div class="mode-guide-point">
+                  <strong>Gelistirici icin</strong>
+                  <p>{{ note.developerNote }}</p>
+                </div>
+              </div>
+            </article>
+          }
+        </div>
+      </article>
+
+      @if (targetsLoading) {
+        <p class="hint-text">Embed hedefleri yukleniyor...</p>
+      } @else if (embedTargets.length === 0) {
+        <p class="hint-text">Henuz embed kaydi olusturulmamıs.</p>
+      } @else {
+        <div class="embed-target-list">
+          @for (target of embedTargets; track target.id) {
+            <article class="embed-target-row" [class.active]="selectedEmbedTargetId === target.id">
+              <div class="embed-target-copy">
+                <strong>{{ target.name }}</strong>
+                <p>{{ target.catalogName }} @if (target.pageNumber) { · Sayfa {{ target.pageNumber }} } · {{ getHostActionModeLabel(target.hostActionMode) }}</p>
+                <code>{{ target.embedKey }}</code>
+              </div>
+              <div class="embed-target-actions">
+                <button type="button" class="btn-secondary small" (click)="selectedEmbedTargetId = target.id; setActivePackageTab('brief')">Paketi Ac</button>
+                <button type="button" class="btn-secondary small" (click)="copyTargetScript(target)">Embed</button>
+                @if (target.commerceMode !== 'catalog_only') {
+                  <button type="button" class="btn-secondary small" (click)="copyTargetHostAdapterScript(target)">Adapter</button>
+                }
+                <button type="button" class="btn-secondary small" (click)="copyTargetDeveloperBrief(target)">Gelistiriciye Gonder</button>
+                <button type="button" class="btn-danger small" (click)="deleteEmbedTarget(target)">Sil</button>
+              </div>
+            </article>
+          }
+        </div>
+      }
+
+      @if (selectedEmbedTarget) {
+        <article class="embed-target-package">
+          <div class="embed-target-package-head">
+            <div>
+              <h4>{{ selectedEmbedTarget.name }}</h4>
+              <p class="hint-text">{{ getTargetActionSummary(selectedEmbedTarget) }}</p>
+            </div>
+            <a class="btn-secondary small" [href]="getTargetPreviewUrl(selectedEmbedTarget)" target="_blank" rel="noopener noreferrer">Preview Ac</a>
+          </div>
+
+          <div class="package-tab-nav">
+            <button type="button" class="package-tab-btn" [class.active]="activePackageTab === 'brief'" (click)="setActivePackageTab('brief')">Gelistirici Ozeti</button>
+            <button type="button" class="package-tab-btn" [class.active]="activePackageTab === 'code'" (click)="setActivePackageTab('code')">Kodlar</button>
+            <button type="button" class="package-tab-btn" [class.active]="activePackageTab === 'examples'" (click)="setActivePackageTab('examples')">Ornekler</button>
+          </div>
+
+          @if (activePackageTab === 'brief') {
+          <div class="embed-package-grid single-column">
+            <article class="snippet-card">
+              <div class="snippet-head">
+                <strong>Yazilimciya Verilecek Paket</strong>
+              </div>
+
+              <div class="developer-guide-grid">
+                <div class="developer-guide-block">
+                  <strong>{{ getTargetDeveloperHandoffCard(selectedEmbedTarget).title }}</strong>
+                  <p class="hint-text">{{ getTargetActionSummary(selectedEmbedTarget) }}</p>
+                  <ul class="developer-guide-list">
+                    <li><strong>Isletme ne yapar:</strong> {{ getTargetDeveloperHandoffCard(selectedEmbedTarget).businessDoes }}</li>
+                    <li><strong>Gelistirici ne yapar:</strong> {{ getTargetDeveloperHandoffCard(selectedEmbedTarget).developerDoes }}</li>
+                    <li><strong>Kod ihtiyaci:</strong> {{ getTargetDeveloperHandoffCard(selectedEmbedTarget).codeNeed }}</li>
+                  </ul>
+                </div>
+
+                <div class="developer-guide-block">
+                  <strong>Bu pakette ne var?</strong>
+                  <ul class="developer-guide-list">
+                    @for (item of getTargetDeveloperHandoffCard(selectedEmbedTarget).deliverables; track item) {
+                      <li>{{ item }}</li>
+                    }
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="snippet-card">
+              <div class="snippet-head">
+                <strong>Uygulama Rehberi</strong>
+                <button type="button" class="btn-secondary small" (click)="copyTargetImplementationGuide(selectedEmbedTarget)">Kopyala</button>
+              </div>
+
+              <div class="developer-guide-grid">
+                <div class="developer-guide-block">
+                  <strong>Adim Adim</strong>
+                  <ol class="developer-guide-list ordered">
+                    @for (step of getTargetDeveloperSteps(selectedEmbedTarget); track step) {
+                      <li>{{ step }}</li>
+                    }
+                  </ol>
+                </div>
+
+                <div class="developer-guide-block">
+                  <strong>Kontrol Listesi</strong>
+                  <ul class="developer-guide-list">
+                    @for (item of getTargetDeveloperChecklist(selectedEmbedTarget); track item) {
+                      <li>{{ item }}</li>
+                    }
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="snippet-card">
+              <div class="snippet-head">
+                <strong>Gelistiriciye Gonderecegin Metin</strong>
+                <button type="button" class="btn-secondary small" (click)="copyTargetDeveloperBrief(selectedEmbedTarget)">Kopyala</button>
+              </div>
+              <pre><code>{{ getTargetDeveloperBrief(selectedEmbedTarget) }}</code></pre>
+            </article>
+
+            @if (selectedEmbedTarget.commerceMode === 'host_availability_cart') {
+              <article class="snippet-card">
+                <div class="snippet-head">
+                  <strong>{{ getTargetStockCartPacket(selectedEmbedTarget).title }}</strong>
+                </div>
+
+                <div class="developer-guide-grid">
+                  <div class="developer-guide-block">
+                    <strong>Ne vereceksin?</strong>
+                    <p class="hint-text">{{ getTargetStockCartPacket(selectedEmbedTarget).summary }}</p>
+                    <ul class="developer-guide-list">
+                      @for (item of getTargetStockCartPacket(selectedEmbedTarget).businessInputs; track item) {
+                        <li>{{ item }}</li>
+                      }
+                    </ul>
+                  </div>
+
+                  <div class="developer-guide-block">
+                    <strong>Gelistirici ne yapacak?</strong>
+                    <ul class="developer-guide-list">
+                      @for (item of getTargetStockCartPacket(selectedEmbedTarget).developerTasks; track item) {
+                        <li>{{ item }}</li>
+                      }
+                    </ul>
+                  </div>
+
+                  <div class="developer-guide-block">
+                    <strong>Alan esleme</strong>
+                    <ul class="developer-guide-list">
+                      @for (item of getTargetStockCartPacket(selectedEmbedTarget).fieldMapping; track item) {
+                        <li>{{ item }}</li>
+                      }
+                    </ul>
+                  </div>
+
+                  <div class="developer-guide-block">
+                    <strong>Testte neye bakacak?</strong>
+                    <ul class="developer-guide-list">
+                      @for (item of getTargetStockCartPacket(selectedEmbedTarget).testChecklist; track item) {
+                        <li>{{ item }}</li>
+                      }
+                    </ul>
+                  </div>
+                </div>
+              </article>
+            }
+          </div>
+          }
+
+          @if (activePackageTab === 'code') {
+          <div class="embed-package-grid">
+            <article class="snippet-card">
+              <div class="snippet-head">
+                <strong>Embed Kodu</strong>
+                <button type="button" class="btn-secondary small" (click)="copyTargetScript(selectedEmbedTarget)">Kopyala</button>
+              </div>
+              <pre><code>{{ getTargetEmbedSnippet(selectedEmbedTarget) }}</code></pre>
+            </article>
+
+            @if (selectedEmbedTarget.commerceMode !== 'catalog_only') {
+              <article class="snippet-card">
+                <div class="snippet-head">
+                  <strong>Host Adapter</strong>
+                  <button type="button" class="btn-secondary small" (click)="copyTargetHostAdapterScript(selectedEmbedTarget)">Kopyala</button>
+                </div>
+                <pre><code>{{ getTargetHostAdapterSnippet(selectedEmbedTarget) }}</code></pre>
+              </article>
+            }
+          </div>
+          }
+
+          @if (activePackageTab === 'examples') {
+          @if (selectedEmbedTarget.commerceMode === 'host_availability_cart') {
+            <div class="embed-package-grid contracts">
+              <article class="snippet-card">
+                <div class="snippet-head">
+                  <strong>Stok Istegi Ornegi</strong>
+                </div>
+                <pre><code>{{ getTargetAvailabilityRequestExample(selectedEmbedTarget) }}</code></pre>
+              </article>
+              <article class="snippet-card">
+                <div class="snippet-head">
+                  <strong>Stok Cevabi Ornegi</strong>
+                </div>
+                <pre><code>{{ getTargetAvailabilityResponseExample() }}</code></pre>
+              </article>
+            </div>
+          }
+
+          @if (selectedEmbedTarget.commerceMode !== 'catalog_only') {
+            <div class="embed-package-grid contracts">
+              <article class="snippet-card">
+                <div class="snippet-head">
+                  <strong>Ana Islem Ornegi</strong>
+                </div>
+                <pre><code>{{ getTargetAddToCartRequestExample(selectedEmbedTarget) }}</code></pre>
+              </article>
+              <article class="snippet-card">
+                <div class="snippet-head">
+                  <strong>Beklenen Sonuc</strong>
+                </div>
+                <pre><code>{{ getTargetActionResponseExample(selectedEmbedTarget) }}</code></pre>
+              </article>
+            </div>
+          }
+          }
+        </article>
+      }
+    </section>
+    }
   </div>
 </div>

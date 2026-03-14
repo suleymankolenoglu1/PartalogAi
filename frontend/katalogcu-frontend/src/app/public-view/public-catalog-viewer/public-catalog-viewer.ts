@@ -21,6 +21,23 @@ interface RequestedPartSelection {
   partCode: string | null;
 }
 
+interface HostAvailabilityItem {
+  catalogItemId?: string | null;
+  productId?: string | null;
+  partCode?: string | null;
+  stockStatus?: 'in_stock' | 'available_to_order' | 'out_of_stock' | 'unknown';
+  availabilityLabel?: string | null;
+  unitPrice?: number | null;
+  currency?: string | null;
+  canAddToCart?: boolean | null;
+}
+
+interface HostAdapterEnvelope {
+  source?: string;
+  event?: string;
+  payload?: any;
+}
+
 type StockFilter = 'all' | 'in' | 'out';
 type SortMode = 'ref' | 'name' | 'stock';
 type PartsPaneSnapLevel = 0 | 1 | 2;
@@ -47,8 +64,15 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   // HTML'deki [routerLink] bunu kullanacak.
   catalogId: string | null = null;
   publicToken: string | null = null;
+  embedKey: string | null = null;
   publicQueryParams: any = {};
   canUseEcommerce = false;
+  isTargetedEmbed = false;
+  embedCommerceMode: string | null = null;
+  embedHostActionMode: string | null = null;
+  hostCartFeedback: string | null = null;
+  private availabilityLookup: Record<string, HostAvailabilityItem> = {};
+  private embedRecoveryAttempted = false;
 
   catalog: Catalog | null = null;
   groups: ViewerGroup[] = [];
@@ -117,8 +141,12 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   }
 
   private stopEmbedAutoResize: (() => void) | null = null;
+  private readonly hostMessageHandler = (event: MessageEvent<HostAdapterEnvelope>) => {
+    this.handleHostAdapterMessage(event);
+  };
 
   ngOnDestroy(): void {
+    window.removeEventListener('message', this.hostMessageHandler);
     this.stopEmbedAutoResize?.();
     this.stopEmbedAutoResize = null;
     if (this.searchDebounceTimer) {
@@ -128,6 +156,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    window.addEventListener('message', this.hostMessageHandler);
     this.stopEmbedAutoResize = startEmbedAutoResize('catalog-viewer');
     // 🔥 DÜZELTME: ID'yi URL'den alıp hemen değişkene atıyoruz.
     this.catalogId = this.route.snapshot.paramMap.get('id');
@@ -147,6 +176,10 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     this.pendingAutoSelect = this.hasRequestedPartSelection();
 
     const tokenParam = this.route.snapshot.queryParamMap.get('token');
+    this.embedKey = this.route.snapshot.queryParamMap.get('embedKey');
+    this.isTargetedEmbed = this.route.snapshot.queryParamMap.get('embedTarget') === '1';
+    this.embedCommerceMode = this.route.snapshot.queryParamMap.get('commerceMode');
+    this.embedHostActionMode = this.route.snapshot.queryParamMap.get('hostActionMode');
     if (!tokenParam) {
       this.isLoading = false;
       console.error('Public token bulunamadı.');
@@ -155,6 +188,7 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
     this.publicToken = tokenParam;
     this.publicQueryParams = { token: this.publicToken };
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.cartService.setPublicToken(this.publicToken);
     this.loadStorefrontFeatures();
     
     // Eğer ID varsa yüklemeyi başlat
@@ -165,6 +199,12 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   }
 
   private loadStorefrontFeatures() {
+    if (this.isTargetedEmbed) {
+      this.canUseEcommerce = this.embedCommerceMode === 'host_cart' || this.embedCommerceMode === 'host_availability_cart';
+      this.isCartOpen = false;
+      return;
+    }
+
     if (!this.publicToken) return;
     this.catalogService.getPublicStorefront(this.publicToken).subscribe({
       next: (res) => {
@@ -178,6 +218,36 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
         this.isCartOpen = false;
       }
     });
+  }
+
+  get showCartSidebar(): boolean {
+    return this.canUseEcommerce && !this.isTargetedEmbed;
+  }
+
+  private isHostCartMode(): boolean {
+    return this.isTargetedEmbed && (this.embedCommerceMode === 'host_cart' || this.embedCommerceMode === 'host_availability_cart');
+  }
+
+  private isHostAvailabilityMode(): boolean {
+    return this.isTargetedEmbed && this.embedCommerceMode === 'host_availability_cart';
+  }
+
+  get targetedActionLabel(): string {
+    return this.embedHostActionMode === 'product_redirect'
+      ? 'Urunu Gor'
+      : (this.embedHostActionMode === 'search_redirect' ? 'Sitede Ara' : 'Sepete');
+  }
+
+  get showsHostActionButton(): boolean {
+    return this.isHostCartMode();
+  }
+
+  isPrimaryActionDisabled(item: CatalogPageItem): boolean {
+    if (this.embedHostActionMode === 'product_redirect' || this.embedHostActionMode === 'search_redirect') {
+      return false;
+    }
+
+    return item.canAddToCart === false;
   }
 
   // --- 1. KATALOG VE GRUPLARI YÜKLE ---
@@ -203,7 +273,13 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
            this.isLoading = false;
         }
       },
-      error: (err) => { console.error(err); this.isLoading = false; }
+      error: (err) => {
+        console.error(err);
+        if (this.tryRecoverEmbedSession(err)) {
+          return;
+        }
+        this.isLoading = false;
+      }
     });
   }
 
@@ -250,9 +326,11 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
       next: (items) => {
         this.pageItems = (items || []).map((item) => ({
           ...item,
-          catalogItemId: this.buildCartItemId(item)
+          catalogItemId: this.buildCartItemId(item),
+          availabilityPending: this.isHostAvailabilityMode()
         }));
         this.applyFiltersAndSort();
+        this.requestHostAvailabilityIfNeeded();
         
         // Hotspotları eşleştir
         this.matchHotspotsLocally();
@@ -275,11 +353,29 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         console.error('Sayfa verisi alınamadı', err);
+        if (this.tryRecoverEmbedSession(err)) {
+          return;
+        }
         this.pageItems = [];
         this.filteredItems = [];
         this.isLoading = false;
       }
     });
+  }
+
+  private tryRecoverEmbedSession(err: any): boolean {
+    if (!this.isTargetedEmbed || !this.embedKey || this.embedRecoveryAttempted) {
+      return false;
+    }
+
+    const status = Number(err?.status ?? 0);
+    if (![400, 401, 403, 404].includes(status)) {
+      return false;
+    }
+
+    this.embedRecoveryAttempted = true;
+    this.router.navigate(['/embed/runtime', this.embedKey], { replaceUrl: true });
+    return true;
   }
 
   // Hotspotları görselleştirmek için basit eşleştirme
@@ -312,6 +408,11 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
       localName: item.localName
     };
 
+    if (this.isHostCartMode()) {
+      this.emitHostPrimaryAction(productToAdd, 1);
+      return;
+    }
+
     this.cartService.addToCart(productToAdd);
     this.isCartOpen = true;
     emitEmbedEvent('cart:add', {
@@ -327,9 +428,26 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   addItemWithQty(item: CatalogPageItem) {
     if (!this.canUseEcommerce) return;
     const qty = this.getSelectionQty(item);
-    for (let i = 0; i < qty; i += 1) {
-      this.addToCart(item);
+    const productToAdd: CatalogPageItem = {
+      catalogItemId: this.buildCartItemId(item),
+      refNo: item.refNo,
+      partCode: item.partCode,
+      partName: item.partName,
+      description: item.description,
+      isStocked: true,
+      productId: item.productId,
+      price: item.price,
+      localName: item.localName
+    };
+
+    if (this.isHostCartMode()) {
+      this.emitHostPrimaryAction(productToAdd, qty);
+      this.itemSelectionQty[this.buildCartItemId(item)] = this.minSelectionQty;
+      return;
     }
+
+    this.cartService.addToCart(productToAdd, qty);
+    this.isCartOpen = true;
     this.itemSelectionQty[this.buildCartItemId(item)] = this.minSelectionQty;
   }
 
@@ -351,15 +469,152 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
   }
 
   getStockLabel(item: CatalogPageItem): string {
+    if (item?.availabilityPending) return 'Kontrol Ediliyor';
+    if (item?.availabilityLabel) return item.availabilityLabel;
+    if (item?.stockStatus === 'available_to_order') return 'Siparişe Uygun';
     if (item?.isStocked === true) return 'Stokta Var';
     if (item?.isStocked === false) return 'Stokta Yok';
     return 'Belirsiz';
   }
 
   getStockBadgeClass(item: CatalogPageItem): string {
+    if (item?.stockStatus === 'available_to_order') return 'stock-pill stock-pill-unknown';
     if (item?.isStocked === true) return 'stock-pill stock-pill-ok';
     if (item?.isStocked === false) return 'stock-pill stock-pill-no';
     return 'stock-pill stock-pill-unknown';
+  }
+
+  private requestHostAvailabilityIfNeeded(): void {
+    if (!this.isHostAvailabilityMode() || this.pageItems.length === 0) {
+      return;
+    }
+
+    emitEmbedEvent('part:availability-request', {
+      catalogId: this.catalogId,
+      pageNumber: this.activePage?.pageNumber ?? null,
+      items: this.pageItems.map((item) => ({
+        catalogItemId: item.catalogItemId,
+        productId: item.productId ?? null,
+        partCode: item.partCode || null,
+        partName: item.partName || null
+      }))
+    });
+  }
+
+  private emitHostAddToCart(item: CatalogPageItem, quantity: number): void {
+    this.hostCartFeedback = null;
+    emitEmbedEvent('part:add-to-cart', {
+      catalogId: this.catalogId,
+      pageNumber: this.activePage?.pageNumber ?? null,
+      item: {
+        catalogItemId: item.catalogItemId,
+        productId: item.productId ?? null,
+        partCode: item.partCode || null,
+        partName: item.partName || null,
+        quantity
+      }
+    });
+  }
+
+  private emitHostPrimaryAction(item: CatalogPageItem, quantity: number): void {
+    const payload = {
+      catalogId: this.catalogId,
+      pageNumber: this.activePage?.pageNumber ?? null,
+      catalogItemId: item.catalogItemId,
+      productId: item.productId ?? null,
+      partCode: item.partCode || null,
+      partName: item.partName || null,
+      quantity
+    };
+
+    this.hostCartFeedback = null;
+
+    if (this.embedHostActionMode === 'product_redirect') {
+      emitEmbedEvent('part:view-product', payload);
+      return;
+    }
+
+    if (this.embedHostActionMode === 'search_redirect') {
+      emitEmbedEvent('part:search', payload);
+      return;
+    }
+
+    this.emitHostAddToCart(item, quantity);
+  }
+
+  private handleHostAdapterMessage(event: MessageEvent<HostAdapterEnvelope>): void {
+    const data = event.data;
+    if (!data || data.source !== 'partalog-host-adapter' || !data.event) {
+      return;
+    }
+
+    if (data.event === 'part:availability-result') {
+      const items = Array.isArray(data.payload?.items) ? data.payload.items as HostAvailabilityItem[] : [];
+      this.applyHostAvailability(items);
+      return;
+    }
+
+    if (data.event === 'cart:add-result') {
+      const ok = data.payload?.success === true;
+      this.hostCartFeedback = ok
+        ? (String(data.payload?.message || '').trim() || 'Parça sepetinize eklendi.')
+        : (String(data.payload?.message || '').trim() || 'Parça host sepetine eklenemedi.');
+      return;
+    }
+
+    if (data.event === 'part:action-result') {
+      const ok = data.payload?.success !== false;
+      this.hostCartFeedback = ok
+        ? (String(data.payload?.message || '').trim() || 'Host aksiyonu tetiklendi.')
+        : (String(data.payload?.message || '').trim() || 'Host aksiyonu tamamlanamadı.');
+    }
+  }
+
+  private applyHostAvailability(items: HostAvailabilityItem[]): void {
+    if (!items.length) {
+      return;
+    }
+
+    const nextLookup: Record<string, HostAvailabilityItem> = {};
+    for (const item of items) {
+      const key = this.getAvailabilityLookupKey(item.catalogItemId ?? null, item.partCode ?? null);
+      if (!key) continue;
+      nextLookup[key] = item;
+    }
+
+    this.availabilityLookup = nextLookup;
+    this.pageItems = this.pageItems.map((item) => {
+      const key = this.getAvailabilityLookupKey(item.catalogItemId, item.partCode);
+      const match = key ? this.availabilityLookup[key] : undefined;
+      if (!match) {
+        return { ...item, availabilityPending: false };
+      }
+
+      return {
+        ...item,
+        availabilityPending: false,
+        stockStatus: match.stockStatus ?? 'unknown',
+        availabilityLabel: match.availabilityLabel ?? undefined,
+        price: match.unitPrice ?? item.price,
+        currency: match.currency ?? item.currency,
+        canAddToCart: match.canAddToCart ?? item.canAddToCart,
+        isStocked: match.stockStatus === 'in_stock'
+          ? true
+          : (match.stockStatus === 'out_of_stock' ? false : item.isStocked)
+      };
+    });
+
+    this.applyFiltersAndSort();
+  }
+
+  private getAvailabilityLookupKey(catalogItemId: string | null | undefined, partCode: string | null | undefined): string | null {
+    const itemId = String(catalogItemId ?? '').trim();
+    if (itemId) return `item:${itemId}`;
+
+    const code = String(partCode ?? '').trim().toUpperCase();
+    if (code) return `code:${code}`;
+
+    return null;
   }
 
   isSelectedFromHotspot(item: CatalogPageItem): boolean {
@@ -449,6 +704,15 @@ export class PublicCatalogViewerComponent implements OnInit, OnDestroy {
 
   goCheckout() {
     if (!this.canUseEcommerce) return;
+    if (this.isTargetedEmbed) {
+      emitEmbedEvent('checkout:start', {
+        publicToken: this.publicToken,
+        catalogId: this.catalogId,
+        source: 'catalog-viewer-targeted'
+      });
+      return;
+    }
+
     if (!this.publicToken) return;
     emitEmbedEvent('checkout:start', {
       publicToken: this.publicToken,

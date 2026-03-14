@@ -227,6 +227,13 @@
   accent-color: var(--pt-navy);
 }
 
+.field-help {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .error-line {
   margin: 14px 0 0;
   border: 1px solid var(--pt-danger-border);
@@ -235,6 +242,34 @@
   border-radius: var(--pt-radius-md);
   padding: 10px 12px;
   font-size: 13px;
+  display: grid;
+  gap: 5px;
+}
+
+.error-line strong {
+  font-size: 13px;
+}
+
+.error-line span {
+  line-height: 1.55;
+}
+
+.error-line.info-line {
+  border-color: color-mix(in srgb, var(--pt-blue) 18%, var(--pt-border));
+  background: color-mix(in srgb, var(--pt-blue-light) 12%, white);
+  color: var(--pt-text-heading);
+}
+
+.inline-link {
+  width: fit-content;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
 }
 
 .submit-btn {

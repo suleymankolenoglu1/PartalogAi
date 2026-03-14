@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CatalogService, Catalog, CatalogPage } from '../core/services/catalog.service';
 import { ProductService, Product } from '../core/services/product.service';
 
@@ -21,12 +21,15 @@ import { ProductService, Product } from '../core/services/product.service';
 })
 export class PublicCatalogDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private catalogService = inject(CatalogService);
   private productService = inject(ProductService);
 
   catalog: Catalog | null = null;
   allProducts: Product[] = [];
   publicToken: string | null = null;
+  embedKey: string | null = null;
+  isTargetedEmbed = false;
 
   activePage: CatalogPage | null = null;
   activePageIndex: number = 0;
@@ -43,6 +46,12 @@ export class PublicCatalogDetailComponent implements OnInit {
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('id');
     this.publicToken = this.route.snapshot.queryParamMap.get('token');
+    this.embedKey = this.route.snapshot.queryParamMap.get('embedKey');
+    this.isTargetedEmbed = this.route.snapshot.queryParamMap.get('embedTarget') === '1';
+    if (this.isTargetedEmbed && this.embedKey) {
+      this.router.navigate(['/embed/runtime', this.embedKey], { replaceUrl: true });
+      return;
+    }
     if (id) {
       this.loadCatalog(id);
       this.loadProducts(id);

@@ -9,6 +9,18 @@ export interface CartItem {
   quantity: number;
 }
 
+interface ResolvedCartItemQuote {
+  productId?: string | null;
+  partCode: string;
+  partName: string;
+  unitPrice?: number | null;
+  availableStock?: number | null;
+  isAvailable: boolean;
+  provider: string;
+  currency: string;
+  synchronizedAtUtc?: string | null;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -18,6 +30,7 @@ export class CartService {
   private cartKeyBase = 'partalog_cart';
   private cartScope = 'global';
   private pendingOrderKey: string | null = null;
+  private publicToken: string | null = null;
 
   private get cartKey(): string {
     return `${this.cartKeyBase}_${this.cartScope}`;
@@ -46,6 +59,11 @@ export class CartService {
     if (!normalized || this.cartScope === normalized) return;
     this.cartScope = normalized;
     this.loadCart();
+  }
+
+  setPublicToken(publicToken: string | null | undefined) {
+    const normalized = String(publicToken ?? '').trim();
+    this.publicToken = normalized || null;
   }
 
   private buildCartItemId(product: CatalogPageItem): string {
@@ -80,20 +98,39 @@ export class CartService {
 
   // --- SEPET İŞLEMLERİ ---
 
-  addToCart(product: CatalogPageItem) {
+  addToCart(product: CatalogPageItem, quantity: number = 1) {
     const normalized = this.normalizeProduct(product);
-    const currentCart = this._cart.value;
-    
-    // Ürün zaten var mı? (ID kontrolü)
-    const existingItem = currentCart.find(i => i.product.catalogItemId === normalized.catalogItemId);
+    const safeQuantity = Math.max(1, quantity);
 
-    if (existingItem) {
-      existingItem.quantity += 1;
-    } else {
-      currentCart.push({ product: normalized, quantity: 1 });
+    if (!this.publicToken) {
+      this.commitCartItem(normalized, safeQuantity);
+      return;
     }
 
-    this.updateState(currentCart);
+    this.http.post<ResolvedCartItemQuote>(`${this.apiUrl}/orders/cart-items/resolve`, {
+      publicToken: this.publicToken,
+      productId: normalized.productId || undefined,
+      partCode: normalized.partCode,
+      quantity: safeQuantity
+    }).subscribe({
+      next: (quote) => {
+        const resolved: CatalogPageItem = {
+          ...normalized,
+          productId: quote.productId || normalized.productId,
+          partCode: quote.partCode || normalized.partCode,
+          partName: quote.partName || normalized.partName,
+          price: quote.unitPrice ?? normalized.price,
+          isStocked: quote.isAvailable,
+          localName: quote.partName || normalized.localName
+        };
+
+        this.commitCartItem(this.normalizeProduct(resolved), safeQuantity);
+      },
+      error: (err) => {
+        console.error('ERP cart resolve failed, local item is used.', err);
+        this.commitCartItem(normalized, safeQuantity);
+      }
+    });
   }
 
   removeFromCart(catalogItemId: string) {
@@ -178,6 +215,20 @@ export class CartService {
     this._cart.next(cart);
     this.calculateTotals(cart);
     this.saveToStorage(cart);
+  }
+
+  private commitCartItem(product: CatalogPageItem, quantity: number) {
+    const currentCart = this._cart.value;
+    const existingItem = currentCart.find(i => i.product.catalogItemId === product.catalogItemId);
+
+    if (existingItem) {
+      existingItem.quantity += quantity;
+      existingItem.product = { ...existingItem.product, ...product };
+    } else {
+      currentCart.push({ product, quantity });
+    }
+
+    this.updateState(currentCart);
   }
 
   private calculateTotals(cart: CartItem[]) {

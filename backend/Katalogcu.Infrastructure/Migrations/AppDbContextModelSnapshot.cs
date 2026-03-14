@@ -68,10 +68,6 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("text");
 
-                    b.Property<string>("PublicStoreSlug")
-                        .HasMaxLength(96)
-                        .HasColumnType("character varying(96)");
-
                     b.Property<DateTime?>("PlanActivatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -83,6 +79,10 @@ namespace Katalogcu.Infrastructure.Migrations
 
                     b.Property<int>("PublicLinkVersion")
                         .HasColumnType("integer");
+
+                    b.Property<string>("PublicStoreSlug")
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
 
                     b.Property<string>("Role")
                         .IsRequired()
@@ -305,9 +305,6 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Property<int>("PageNumber")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime?>("ReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("ReviewNotes")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
@@ -318,6 +315,9 @@ namespace Katalogcu.Infrastructure.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
                         .HasDefaultValue("NeedsReview");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("UpdatedDate")
                         .HasColumnType("timestamp with time zone");
@@ -417,6 +417,160 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.HasIndex("UserId", "PublicSessionToken");
 
                     b.ToTable("Customers");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.EmbedTarget", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AccessExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CatalogId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CatalogPageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CommerceMode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EmbedKey")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<string>("ExistingCartMethod")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("ExistingCartUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("HostActionMode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("ProductUrlTemplate")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("SearchUrlTemplate")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CatalogId");
+
+                    b.HasIndex("CatalogPageId");
+
+                    b.HasIndex("EmbedKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Type", "IsActive");
+
+                    b.ToTable("EmbedTargets");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ErpInventorySnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("AvailableStock")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("ExternalProductId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastSyncedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastWebhookReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PartCode")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal?>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("OwnerUserId", "Provider", "ExternalProductId")
+                        .HasFilter("\"ExternalProductId\" IS NOT NULL");
+
+                    b.HasIndex("OwnerUserId", "Provider", "PartCode");
+
+                    b.HasIndex("OwnerUserId", "Provider", "ProductId");
+
+                    b.ToTable("ErpInventorySnapshots");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.Folder", b =>
@@ -878,6 +1032,42 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Navigation("Catalog");
                 });
 
+            modelBuilder.Entity("Katalogcu.Domain.Entities.EmbedTarget", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.Catalog", "Catalog")
+                        .WithMany()
+                        .HasForeignKey("CatalogId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.CatalogPage", "CatalogPage")
+                        .WithMany()
+                        .HasForeignKey("CatalogPageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Katalogcu.Domain.Entities.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Catalog");
+
+                    b.Navigation("CatalogPage");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ErpInventorySnapshot", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.Product", "Product")
+                        .WithMany("ErpInventorySnapshots")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("Katalogcu.Domain.Entities.Hotspot", b =>
                 {
                     b.HasOne("Katalogcu.Domain.Entities.CatalogPage", "Page")
@@ -969,6 +1159,11 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Navigation("Items");
 
                     b.Navigation("StatusHistory");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("ErpInventorySnapshots");
                 });
 #pragma warning restore 612, 618
         }

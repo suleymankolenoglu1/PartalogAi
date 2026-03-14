@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Partalog Product Redirect Test</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: #f3f6fa;
+      color: #1f3041;
+    }
+
+    .wrap {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #d8e1eb;
+      border-radius: 20px;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+    }
+
+    .hero,
+    .host,
+    .product-card {
+      padding: 22px;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      font-size: 18px;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #607286;
+      line-height: 1.6;
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .step {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #f8fbff;
+      border: 1px solid #d9e8ff;
+      font-size: 14px;
+    }
+
+    .product-result {
+      display: none;
+      padding: 16px 18px;
+      border-radius: 16px;
+      border: 1px solid #bfd7c8;
+      background: #edf9f1;
+      color: #1f5133;
+    }
+
+    .product-result strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+
+    .host-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .badge {
+      min-height: 30px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #e9f0ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .embed-shell {
+      min-height: 840px;
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid #d8e1eb;
+      background: linear-gradient(180deg, #ffffff 0%, #fafcff 100%);
+    }
+
+    .debug-result {
+      display: none;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #c8d8ef;
+      background: #f4f8ff;
+      color: #23405f;
+      font-weight: 600;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #eef4fa;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card hero">
+      <h1>Product Redirect Test</h1>
+      <p>Bu sayfa, düşük sürtünmeli `Urun Sayfasina Git` entegrasyonunu test eder. Host site özel JS business logic yazmadan ürün detay yönlendirmesini tetikleyebilir mi onu doğrular.</p>
+
+      <div class="steps">
+        <div class="step">1. Panelde <code>Host Site Islemi</code> ve <code>Urun Sayfasina Git</code> stratejisi ile bir embed oluştur.</div>
+        <div class="step">2. Domain allowlist'e <code>http://127.0.0.1:5500</code> ekle.</div>
+        <div class="step">3. Bu dosyadaki <code>data-embed-key</code> değerini gerçek <code>emb_...</code> key ile değiştir.</div>
+        <div class="step">4. Parçaya tıkladığında bu sayfa aynı path'e <code>?product=PARCAKODU</code> ile yönlenmeli.</div>
+      </div>
+    </section>
+
+    <div id="debug-result" class="debug-result"></div>
+    <section id="product-result" class="card product-card product-result">
+      <strong>Host urun sayfasi acildi</strong>
+      <div id="product-result-text"></div>
+    </section>
+
+    <section class="card host">
+      <div class="host-head">
+        <div>
+          <h2>Embed Alani</h2>
+          <p>Katalog iframe içinde açılır. `Urunu Gor` aksiyonu host sayfada ürün detaya yönlendiriyormuş gibi çalışır.</p>
+        </div>
+        <span class="badge">Product Redirect</span>
+      </div>
+
+      <div class="embed-shell">
+        <div id="partalog-embed-root"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="http://localhost:5159/host-adapter.js"
+    data-product-url-template="/embed-test-product.html?product={partCode}"></script>
+
+  <script src="http://localhost:5159/embed.js"
+    data-embed-key="emb_f7c4718b2c7943db9ab2348d049cfdd8"
+    data-api-base-url="http://localhost:5159"
+    data-target="#partalog-embed-root"
+    data-height="820px"></script>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const productValue = params.get('product');
+    const debugResult = document.getElementById('debug-result');
+    const productResult = document.getElementById('product-result');
+    const productResultText = document.getElementById('product-result-text');
+
+    if (productValue) {
+      productResult.style.display = 'block';
+      productResultText.textContent = `Host ürün detay sayfası simüle edildi. Açılan parça kodu: ${productValue}`;
+    }
+
+    function showDebug(message) {
+      debugResult.style.display = 'block';
+      debugResult.textContent = message;
+    }
+
+    function redirectToProduct(partCode) {
+      if (!partCode) return;
+      const nextUrl = `/embed-test-product.html?product=${encodeURIComponent(partCode)}`;
+      showDebug(`Iframe host sayfaya urun detay event'i gonderdi. Part code: ${partCode}. Yonlendirme baslatiliyor...`);
+      window.setTimeout(function () {
+        window.location.assign(nextUrl);
+      }, 700);
+    }
+
+    document.addEventListener('part:view-product', function (event) {
+      const payload = event.detail && event.detail.payload ? event.detail.payload : {};
+      redirectToProduct(payload.partCode || '');
+    });
+  </script>
+</body>
+</html>

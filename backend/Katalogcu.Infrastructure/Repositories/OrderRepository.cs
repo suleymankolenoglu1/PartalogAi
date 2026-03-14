@@ -34,9 +34,11 @@ public sealed class OrderRepository : IOrderRepository
         IReadOnlyCollection<Guid>? allowedCatalogIds,
         CancellationToken cancellationToken)
     {
+        var normalizedCode = code.Trim().ToUpperInvariant();
+
         var query = _context.Products
             .Include(p => p.Catalog)
-            .Where(p => p.Code == code);
+            .Where(p => p.Code.Trim().ToUpper() == normalizedCode);
 
         if (publicUserId.HasValue && publicUserId.Value != Guid.Empty)
         {

@@ -68,6 +68,7 @@
                 </span>
               </button>
             </div>
+            <p class="field-help">En az 8 karakter kullan. Harf ve rakam birlikte kullanman daha guvenlidir.</p>
           </div>
 
           <label class="check-line" for="terms">
@@ -76,7 +77,13 @@
           </label>
 
           @if (errorMessage) {
-            <p class="error-line">{{ errorMessage }}</p>
+            <div class="error-line" [class.info-line]="isDuplicateEmailError">
+              <strong>{{ isDuplicateEmailError ? 'Bu e-posta zaten kullaniliyor.' : 'Kayit tamamlanamadi.' }}</strong>
+              <span>{{ errorMessage }}</span>
+              @if (isDuplicateEmailError) {
+                <a routerLink="/login" class="inline-link">Giris yap</a>
+              }
+            </div>
           }
 
           <button type="submit" class="submit-btn" [disabled]="isLoading">

@@ -23,6 +23,8 @@ namespace Katalogcu.Infrastructure.Persistence
         public DbSet<Folder> Folders { get; set; }
         public DbSet<Customer> Customers { get; set; }
         public DbSet<StockMovement> StockMovements { get; set; }
+        public DbSet<ErpInventorySnapshot> ErpInventorySnapshots { get; set; }
+        public DbSet<EmbedTarget> EmbedTargets { get; set; }
         public DbSet<CatalogAiJob> CatalogAiJobs { get; set; }
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
 
@@ -183,6 +185,107 @@ namespace Katalogcu.Infrastructure.Persistence
                 .WithMany()
                 .HasForeignKey(m => m.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .HasIndex(x => new { x.OwnerUserId, x.Provider, x.PartCode });
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .HasIndex(x => new { x.OwnerUserId, x.Provider, x.ProductId });
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .HasIndex(x => new { x.OwnerUserId, x.Provider, x.ExternalProductId })
+                .HasFilter("\"ExternalProductId\" IS NOT NULL");
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .Property(x => x.Provider)
+                .HasMaxLength(64);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .Property(x => x.ExternalProductId)
+                .HasMaxLength(128);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .Property(x => x.PartCode)
+                .HasMaxLength(128);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .Property(x => x.ProductName)
+                .HasMaxLength(512);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .Property(x => x.Currency)
+                .HasMaxLength(8);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .Property(x => x.UnitPrice)
+                .HasPrecision(18, 2);
+
+            modelBuilder.Entity<ErpInventorySnapshot>()
+                .HasOne(x => x.Product)
+                .WithMany(p => p.ErpInventorySnapshots)
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .HasIndex(x => x.EmbedKey)
+                .IsUnique();
+
+            modelBuilder.Entity<EmbedTarget>()
+                .HasIndex(x => new { x.UserId, x.Type, x.IsActive });
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.Name)
+                .HasMaxLength(160);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.Type)
+                .HasMaxLength(32);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.EmbedKey)
+                .HasMaxLength(96);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.CommerceMode)
+                .HasMaxLength(32);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.HostActionMode)
+                .HasMaxLength(32);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.ProductUrlTemplate)
+                .HasMaxLength(1024);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.SearchUrlTemplate)
+                .HasMaxLength(1024);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.ExistingCartUrl)
+                .HasMaxLength(1024);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .Property(x => x.ExistingCartMethod)
+                .HasMaxLength(16);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .HasOne(x => x.Catalog)
+                .WithMany()
+                .HasForeignKey(x => x.CatalogId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<EmbedTarget>()
+                .HasOne(x => x.CatalogPage)
+                .WithMany()
+                .HasForeignKey(x => x.CatalogPageId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<CatalogAiJob>()
                 .HasIndex(j => j.CatalogId)

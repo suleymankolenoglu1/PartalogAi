@@ -1,0 +1,13 @@
+<section class="embed-runtime-shell">
+  @if (isLoading) {
+    <div class="embed-runtime-card">
+      <strong>Embed hazırlanıyor...</strong>
+      <p>Seçilen katalog hedefi yükleniyor.</p>
+    </div>
+  } @else {
+    <div class="embed-runtime-card error">
+      <strong>Embed açılmadı</strong>
+      <p>{{ errorMessage }}</p>
+    </div>
+  }
+</section>

@@ -5,9 +5,11 @@
         <span class="material-symbols-outlined">menu</span>
         <span>Sayfalar</span>
       </button>
-      <a [routerLink]="['/view', catalogId]" [queryParams]="publicQueryParams" class="back-link" title="Kataloga dön">
-        <span class="material-symbols-outlined">arrow_back</span>
-      </a>
+      @if (!isTargetedEmbed) {
+        <a [routerLink]="['/view', catalogId]" [queryParams]="publicQueryParams" class="back-link" title="Kataloga dön">
+          <span class="material-symbols-outlined">arrow_back</span>
+        </a>
+      }
       <div class="topbar-title">
         <div class="catalog-name">{{ catalog?.name || 'Katalog' }}</div>
         <div class="catalog-page-meta">
@@ -16,7 +18,7 @@
       </div>
     </div>
 
-    @if (canUseEcommerce) {
+    @if (showCartSidebar) {
       <div class="topbar-actions">
         <button type="button" class="cart-trigger" (click)="isCartOpen = true" title="Sepeti aç">
           <span class="material-symbols-outlined">shopping_cart</span>
@@ -223,7 +225,7 @@
 
                 <div class="part-meta">
                   @if (item.price) {
-                    <span class="part-price">{{ item.price | currency:'TRY':'symbol-narrow' }}</span>
+                    <span class="part-price">{{ item.price | currency:(item.currency || 'TRY'):'symbol-narrow' }}</span>
                   }
                 </div>
 
@@ -234,7 +236,7 @@
                       <span>{{ getSelectionQty(item) }}</span>
                       <button type="button" (click)="$event.stopPropagation(); increaseSelectionQty(item)">+</button>
                     </div>
-                    <button type="button" class="add-btn" (click)="$event.stopPropagation(); addItemWithQty(item)">Sepete</button>
+                    <button type="button" class="add-btn" [disabled]="isPrimaryActionDisabled(item)" (click)="$event.stopPropagation(); addItemWithQty(item)">{{ targetedActionLabel }}</button>
                   </div>
                 }
               </div>
@@ -242,6 +244,9 @@
           }
         }
       </div>
+      @if (hostCartFeedback) {
+        <p class="hint-text">{{ hostCartFeedback }}</p>
+      }
     </aside>
   </div>
 
@@ -249,7 +254,7 @@
     <div class="sidebar-overlay" (click)="closeMobileSidebar()"></div>
   }
 
-  @if (canUseEcommerce) {
+  @if (showCartSidebar) {
     <div class="cart-sidebar" [class.open]="isCartOpen">
       <div class="cart-header">
         <h3>Sipariş Detayı</h3>

@@ -11,7 +11,7 @@ public sealed class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
         var connectionString =
             Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection") ??
             Environment.GetEnvironmentVariable("DB_CONNECTION_STRING") ??
-            "Host=127.0.0.1;Port=5432;Database=KatalogcuDb;Username=postgres;Password=Password123!";
+            "Host=127.0.0.1;Port=5432;Database=KatalogcuDb;Username=postgres;Password=postgres";
 
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
         optionsBuilder.UseNpgsql(connectionString, x => x.UseVector());

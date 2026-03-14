@@ -73,6 +73,78 @@ export interface EmbedVerifyOriginResponse {
   publicToken?: string;
   storeSlug?: string;
   appBaseUrl?: string;
+  embedKey?: string;
+  targetType?: 'catalog' | 'catalog_page';
+  catalogId?: string;
+  catalogPageId?: string | null;
+  pageNumber?: number | null;
+  pageIndex?: number;
+  commerceMode?: 'catalog_only' | 'host_cart' | 'host_availability_cart';
+  hostActionMode?: 'none' | 'product_redirect' | 'search_redirect' | 'existing_cart_api' | 'existing_cart_js' | 'custom';
+  productUrlTemplate?: string | null;
+  searchUrlTemplate?: string | null;
+  existingCartUrl?: string | null;
+  existingCartMethod?: string | null;
+  runtimePath?: string;
+}
+
+export interface EmbedTarget {
+  id: string;
+  name: string;
+  type: 'catalog' | 'catalog_page';
+  catalogId: string;
+  catalogName: string;
+  catalogPageId?: string | null;
+  pageNumber?: number | null;
+  commerceMode: 'catalog_only' | 'host_cart' | 'host_availability_cart';
+  hostActionMode: 'none' | 'product_redirect' | 'search_redirect' | 'existing_cart_api' | 'existing_cart_js' | 'custom';
+  productUrlTemplate?: string | null;
+  searchUrlTemplate?: string | null;
+  existingCartUrl?: string | null;
+  existingCartMethod?: string | null;
+  accessExpiresAt?: string | null;
+  isActive: boolean;
+  embedKey: string;
+  createdDate: string;
+  updatedDate?: string | null;
+}
+
+export interface EmbedTargetRequest {
+  name: string;
+  type: 'catalog' | 'catalog_page';
+  catalogId: string;
+  catalogPageId?: string | null;
+  commerceMode: 'catalog_only' | 'host_cart' | 'host_availability_cart';
+  hostActionMode?: 'none' | 'product_redirect' | 'search_redirect' | 'existing_cart_api' | 'existing_cart_js' | 'custom';
+  productUrlTemplate?: string | null;
+  searchUrlTemplate?: string | null;
+  existingCartUrl?: string | null;
+  existingCartMethod?: string | null;
+  accessExpiresAt?: string | null;
+  isActive?: boolean;
+}
+
+export interface EmbedTargetConfig {
+  ownerUserId: string;
+  whiteLabel: boolean;
+  embedKey: string;
+  targetType: 'catalog' | 'catalog_page';
+  commerceMode: 'catalog_only' | 'host_cart' | 'host_availability_cart';
+  hostActionMode: 'none' | 'product_redirect' | 'search_redirect' | 'existing_cart_api' | 'existing_cart_js' | 'custom';
+  catalogId: string;
+  catalogPageId?: string | null;
+  pageNumber?: number | null;
+  pageIndex: number;
+  publicToken: string;
+  embedTokenExpiresAtUtc?: string;
+  theme: string;
+  mode: string;
+  productUrlTemplate?: string | null;
+  searchUrlTemplate?: string | null;
+  existingCartUrl?: string | null;
+  existingCartMethod?: string | null;
+  accessExpiresAtUtc?: string | null;
+  runtimePath: string;
 }
 
 export interface EmbedStoreSlugCheckResponse {
@@ -193,7 +265,12 @@ export interface CatalogPageItem {
   isStocked: boolean;     
   productId?: string;     
   price?: number;
-  localName?: string;     
+  localName?: string;
+  stockStatus?: 'in_stock' | 'available_to_order' | 'out_of_stock' | 'unknown';
+  availabilityLabel?: string;
+  currency?: string;
+  canAddToCart?: boolean;
+  availabilityPending?: boolean;
 }
 
 export interface Folder {
@@ -398,6 +475,33 @@ export class CatalogService {
       storeSlug: params.storeSlug,
       origin: params.origin
     });
+  }
+
+  resolveEmbedTarget(embedKey: string, origin: string): Observable<EmbedVerifyOriginResponse> {
+    return this.http.post<EmbedVerifyOriginResponse>(`${this.apiUrl}/embed/resolve-target`, {
+      embedKey,
+      origin
+    });
+  }
+
+  getEmbedTargets(): Observable<EmbedTarget[]> {
+    return this.http.get<EmbedTarget[]>(`${this.apiUrl}/embed/targets`);
+  }
+
+  createEmbedTarget(payload: EmbedTargetRequest): Observable<EmbedTarget> {
+    return this.http.post<EmbedTarget>(`${this.apiUrl}/embed/targets`, payload);
+  }
+
+  updateEmbedTarget(id: string, payload: EmbedTargetRequest): Observable<EmbedTarget> {
+    return this.http.put<EmbedTarget>(`${this.apiUrl}/embed/targets/${id}`, payload);
+  }
+
+  deleteEmbedTarget(id: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`${this.apiUrl}/embed/targets/${id}`);
+  }
+
+  getEmbedTargetConfig(embedKey: string): Observable<EmbedTargetConfig> {
+    return this.http.get<EmbedTargetConfig>(`${this.apiUrl}/embed/config/${embedKey}`);
   }
 
   getEmbedDomainVerifications(): Observable<EmbedDomainVerification[]> {

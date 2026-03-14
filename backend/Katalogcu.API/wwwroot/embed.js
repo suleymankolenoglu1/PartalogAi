@@ -34,6 +34,7 @@
 
     var config = Object.assign(
       {
+        embedKey: ds.embedKey || "",
         token: ds.publicToken || ds.token || "",
         storeSlug: ds.store || ds.storeSlug || "",
         apiBaseUrl: normalizeApiBaseUrl(ds.apiBaseUrl || scriptOrigin),
@@ -48,8 +49,8 @@
       options || {}
     );
 
-    if (!config.token && !config.storeSlug) {
-      throw new Error("data-public-token veya data-store zorunlu.");
+    if (!config.embedKey && !config.token && !config.storeSlug) {
+      throw new Error("data-embed-key, data-public-token veya data-store zorunlu.");
     }
 
     return config;
@@ -75,11 +76,12 @@
   }
 
   function verifyOrigin(config) {
-    var endpoint = trimSlash(config.apiBaseUrl) + "/api/embed/verify-origin";
+    var endpoint = trimSlash(config.apiBaseUrl) + (config.embedKey ? "/api/embed/resolve-target" : "/api/embed/verify-origin");
     return fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        embedKey: config.embedKey,
         publicToken: config.token,
         storeSlug: config.storeSlug,
         origin: window.location.origin
@@ -115,6 +117,9 @@
 
   function buildIframeUrl(config, verifyPayload) {
     var base = resolveAppBaseUrl(config, verifyPayload);
+    if (verifyPayload && verifyPayload.runtimePath) {
+      return base + verifyPayload.runtimePath;
+    }
     var effectiveToken = (verifyPayload && verifyPayload.publicToken) || config.token;
     var path = "/p/" + encodeURIComponent(effectiveToken);
     var params = new URLSearchParams();
@@ -173,12 +178,17 @@
       case "token_or_store_required":
         return {
           title: "Embed kimligi eksik",
-          text: "Embed kodunda data-public-token veya data-store alani eksik. Panelden guncel embed kodunu tekrar kopyala."
+          text: "Embed kodunda data-embed-key, data-public-token veya data-store alani eksik. Panelden guncel embed kodunu tekrar kopyala."
         };
       case "invalid_store":
         return {
           title: "Magaza kodu gecersiz",
           text: "Kullanilan data-store degeri taninmadi. Paneldeki magaza kodunu kontrol edip tekrar kopyala."
+        };
+      case "invalid_embed_key":
+        return {
+          title: "Embed kaydi gecersiz",
+          text: "Kullanilan embed anahtari taninmadi. Panelden yeni embed kodunu tekrar kopyala."
         };
       case "origin_required":
         return {

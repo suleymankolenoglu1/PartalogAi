@@ -22,7 +22,12 @@ public sealed class DynamicEmbedCorsMiddleware
             return;
         }
 
-        if (context.Request.Path.StartsWithSegments("/api/embed/settings"))
+        var isPublicEmbedEndpoint =
+            context.Request.Path.StartsWithSegments("/api/embed/verify-origin") ||
+            context.Request.Path.StartsWithSegments("/api/embed/resolve-target") ||
+            context.Request.Path.StartsWithSegments("/api/embed/events");
+
+        if (!isPublicEmbedEndpoint)
         {
             await _next(context);
             return;
@@ -36,8 +41,11 @@ public sealed class DynamicEmbedCorsMiddleware
             return;
         }
 
-        var isVerifyOriginEndpoint = context.Request.Path.StartsWithSegments("/api/embed/verify-origin");
-        var isAllowed = isVerifyOriginEndpoint || await IsAllowedByTokenAsync(
+        var isResolveEndpoint =
+            context.Request.Path.StartsWithSegments("/api/embed/verify-origin") ||
+            context.Request.Path.StartsWithSegments("/api/embed/resolve-target");
+
+        var isAllowed = isResolveEndpoint || await IsAllowedByTokenAsync(
             context,
             normalizedOrigin,
             embedOriginService,
@@ -67,6 +75,7 @@ public sealed class DynamicEmbedCorsMiddleware
     {
         context.Response.Headers["Access-Control-Allow-Origin"] = normalizedOrigin;
         context.Response.Headers["Vary"] = "Origin";
+        context.Response.Headers["Access-Control-Allow-Credentials"] = "true";
         context.Response.Headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,OPTIONS";
         context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,X-Public-Token";
         context.Response.Headers["Access-Control-Max-Age"] = "600";

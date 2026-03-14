@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Partalog Cart API Test</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: #f3f6fa;
+      color: #1f3041;
+    }
+
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #d8e1eb;
+      border-radius: 20px;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+    }
+
+    .hero,
+    .host {
+      padding: 22px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      letter-spacing: -0.03em;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #607286;
+      line-height: 1.6;
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .step {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #f8fbff;
+      border: 1px solid #d9e8ff;
+      font-size: 14px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .embed-shell {
+      min-height: 840px;
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid #d8e1eb;
+      background: linear-gradient(180deg, #ffffff 0%, #fafcff 100%);
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .side-card {
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid #d8e1eb;
+      background: #fcfdff;
+    }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .status-item {
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid #d8e1eb;
+      background: #f8fbff;
+      color: #5d7187;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .status-item.done {
+      border-color: #bfd7c8;
+      background: #edf9f1;
+      color: #204b31;
+    }
+
+    .mini-cart {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #bfd7c8;
+      background: #edf9f1;
+      color: #204b31;
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: #314357;
+    }
+
+    .debug-box {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #c8d8ef;
+      background: #f4f8ff;
+      color: #23405f;
+      font-weight: 600;
+      line-height: 1.55;
+    }
+
+    .badge {
+      min-height: 30px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #e9f0ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .host-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card hero">
+      <h1>Existing Cart API Test</h1>
+      <p>Bu sayfa, host sitenin zaten var olan bir cart endpoint'ini yeniden kullanma senaryosunu test eder. Gerçek müşteri senaryosuna daha yakındır çünkü yeni endpoint değil, mevcut bir cart URL çağrılır.</p>
+
+      <div class="steps">
+        <div class="step">1. Panelde <code>Host Site Islemi</code> ve <code>Mevcut Cart API</code> stratejisi ile embed oluştur.</div>
+        <div class="step">2. Cart URL olarak <code>/mock-cart-add</code> yaz.</div>
+        <div class="step">3. Gerekirse method olarak <code>POST</code> seç.</div>
+        <div class="step">4. Bu dosyadaki <code>data-embed-key</code> alanını gerçek <code>emb_...</code> değeriyle değiştir.</div>
+      </div>
+    </section>
+
+    <section class="card host">
+      <div class="host-head">
+        <div>
+          <h2>Embed + Host Cart</h2>
+          <p>Sağdaki kutular host sepet durumunu ve mock cart endpoint'inin döndüğü son JSON cevabı gösterir.</p>
+        </div>
+        <span class="badge">Existing Cart API</span>
+      </div>
+
+      <div class="layout">
+        <div class="embed-shell">
+          <div id="partalog-embed-root"></div>
+        </div>
+
+        <div class="side-stack">
+          <div class="side-card">
+            <h3>Akis Durumu</h3>
+            <div id="debug-box" class="debug-box">Henüz event yok.</div>
+          </div>
+
+          <div class="side-card">
+            <h3>Durum Adimlari</h3>
+            <div class="status-list">
+              <div id="status-embed" class="status-item">1. Iframe event bekleniyor</div>
+              <div id="status-adapter" class="status-item">2. Host adapter mesaj bekliyor</div>
+              <div id="status-request" class="status-item">3. Cart istegi bekleniyor</div>
+              <div id="status-result" class="status-item">4. Cart sonucu bekleniyor</div>
+            </div>
+          </div>
+
+          <div class="side-card">
+            <h3>Teknik Log</h3>
+            <pre id="raw-event-log">Henüz event yok.</pre>
+          </div>
+
+          <div class="side-card">
+            <h3>Mini Cart</h3>
+            <div id="mini-cart" class="mini-cart">Sepette 0 ürün var.</div>
+          </div>
+
+          <div class="side-card">
+            <h3>Son Cart API Sonucu</h3>
+            <pre id="cart-result">Henüz istek yok.</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const debugBox = document.getElementById('debug-box');
+    const rawEventLog = document.getElementById('raw-event-log');
+    const miniCart = document.getElementById('mini-cart');
+    const cartResult = document.getElementById('cart-result');
+    const statusEmbed = document.getElementById('status-embed');
+    const statusAdapter = document.getElementById('status-adapter');
+    const statusRequest = document.getElementById('status-request');
+    const statusResult = document.getElementById('status-result');
+
+    function setDebug(message, payload) {
+      debugBox.textContent = payload
+        ? `${message}\n\n${JSON.stringify(payload, null, 2)}`
+        : message;
+    }
+
+    function setRawEventLog(label, payload) {
+      rawEventLog.textContent = `${label}\n\n${JSON.stringify(payload || {}, null, 2)}`;
+    }
+
+    function markDone(element, text) {
+      element.classList.add('done');
+      element.textContent = text;
+    }
+
+    document.addEventListener('part:add-to-cart', function (event) {
+      const detail = event.detail || {};
+      setDebug('Iframe host sayfaya part:add-to-cart event gonderdi.', detail.payload || detail);
+      setRawEventLog('embed.js document event', detail.payload || detail);
+      markDone(statusEmbed, '1. Iframe sepete ekle event gonderdi');
+    });
+
+    document.addEventListener('partalog:adapter:event', function (event) {
+      const detail = event.detail || {};
+      setDebug('Host adapter iframe mesajini aldi.', detail);
+      setRawEventLog('host-adapter window.message', detail);
+      if (detail.event === 'part:add-to-cart') {
+        markDone(statusAdapter, '2. Host adapter sepete ekle mesajini aldi');
+      }
+    });
+
+    document.addEventListener('partalog:cart:add-request', function (event) {
+      const detail = event.detail || {};
+      setDebug('Host adapter cart istegini hazirladi.', detail);
+      setRawEventLog('host-adapter request payload', detail);
+      markDone(statusRequest, '3. Cart istegi host sisteme gonderildi');
+    });
+
+    document.addEventListener('partalog:cart:add-result', function (event) {
+      const payload = event.detail || {};
+      setDebug('Host adapter cart API sonucunu dondu.', payload);
+      setRawEventLog('host-adapter result payload', payload);
+      markDone(statusResult, payload.success === false
+        ? `4. Cart sonucu hata ile dondu: ${payload.message || 'Bilinmeyen hata'}`
+        : '4. Cart sonucu basariyla dondu');
+      if (typeof payload.cartCount === 'number') {
+        miniCart.textContent = `Sepette ${payload.cartCount} ürün var.`;
+      }
+
+      cartResult.textContent = JSON.stringify(payload, null, 2);
+    });
+  </script>
+
+  <script src="http://localhost:5159/host-adapter.js?v=3"
+    data-add-to-cart-url="/mock-cart-add"
+    data-add-to-cart-method="POST"></script>
+
+  <script src="http://localhost:5159/embed.js?v=3"
+    data-embed-key="emb_094d4547d6234e4faab021410f6f960a"
+    data-api-base-url="http://localhost:5159"
+    data-target="#partalog-embed-root"
+    data-height="820px"></script>
+</body>
+</html>

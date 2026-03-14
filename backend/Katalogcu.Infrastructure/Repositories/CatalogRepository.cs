@@ -381,6 +381,34 @@ public sealed class CatalogRepository : ICatalogRepository
                 cancellationToken);
     }
 
+    public Task<bool> CatalogItemCodeExistsForAccessAsync(
+        Guid userId,
+        string partCode,
+        bool publicOnlyPublished,
+        IReadOnlyCollection<Guid>? allowedCatalogIds,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCode = partCode.Trim().ToUpperInvariant();
+
+        var query = _context.CatalogItems
+            .Include(ci => ci.Catalog)
+            .AsNoTracking()
+            .Where(ci =>
+                ci.Catalog.UserId == userId &&
+                ci.PartCode.Trim().ToUpper() == normalizedCode);
+
+        if (publicOnlyPublished)
+        {
+            query = query.Where(ci => ci.Catalog.Status == "Published");
+            if (allowedCatalogIds is { Count: > 0 })
+            {
+                query = query.Where(ci => allowedCatalogIds.Contains(ci.CatalogId));
+            }
+        }
+
+        return query.AnyAsync(cancellationToken);
+    }
+
     public Task AddCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken)
     {
         return _context.CatalogItems.AddAsync(item, cancellationToken).AsTask();

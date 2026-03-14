@@ -7,6 +7,7 @@ using Katalogcu.Application.Features.Orders.Commands.CreateOrder;
 using Katalogcu.Application.Features.Orders.Commands.UpdateOrderStatus;
 using Katalogcu.Application.Features.Orders.Queries.GetIncomingOrders;
 using Katalogcu.Application.Features.Orders.Queries.GetOrderDetails;
+using Katalogcu.Application.Features.Orders.Queries.ResolveCartItemQuote;
 using Katalogcu.Application.Features.Catalogs.Queries.GetPublicStorefront;
 using FluentValidation;
 using MediatR;
@@ -44,6 +45,60 @@ namespace Katalogcu.API.Controllers
         // ============================================================
         // 🟢 PUBLIC (HALKA AÇIK) ENDPOINTLER
         // ============================================================
+
+        [AllowAnonymous]
+        [EnableRateLimiting("public-order")]
+        [HttpPost("cart-items/resolve")]
+        public async Task<IActionResult> ResolveCartItem(
+            [FromBody] ResolveCartItemRequest request,
+            CancellationToken cancellationToken)
+        {
+            var authenticatedUserId = GetCurrentUserId();
+            var publicPayload = !string.IsNullOrWhiteSpace(request.PublicToken)
+                ? _publicAccessTokenService.Validate(request.PublicToken)
+                : null;
+
+            if (authenticatedUserId == Guid.Empty && publicPayload == null)
+            {
+                return BadRequest("Geçerli kullanıcı veya public token gerekli.");
+            }
+
+            if (authenticatedUserId != Guid.Empty &&
+                publicPayload != null &&
+                publicPayload.UserId != authenticatedUserId)
+            {
+                return Forbid();
+            }
+
+            try
+            {
+                var result = await _sender.Send(new ResolveCartItemQuoteQuery(
+                    authenticatedUserId == Guid.Empty ? null : authenticatedUserId,
+                    publicPayload?.UserId,
+                    publicPayload?.CatalogIds,
+                    request.ProductId,
+                    request.PartCode,
+                    request.Quantity <= 0 ? 1 : request.Quantity), cancellationToken);
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "forbidden" => Forbid(),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        "erp_unavailable" => StatusCode(StatusCodes.Status503ServiceUnavailable, result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "ERP fiyat/stok bilgisi alınamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
 
         // 1. SİPARİŞ OLUŞTUR (Vitrinden gelir, Login gerektirmez)
         [AllowAnonymous] 
@@ -126,6 +181,10 @@ namespace Katalogcu.API.Controllers
                     return result.ErrorCode switch
                     {
                         "validation" => BadRequest(result.ErrorMessage),
+                        "forbidden" => Forbid(),
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "out_of_stock" => Conflict(new { message = result.ErrorMessage }),
+                        "erp_unavailable" => StatusCode(StatusCodes.Status503ServiceUnavailable, result.ErrorMessage),
                         _ => StatusCode(500, result.ErrorMessage ?? "Sipariş oluşturulamadı.")
                     };
                 }
@@ -257,6 +316,14 @@ namespace Katalogcu.API.Controllers
         public string? PartName { get; set; }
         public int Quantity { get; set; }
         public decimal? Price { get; set; }
+    }
+
+    public sealed class ResolveCartItemRequest
+    {
+        public string? PublicToken { get; set; }
+        public Guid ProductId { get; set; }
+        public string? PartCode { get; set; }
+        public int Quantity { get; set; } = 1;
     }
 
     public class UpdateStatusDto 

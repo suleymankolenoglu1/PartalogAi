@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.API.Services;
+using Katalogcu.Domain.Entities;
 using Katalogcu.Domain.Enums;
 using Katalogcu.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -104,6 +105,17 @@ public class EmbedController : ControllerBase
     [EnableRateLimiting("public-embed-events")]
     public async Task<IActionResult> VerifyOrigin([FromBody] VerifyOriginRequest request, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(request.EmbedKey))
+        {
+            var resolvedTarget = await ResolveTargetResponseAsync(request.EmbedKey, request.Origin, cancellationToken);
+            if (resolvedTarget == null)
+            {
+                return BadRequest(new { allowed = false, reason = "invalid_embed_key" });
+            }
+
+            return Ok(resolvedTarget);
+        }
+
         if (string.IsNullOrWhiteSpace(request.PublicToken) && string.IsNullOrWhiteSpace(request.StoreSlug))
         {
             return BadRequest(new { allowed = false, reason = "token_or_store_required" });
@@ -330,6 +342,169 @@ public class EmbedController : ControllerBase
         return Ok(new { success = true });
     }
 
+    [HttpGet("targets")]
+    [Authorize]
+    public async Task<IActionResult> GetEmbedTargets(CancellationToken cancellationToken)
+    {
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var targets = await _dbContext.EmbedTargets
+            .AsNoTracking()
+            .Include(x => x.Catalog)
+            .Include(x => x.CatalogPage)
+            .Where(x => x.UserId == userId)
+            .OrderByDescending(x => x.CreatedDate)
+            .Select(x => new
+            {
+                id = x.Id,
+                name = x.Name,
+                type = x.Type,
+                catalogId = x.CatalogId,
+                catalogName = x.Catalog != null ? x.Catalog.Name : string.Empty,
+                catalogPageId = x.CatalogPageId,
+                pageNumber = x.CatalogPage != null ? x.CatalogPage.PageNumber : (int?)null,
+                commerceMode = x.CommerceMode,
+                hostActionMode = x.HostActionMode,
+                productUrlTemplate = x.ProductUrlTemplate,
+                searchUrlTemplate = x.SearchUrlTemplate,
+                existingCartUrl = x.ExistingCartUrl,
+                existingCartMethod = x.ExistingCartMethod,
+                accessExpiresAt = x.AccessExpiresAt,
+                isActive = x.IsActive,
+                embedKey = x.EmbedKey,
+                createdDate = x.CreatedDate,
+                updatedDate = x.UpdatedDate
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(targets);
+    }
+
+    [HttpPost("targets")]
+    [Authorize]
+    public async Task<IActionResult> CreateEmbedTarget([FromBody] CreateEmbedTargetRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var prepared = await PrepareEmbedTargetAsync(userId, null, request, cancellationToken);
+        if (!prepared.IsSuccess)
+        {
+            return BadRequest(new { success = false, message = prepared.ErrorMessage });
+        }
+
+        var entity = prepared.Value!;
+        await _dbContext.EmbedTargets.AddAsync(entity, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(await MapEmbedTargetResponseAsync(entity.Id, userId, cancellationToken));
+    }
+
+    [HttpPut("targets/{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> UpdateEmbedTarget(Guid id, [FromBody] CreateEmbedTargetRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var existing = await _dbContext.EmbedTargets
+            .FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, cancellationToken);
+
+        if (existing == null)
+        {
+            return NotFound(new { success = false, message = "Embed kaydı bulunamadı." });
+        }
+
+        var prepared = await PrepareEmbedTargetAsync(userId, existing, request, cancellationToken);
+        if (!prepared.IsSuccess)
+        {
+            return BadRequest(new { success = false, message = prepared.ErrorMessage });
+        }
+
+        existing.UpdatedDate = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(await MapEmbedTargetResponseAsync(existing.Id, userId, cancellationToken));
+    }
+
+    [HttpDelete("targets/{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteEmbedTarget(Guid id, CancellationToken cancellationToken)
+    {
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var existing = await _dbContext.EmbedTargets
+            .FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, cancellationToken);
+
+        if (existing == null)
+        {
+            return NotFound(new { success = false, message = "Embed kaydı bulunamadı." });
+        }
+
+        _dbContext.EmbedTargets.Remove(existing);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(new { success = true });
+    }
+
+    [HttpPost("resolve-target")]
+    [AllowAnonymous]
+    [EnableRateLimiting("public-embed-events")]
+    public async Task<IActionResult> ResolveTarget([FromBody] ResolveEmbedTargetRequest request, CancellationToken cancellationToken)
+    {
+        var resolved = await ResolveTargetResponseAsync(request.EmbedKey, request.Origin, cancellationToken);
+        if (resolved == null)
+        {
+            return BadRequest(new { allowed = false, reason = "invalid_embed_key" });
+        }
+
+        return Ok(resolved);
+    }
+
+    [HttpGet("config/{embedKey}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetEmbedConfig(string embedKey, CancellationToken cancellationToken)
+    {
+        var config = await BuildEmbedConfigAsync(embedKey, cancellationToken);
+        if (config == null)
+        {
+            return NotFound(new { success = false, message = "Embed kaydı bulunamadı." });
+        }
+
+        return Ok(new
+        {
+            ownerUserId = config.OwnerUserId,
+            whiteLabel = config.WhiteLabel,
+            embedKey = config.EmbedKey,
+            targetType = config.TargetType,
+            commerceMode = config.CommerceMode,
+            hostActionMode = config.HostActionMode,
+            catalogId = config.CatalogId,
+            catalogPageId = config.CatalogPageId,
+            pageNumber = config.PageNumber,
+            pageIndex = config.PageIndex,
+            publicToken = config.PublicToken,
+            embedTokenExpiresAtUtc = config.EmbedTokenExpiresAtUtc,
+            theme = config.Theme,
+            mode = config.Mode,
+            productUrlTemplate = config.ProductUrlTemplate,
+            searchUrlTemplate = config.SearchUrlTemplate,
+            existingCartUrl = config.ExistingCartUrl,
+            existingCartMethod = config.ExistingCartMethod,
+            accessExpiresAtUtc = config.AccessExpiresAtUtc,
+            runtimePath = config.RuntimePath
+        });
+    }
+
     private bool TryGetCurrentUserId(out Guid userId)
     {
         var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -371,7 +546,13 @@ public class EmbedController : ControllerBase
 
     private static bool IsAllowedEvent(string eventName)
     {
-        return eventName is "part:viewed" or "cart:add" or "checkout:start";
+        return eventName is "part:viewed"
+            or "cart:add"
+            or "checkout:start"
+            or "part:add-to-cart"
+            or "part:availability-request"
+            or "part:view-product"
+            or "part:search";
     }
 
     private static object MapDomainRow(EmbedDomainVerificationDto row)
@@ -413,10 +594,364 @@ public class EmbedController : ControllerBase
         };
     }
 
+    private async Task<object?> MapEmbedTargetResponseAsync(Guid targetId, Guid userId, CancellationToken cancellationToken)
+    {
+        return await _dbContext.EmbedTargets
+            .AsNoTracking()
+            .Include(x => x.Catalog)
+            .Include(x => x.CatalogPage)
+            .Where(x => x.Id == targetId && x.UserId == userId)
+            .Select(x => new
+            {
+                id = x.Id,
+                name = x.Name,
+                type = x.Type,
+                catalogId = x.CatalogId,
+                catalogName = x.Catalog != null ? x.Catalog.Name : string.Empty,
+                catalogPageId = x.CatalogPageId,
+                pageNumber = x.CatalogPage != null ? x.CatalogPage.PageNumber : (int?)null,
+                commerceMode = x.CommerceMode,
+                hostActionMode = x.HostActionMode,
+                productUrlTemplate = x.ProductUrlTemplate,
+                searchUrlTemplate = x.SearchUrlTemplate,
+                existingCartUrl = x.ExistingCartUrl,
+                existingCartMethod = x.ExistingCartMethod,
+                isActive = x.IsActive,
+                embedKey = x.EmbedKey,
+                createdDate = x.CreatedDate,
+                updatedDate = x.UpdatedDate
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<EmbedTargetPrepareResult> PrepareEmbedTargetAsync(
+        Guid userId,
+        EmbedTarget? entity,
+        CreateEmbedTargetRequest request,
+        CancellationToken cancellationToken)
+    {
+        var normalizedType = NormalizeEmbedTargetType(request.Type);
+        if (normalizedType == null)
+        {
+            return EmbedTargetPrepareResult.Fail("Embed türü geçersiz. Sadece `catalog` veya `catalog_page` kullanın.");
+        }
+
+        var normalizedCommerceMode = NormalizeCommerceMode(request.CommerceMode);
+        if (normalizedCommerceMode == null)
+        {
+            return EmbedTargetPrepareResult.Fail("Commerce modu geçersiz.");
+        }
+
+        var normalizedHostActionMode = NormalizeHostActionMode(request.HostActionMode, normalizedCommerceMode);
+        if (normalizedHostActionMode == null)
+        {
+            return EmbedTargetPrepareResult.Fail("Host aksiyon modu geçersiz.");
+        }
+
+        var normalizedProductUrlTemplate = NormalizeOptionalText(request.ProductUrlTemplate, 1024);
+        var normalizedSearchUrlTemplate = NormalizeOptionalText(request.SearchUrlTemplate, 1024);
+        var normalizedExistingCartUrl = NormalizeOptionalText(request.ExistingCartUrl, 1024);
+        var normalizedExistingCartMethod = NormalizeCartMethod(request.ExistingCartMethod);
+
+        var hostActionValidationError = ValidateHostActionSettings(
+            normalizedCommerceMode,
+            normalizedHostActionMode,
+            normalizedProductUrlTemplate,
+            normalizedSearchUrlTemplate,
+            normalizedExistingCartUrl);
+
+        if (hostActionValidationError != null)
+        {
+            return EmbedTargetPrepareResult.Fail(hostActionValidationError);
+        }
+
+        if (request.CatalogId == Guid.Empty)
+        {
+            return EmbedTargetPrepareResult.Fail("Katalog seçimi zorunlu.");
+        }
+
+        var catalog = await _dbContext.Catalogs
+            .AsNoTracking()
+            .Where(x => x.Id == request.CatalogId && x.UserId == userId)
+            .Select(x => new { x.Id, x.Name })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (catalog == null)
+        {
+            return EmbedTargetPrepareResult.Fail("Seçilen katalog bulunamadı.");
+        }
+
+        CatalogPage? page = null;
+        if (normalizedType == "catalog_page")
+        {
+            if (!request.CatalogPageId.HasValue || request.CatalogPageId.Value == Guid.Empty)
+            {
+                return EmbedTargetPrepareResult.Fail("Tek sayfa embed için sayfa seçimi zorunlu.");
+            }
+
+            page = await _dbContext.CatalogPages
+                .AsNoTracking()
+                .Where(x => x.Id == request.CatalogPageId.Value && x.CatalogId == catalog.Id)
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (page == null)
+            {
+                return EmbedTargetPrepareResult.Fail("Seçilen katalog sayfası bulunamadı.");
+            }
+        }
+
+        var safeName = string.IsNullOrWhiteSpace(request.Name)
+            ? (page == null ? catalog.Name : $"{catalog.Name} - Sayfa {page.PageNumber}")
+            : request.Name.Trim();
+
+        entity ??= new EmbedTarget
+        {
+            UserId = userId,
+            EmbedKey = GenerateEmbedKey()
+        };
+
+        entity.Name = safeName.Length > 160 ? safeName[..160].Trim() : safeName;
+        entity.Type = normalizedType;
+        entity.CatalogId = catalog.Id;
+        entity.CatalogPageId = page?.Id;
+        entity.CommerceMode = normalizedCommerceMode;
+        entity.HostActionMode = normalizedHostActionMode;
+        entity.ProductUrlTemplate = normalizedProductUrlTemplate;
+        entity.SearchUrlTemplate = normalizedSearchUrlTemplate;
+        entity.ExistingCartUrl = normalizedExistingCartUrl;
+        entity.ExistingCartMethod = normalizedExistingCartMethod;
+        entity.IsActive = request.IsActive ?? true;
+        entity.AccessExpiresAt = request.AccessExpiresAt?.ToUniversalTime();
+
+        return EmbedTargetPrepareResult.Ok(entity);
+    }
+
+    private async Task<object?> ResolveTargetResponseAsync(string? embedKey, string? rawOrigin, CancellationToken cancellationToken)
+    {
+        var config = await BuildEmbedConfigAsync(embedKey, cancellationToken);
+        if (config == null)
+        {
+            return null;
+        }
+
+        var normalizedOrigin = _embedOriginService.NormalizeOrigin(
+            string.IsNullOrWhiteSpace(rawOrigin) ? HttpContext.Request.Headers.Origin.ToString() : rawOrigin);
+
+        if (string.IsNullOrWhiteSpace(normalizedOrigin))
+        {
+            return new
+            {
+                allowed = false,
+                reason = "origin_required",
+                embedKey = config.EmbedKey
+            };
+        }
+
+        var isAllowed = await _embedOriginService.IsOriginAllowedAsync(config.OwnerUserId, normalizedOrigin, cancellationToken);
+        return new
+        {
+            allowed = isAllowed,
+            reason = isAllowed ? "ok" : "origin_not_allowed",
+            origin = normalizedOrigin,
+            ownerUserId = config.OwnerUserId,
+            theme = config.Theme,
+            mode = config.Mode,
+            whiteLabel = config.WhiteLabel,
+            publicToken = config.PublicToken,
+            embedTokenExpiresAtUtc = config.EmbedTokenExpiresAtUtc,
+            appBaseUrl = ResolveAppBaseUrl(),
+            embedKey = config.EmbedKey,
+            targetType = config.TargetType,
+            catalogId = config.CatalogId,
+            catalogPageId = config.CatalogPageId,
+            pageNumber = config.PageNumber,
+            pageIndex = config.PageIndex,
+            commerceMode = config.CommerceMode,
+            hostActionMode = config.HostActionMode,
+            productUrlTemplate = config.ProductUrlTemplate,
+            searchUrlTemplate = config.SearchUrlTemplate,
+            existingCartUrl = config.ExistingCartUrl,
+            existingCartMethod = config.ExistingCartMethod,
+            accessExpiresAtUtc = config.AccessExpiresAtUtc,
+            runtimePath = config.RuntimePath
+        };
+    }
+
+    private async Task<EmbedResolvedConfig?> BuildEmbedConfigAsync(string? embedKey, CancellationToken cancellationToken)
+    {
+        var normalizedKey = string.IsNullOrWhiteSpace(embedKey) ? null : embedKey.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedKey))
+        {
+            return null;
+        }
+
+        var target = await _dbContext.EmbedTargets
+            .AsNoTracking()
+            .Include(x => x.Catalog)
+            .Include(x => x.CatalogPage)
+            .Where(x => x.EmbedKey == normalizedKey && x.IsActive)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (target == null || target.Catalog == null)
+        {
+            return null;
+        }
+
+        var owner = await _dbContext.Users
+            .AsNoTracking()
+            .Where(x => x.Id == target.UserId)
+            .Select(x => new { x.Id, x.PublicStoreSlug, x.SubscriptionPlan, x.PublicLinkEnabled, x.PublicLinkVersion, x.PlanExpiresAt, x.Role })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (owner == null || !owner.PublicLinkEnabled)
+        {
+            return null;
+        }
+
+        if (string.Equals(owner.Role, "SuspendedOwner", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        if (owner.PlanExpiresAt.HasValue && owner.PlanExpiresAt.Value <= nowUtc)
+        {
+            return null;
+        }
+
+        if (target.AccessExpiresAt.HasValue && target.AccessExpiresAt.Value <= nowUtc)
+        {
+            return null;
+        }
+
+        var settings = await _embedOriginService.GetOrCreateAsync(target.UserId, cancellationToken);
+        var embedTokenExpiresAtUtc = nowUtc.AddMinutes(GetEmbedSessionExpirationMinutes());
+        var publicToken = _publicAccessTokenService.CreateEmbedSessionToken(target.UserId, [target.CatalogId], target.EmbedKey, embedTokenExpiresAtUtc);
+
+        var pageIndex = 0;
+        var pageNumber = target.CatalogPage?.PageNumber;
+        if (target.CatalogPageId.HasValue)
+        {
+            var orderedPages = await _dbContext.CatalogPages
+                .AsNoTracking()
+                .Where(x => x.CatalogId == target.CatalogId)
+                .OrderBy(x => x.PageNumber)
+                .Select(x => new { x.Id, x.PageNumber })
+                .ToListAsync(cancellationToken);
+
+            var matchedIndex = orderedPages.FindIndex(x => x.Id == target.CatalogPageId.Value);
+            if (matchedIndex >= 0)
+            {
+                pageIndex = matchedIndex;
+                pageNumber = orderedPages[matchedIndex].PageNumber;
+            }
+        }
+
+        return new EmbedResolvedConfig(
+            target.UserId,
+            owner.SubscriptionPlan == SubscriptionPlan.CatalogWithAIAndEcommerce,
+            target.EmbedKey,
+            target.Type,
+            target.CommerceMode,
+            target.HostActionMode,
+            target.CatalogId,
+            target.CatalogPageId,
+            pageNumber,
+            pageIndex,
+            publicToken,
+            embedTokenExpiresAtUtc,
+            settings.Theme,
+            settings.Mode,
+            target.ProductUrlTemplate,
+            target.SearchUrlTemplate,
+            target.ExistingCartUrl,
+            target.ExistingCartMethod,
+            target.AccessExpiresAt,
+            $"/view/{target.CatalogId}/viewer/{pageIndex}?token={Uri.EscapeDataString(publicToken)}&embed=1&embedTarget=1&embedKey={Uri.EscapeDataString(target.EmbedKey)}&commerceMode={Uri.EscapeDataString(target.CommerceMode)}&hostActionMode={Uri.EscapeDataString(target.HostActionMode)}");
+    }
+
+    private static string GenerateEmbedKey()
+    {
+        return $"emb_{Guid.NewGuid():N}";
+    }
+
+    private static string? NormalizeEmbedTargetType(string? raw)
+    {
+        var value = string.IsNullOrWhiteSpace(raw) ? "catalog" : raw.Trim().ToLowerInvariant();
+        return value is "catalog" or "catalog_page" ? value : null;
+    }
+
+    private static string? NormalizeCommerceMode(string? raw)
+    {
+        var value = string.IsNullOrWhiteSpace(raw) ? "catalog_only" : raw.Trim().ToLowerInvariant();
+        return value is "catalog_only" or "host_cart" or "host_availability_cart" ? value : null;
+    }
+
+    private static string? NormalizeHostActionMode(string? raw, string commerceMode)
+    {
+        if (string.Equals(commerceMode, "catalog_only", StringComparison.Ordinal))
+        {
+            return "none";
+        }
+
+        var value = string.IsNullOrWhiteSpace(raw) ? "search_redirect" : raw.Trim().ToLowerInvariant();
+        return value is "none" or "product_redirect" or "search_redirect" or "existing_cart_api" or "existing_cart_js" or "custom"
+            ? value
+            : null;
+    }
+
+    private static string NormalizeCartMethod(string? raw)
+    {
+        var value = string.IsNullOrWhiteSpace(raw) ? "POST" : raw.Trim().ToUpperInvariant();
+        return value is "GET" or "POST" ? value : "POST";
+    }
+
+    private static string? ValidateHostActionSettings(
+        string commerceMode,
+        string hostActionMode,
+        string? productUrlTemplate,
+        string? searchUrlTemplate,
+        string? existingCartUrl)
+    {
+        if (string.Equals(commerceMode, "catalog_only", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return hostActionMode switch
+        {
+            "product_redirect" when string.IsNullOrWhiteSpace(productUrlTemplate) =>
+                "Urun sayfasina yonlendirme icin bir urun URL sablonu girin.",
+            "search_redirect" when string.IsNullOrWhiteSpace(searchUrlTemplate) =>
+                "Site ici arama icin bir arama URL sablonu girin.",
+            "existing_cart_api" when string.IsNullOrWhiteSpace(existingCartUrl) =>
+                "Mevcut sepet API modu icin cart URL girin.",
+            _ => null
+        };
+    }
+
+    private static string? NormalizeOptionalText(string? raw, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var value = raw.Trim();
+        return value.Length <= maxLength ? value : value[..maxLength].Trim();
+    }
+
     public sealed class VerifyOriginRequest
     {
         public string PublicToken { get; set; } = string.Empty;
         public string? StoreSlug { get; set; }
+        public string? EmbedKey { get; set; }
+        public string? Origin { get; set; }
+    }
+
+    public sealed class ResolveEmbedTargetRequest
+    {
+        public string EmbedKey { get; set; } = string.Empty;
         public string? Origin { get; set; }
     }
 
@@ -443,6 +978,61 @@ public class EmbedController : ControllerBase
         public string Method { get; set; } = "dns_txt";
     }
 
+    public sealed class CreateEmbedTargetRequest
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Type { get; set; } = "catalog";
+        public Guid CatalogId { get; set; }
+        public Guid? CatalogPageId { get; set; }
+        public string CommerceMode { get; set; } = "catalog_only";
+        public string? HostActionMode { get; set; }
+        public string? ProductUrlTemplate { get; set; }
+        public string? SearchUrlTemplate { get; set; }
+        public string? ExistingCartUrl { get; set; }
+        public string? ExistingCartMethod { get; set; }
+        public DateTime? AccessExpiresAt { get; set; }
+        public bool? IsActive { get; set; }
+    }
+
+    private sealed record EmbedResolvedConfig(
+        Guid OwnerUserId,
+        bool WhiteLabel,
+        string EmbedKey,
+        string TargetType,
+        string CommerceMode,
+        string HostActionMode,
+        Guid CatalogId,
+        Guid? CatalogPageId,
+        int? PageNumber,
+        int PageIndex,
+        string PublicToken,
+        DateTime EmbedTokenExpiresAtUtc,
+        string Theme,
+        string Mode,
+        string? ProductUrlTemplate,
+        string? SearchUrlTemplate,
+        string? ExistingCartUrl,
+        string? ExistingCartMethod,
+        DateTime? AccessExpiresAtUtc,
+        string RuntimePath);
+
+    private sealed class EmbedTargetPrepareResult
+    {
+        public bool IsSuccess { get; }
+        public string? ErrorMessage { get; }
+        public EmbedTarget? Value { get; }
+
+        private EmbedTargetPrepareResult(bool isSuccess, EmbedTarget? value, string? errorMessage)
+        {
+            IsSuccess = isSuccess;
+            Value = value;
+            ErrorMessage = errorMessage;
+        }
+
+        public static EmbedTargetPrepareResult Ok(EmbedTarget value) => new(true, value, null);
+        public static EmbedTargetPrepareResult Fail(string errorMessage) => new(false, null, errorMessage);
+    }
+
     private async Task<ResolvedEmbedTarget?> ResolveEmbedTargetAsync(string? publicToken, string? storeSlug, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(publicToken))
@@ -457,10 +1047,20 @@ public class EmbedController : ControllerBase
             var owner = await _dbContext.Users
                 .AsNoTracking()
                 .Where(u => u.Id == payload.UserId)
-                .Select(u => new { u.Id, u.SubscriptionPlan, u.PublicStoreSlug })
+                .Select(u => new { u.Id, u.SubscriptionPlan, u.PublicStoreSlug, u.PlanExpiresAt, u.Role, u.PublicLinkEnabled })
                 .SingleOrDefaultAsync(cancellationToken);
 
-            if (owner == null)
+            if (owner == null || !owner.PublicLinkEnabled)
+            {
+                return null;
+            }
+
+            if (string.Equals(owner.Role, "SuspendedOwner", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (owner.PlanExpiresAt.HasValue && owner.PlanExpiresAt.Value <= DateTime.UtcNow)
             {
                 return null;
             }
@@ -476,10 +1076,20 @@ public class EmbedController : ControllerBase
 
         var user = await _dbContext.Users
             .Where(u => u.PublicStoreSlug == normalizedSlug)
-            .Select(u => new { u.Id, u.PublicStoreSlug, u.SubscriptionPlan, u.PublicLinkEnabled, u.PublicLinkVersion })
+            .Select(u => new { u.Id, u.PublicStoreSlug, u.SubscriptionPlan, u.PublicLinkEnabled, u.PublicLinkVersion, u.PlanExpiresAt, u.Role })
             .SingleOrDefaultAsync(cancellationToken);
 
         if (user == null || !user.PublicLinkEnabled)
+        {
+            return null;
+        }
+
+        if (string.Equals(user.Role, "SuspendedOwner", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (user.PlanExpiresAt.HasValue && user.PlanExpiresAt.Value <= DateTime.UtcNow)
         {
             return null;
         }
@@ -614,6 +1224,17 @@ public class EmbedController : ControllerBase
         }
 
         return $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
+    }
+
+    private int GetEmbedSessionExpirationMinutes()
+    {
+        var configured = _configuration.GetValue<int?>("EmbedAccessToken:ExpirationMinutes");
+        if (configured.HasValue && configured.Value > 0)
+        {
+            return configured.Value;
+        }
+
+        return 15;
     }
 
     private sealed record ResolvedEmbedTarget(Guid UserId, string PublicToken, string? StoreSlug, SubscriptionPlan Plan);

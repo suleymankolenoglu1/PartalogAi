@@ -52,6 +52,7 @@ export class PublicCatalogShowcaseComponent implements OnInit {
     this.publicToken = tokenParam;
     this.publicQueryParams = { token: this.publicToken };
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.cartService.setPublicToken(this.publicToken);
     this.loadStorefrontFeatures();
 
     const id = this.route.snapshot.paramMap.get('id');

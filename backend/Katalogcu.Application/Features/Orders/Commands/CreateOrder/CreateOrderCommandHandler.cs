@@ -8,10 +8,12 @@ namespace Katalogcu.Application.Features.Orders.Commands.CreateOrder;
 public sealed class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, OperationResult<CreateOrderResponse>>
 {
     private readonly IOrderRepository _orderRepository;
+    private readonly IErpGatewayService _erpGatewayService;
 
-    public CreateOrderCommandHandler(IOrderRepository orderRepository)
+    public CreateOrderCommandHandler(IOrderRepository orderRepository, IErpGatewayService erpGatewayService)
     {
         _orderRepository = orderRepository;
+        _erpGatewayService = erpGatewayService;
     }
 
     public async Task<OperationResult<CreateOrderResponse>> Handle(CreateOrderCommand request, CancellationToken cancellationToken)
@@ -128,7 +130,31 @@ public sealed class CreateOrderCommandHandler : IRequestHandler<CreateOrderComma
                 }
 
                 var quantity = itemInput.Quantity > 0 ? itemInput.Quantity : 1;
-                calculatedTotalAmount += product.Price * quantity;
+                var erpAvailability = await _erpGatewayService.GetProductAvailabilityAsync(
+                    new ErpProductAvailabilityRequest
+                    {
+                        OwnerUserId = productOwnerUserId,
+                        ProductId = product.Id,
+                        PartCode = product.Code,
+                        RequestedQuantity = quantity
+                    },
+                    txToken);
+
+                if (erpAvailability == null || !erpAvailability.UnitPrice.HasValue)
+                {
+                    return OperationResult<CreateOrderResponse>.Failure(
+                        "erp_unavailable",
+                        $"ERP fiyat bilgisi alınamadı: {product.Code}");
+                }
+
+                if (!erpAvailability.IsAvailable)
+                {
+                    return OperationResult<CreateOrderResponse>.Failure(
+                        "out_of_stock",
+                        $"Yetersiz stok: {product.Code}");
+                }
+
+                calculatedTotalAmount += erpAvailability.UnitPrice.Value * quantity;
 
                 order.Items.Add(new OrderItem
                 {
@@ -136,7 +162,7 @@ public sealed class CreateOrderCommandHandler : IRequestHandler<CreateOrderComma
                     OrderId = order.Id,
                     ProductId = product.Id,
                     Quantity = quantity,
-                    UnitPrice = product.Price
+                    UnitPrice = erpAvailability.UnitPrice.Value
                 });
             }
 

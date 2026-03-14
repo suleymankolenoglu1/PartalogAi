@@ -12,6 +12,7 @@ import { PublicViewComponent } from './public-view/public-view';
 import { PublicCheckoutComponent } from './public-view/public-checkout/public-checkout';
 import { PublicCatalogShowcaseComponent } from './public-catalog-showcase/public-catalog-showcase';
 import { PublicCatalogViewerComponent } from './public-view/public-catalog-viewer/public-catalog-viewer';
+import { EmbedRuntimeComponent } from './embed-runtime/embed-runtime.component';
 import { PlatformLoginComponent } from './platform/platform-login/platform-login';
 import { PlatformDashboardComponent } from './platform/platform-dashboard/platform-dashboard';
 import { PlatformTenantDetailComponent } from './platform/platform-tenant-detail/platform-tenant-detail';
@@ -51,6 +52,7 @@ export const routes: Routes = [
   ...(ecommerceEnabled ? [{ path: 'p/:publicToken/checkout', component: PublicCheckoutComponent }] : []),
   { path: 'view/:id', component: PublicCatalogShowcaseComponent },
   { path: 'view/:id/viewer/:pageIndex', component: PublicCatalogViewerComponent },
+  { path: 'embed/runtime/:embedKey', component: EmbedRuntimeComponent },
   { path: 'explore', component: ExploreComponent },
   { path: 'blog', component: BlogComponent },
   { path: 'services', component: ServislerComponent },

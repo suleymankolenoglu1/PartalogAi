@@ -29,5 +29,8 @@ namespace Katalogcu.Domain.Entities
 
         [JsonIgnore] // Döngüsel referans hatasını önler
         public Catalog? Catalog { get; set; }
+
+        [JsonIgnore]
+        public ICollection<ErpInventorySnapshot> ErpInventorySnapshots { get; set; } = [];
     }
 }

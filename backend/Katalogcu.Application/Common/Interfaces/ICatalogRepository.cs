@@ -77,6 +77,13 @@ public interface ICatalogRepository
         Guid userId,
         CancellationToken cancellationToken);
 
+    Task<bool> CatalogItemCodeExistsForAccessAsync(
+        Guid userId,
+        string partCode,
+        bool publicOnlyPublished,
+        IReadOnlyCollection<Guid>? allowedCatalogIds,
+        CancellationToken cancellationToken);
+
     Task AddCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken);
 
     void RemoveCatalogItem(CatalogItem item);

@@ -96,6 +96,8 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   currentPublicFolderId: string | null = null;
   publicBreadcrumbs: PublicBreadcrumb[] = [{ id: null, name: 'Ana Dizin' }];
   publicToken: string | null = null;
+  embedKey: string | null = null;
+  isTargetedEmbed = false;
   publicLoadError: string | null = null;
   storefront: PublicStorefront = {
     businessName: 'Katalog Magazasi',
@@ -135,13 +137,22 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   ngOnInit() {
     this.stopEmbedAutoResize = startEmbedAutoResize('public-view');
     this.publicToken = this.route.snapshot.paramMap.get('publicToken');
+    this.embedKey = this.route.snapshot.queryParamMap.get('embedKey');
+    this.isTargetedEmbed = this.route.snapshot.queryParamMap.get('embedTarget') === '1';
     if (!this.publicToken) {
       console.error('Public token bulunamadı.');
       this.publicLoadError = 'Public link eksik veya hatalı.';
       this.isLoading = false;
       return;
     }
+
+    if (this.isTargetedEmbed && this.embedKey) {
+      this.router.navigate(['/embed/runtime', this.embedKey], { replaceUrl: true });
+      return;
+    }
+
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.cartService.setPublicToken(this.publicToken);
 
     // Load chat history from localStorage
     const saved = localStorage.getItem(this.getHistoryStorageKey());

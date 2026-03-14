@@ -52,6 +52,7 @@ builder.Services.Configure<KestrelServerOptions>(options =>
 builder.Services.AddHttpClient(); 
 builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<CatalogAiProcessingOptions>(builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName));
+builder.Services.Configure<ErpGatewayOptions>(builder.Configuration.GetSection(ErpGatewayOptions.SectionName));
 builder.Services.Configure<ProductFeatureOptions>(builder.Configuration.GetSection("ProductFeatures"));
 builder.Services.AddSingleton<IProductFeaturePolicy, ProductFeaturePolicy>();
 
@@ -85,6 +86,8 @@ builder.Services.AddScoped<ICatalogCoverMetadataService, CatalogCoverMetadataSer
 builder.Services.AddScoped<IChatFeedbackStore, ChatFeedbackJsonlStore>();
 builder.Services.AddScoped<ICatalogAiBackgroundProcessor, CatalogAiBackgroundProcessor>();
 builder.Services.AddScoped<CatalogAiHangfireJob>();
+builder.Services.AddScoped<IErpGatewayService, ErpGatewayService>();
+builder.Services.AddScoped<IErpGatewayStrategy, SnapshotErpGatewayStrategy>();
 builder.Services.AddScoped<IAiUsageQuotaService, AiUsageQuotaService>();
 builder.Services.AddSingleton<CatalogAiHangfireFilter>();
 builder.Services.AddApplication();

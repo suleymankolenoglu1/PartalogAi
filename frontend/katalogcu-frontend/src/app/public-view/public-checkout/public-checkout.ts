@@ -108,6 +108,7 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
       return;
     }
     this.cartService.setScope(`public:${this.publicToken}`);
+    this.cartService.setPublicToken(this.publicToken);
     this.loadStorefront();
     emitEmbedEvent('checkout:start', {
       publicToken: this.publicToken,
