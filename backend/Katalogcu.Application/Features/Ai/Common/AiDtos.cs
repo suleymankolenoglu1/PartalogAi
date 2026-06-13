@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Http;
+using Katalogcu.Application.Common.Models;
 
 namespace Katalogcu.Application.Features.Ai.Common;
 
@@ -7,11 +7,13 @@ public sealed class AiChatRequestDto
 {
     public string? Text { get; set; }
     public List<ChatMessageDto> History { get; set; } = [];
-    public IFormFile? Image { get; set; }
+    public UploadedFile? Image { get; set; }
     public List<string>? CatalogIds { get; set; }
+    public string? ContextJson { get; set; }
     public string? UserPlan { get; set; }
     public int? AiLimitPerMonth { get; set; }
     public int? AiUsedThisMonth { get; set; }
+    public string? PolicyThresholdOverride { get; set; }
 }
 
 public sealed class ChatMessageDto
@@ -55,6 +57,21 @@ public sealed class ChatSourceDto
     [JsonPropertyName("query")]
     public string? Query { get; set; }
 
+    [JsonPropertyName("matchReason")]
+    public string? MatchReason { get; set; }
+
+    [JsonPropertyName("confidenceLabel")]
+    public string? ConfidenceLabel { get; set; }
+
+    [JsonPropertyName("requiresVerification")]
+    public bool? RequiresVerification { get; set; }
+
+    [JsonPropertyName("fallback")]
+    public bool? Fallback { get; set; }
+
+    [JsonPropertyName("fallback_reason")]
+    public string? FallbackReason { get; set; }
+
     [JsonPropertyName("catalogId")]
     public Guid? CatalogId { get; set; }
 
@@ -68,7 +85,7 @@ public sealed class ChatSourceDto
     public string? LegacyPageNumber { get; set; }
 
     [JsonPropertyName("similarity")]
-    public double Similarity { get; set; }
+    public double? Similarity { get; set; }
 }
 
 public sealed class PageAnalysisResult
@@ -106,7 +123,7 @@ public sealed class ProductItemDto
 
 public sealed class VisualFeedbackRequestDto
 {
-    public IFormFile? Image { get; set; }
+    public UploadedFile? Image { get; set; }
     public string? PartName { get; set; }
     public string? PartCode { get; set; }
     public string? MachineBrand { get; set; }

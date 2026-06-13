@@ -12,17 +12,15 @@ import asyncio
 import fitz  # ✅ PDF render
 import re
 from PIL import Image
-from fastapi import APIRouter, UploadFile, File, Query
+from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from loguru import logger
 import time
 from config import settings
+from services.genai_provider import provider
 
 router = APIRouter()
-
-# ✅ MODEL: gemini-2.0-flash (Hız ve Maliyet Dostu)
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
 
 # --- Modeller ---
 class ProductResult(BaseModel):
@@ -60,26 +58,105 @@ _FASTENER_KEYWORDS = (
     "CIVATA",
 )
 
+_FASTENER_SOURCE_KEYWORDS = _FASTENER_KEYWORDS + (
+    "SCREW",
+    "BOLT",
+    "NUT",
+    "WASHER",
+)
 
-def _extract_dimensions_from_name(name: str) -> Optional[str]:
-    if not name:
-        return None
+_DIMENSION_PATTERN = re.compile(
+    r"(?i)\b(?:M\d+(?:[.,]\d+)?(?:-\d+(?:[.,]\d+)?)?(?:[xX]\d+(?:[.,]\d+)?)?|\d+(?:[.,]\d+)?(?:[xX]\d+(?:[.,]\d+)?)|\d+/\d+|\d+(?:[.,]\d+)?\s*(?:mm|cm|in|inch|\"|'))\b"
+)
+_TURKISH_UPPER_MAP = str.maketrans({"i": "İ", "ı": "I"})
 
-    tokens = re.split(r"\s+", name)
+
+def _turkish_upper(text: str) -> str:
+    return text.translate(_TURKISH_UPPER_MAP).upper()
+
+
+def _canonicalize_dimension_token(token: str) -> str:
+    cleaned = token.strip(" ,;:()[]{}")
+    if not cleaned:
+        return ""
+
+    cleaned = re.sub(r"\s+", "", cleaned)
+    cleaned = re.sub(r"(?i)^m", "M", cleaned)
+    cleaned = re.sub(r"[xX]", "x", cleaned)
+    cleaned = re.sub(r"(?i)(mm|cm|in|inch)$", lambda m: m.group(1).lower(), cleaned)
+    return cleaned
+
+
+def _extract_dimension_candidates(text: str) -> List[str]:
+    if not text:
+        return []
+
     candidates = []
-    for token in tokens:
-        t = token.strip(" ,;:()[]{}")
-        if not t:
-            continue
-        if not re.search(r"\d", t):
-            continue
-        if re.search(r"[xX/\\-]", t) or re.match(r"(?i)^M\d", t) or re.search(r"(?i)\d\s*(mm|cm|in|inch|\"|')", t):
-            candidates.append(t)
+    for match in _DIMENSION_PATTERN.finditer(text):
+        token = _canonicalize_dimension_token(match.group(0))
+        if token:
+            candidates.append(token)
+    return candidates
+
+
+def _best_dimension_candidate(*texts: Optional[str]) -> Optional[str]:
+    seen = set()
+    candidates: List[str] = []
+
+    for text in texts:
+        for token in _extract_dimension_candidates(text or ""):
+            if token not in seen:
+                seen.add(token)
+                candidates.append(token)
 
     if not candidates:
         return None
 
     return max(candidates, key=len)
+
+
+def _is_fastener_text(*texts: Optional[str]) -> bool:
+    haystack = " ".join((text or "").upper() for text in texts if text)
+    return any(keyword in haystack for keyword in _FASTENER_SOURCE_KEYWORDS)
+
+
+def _extract_dimensions_from_name(name: str) -> Optional[str]:
+    return _best_dimension_candidate(name)
+
+
+def _normalize_product_item(item: dict) -> Optional[ProductResult]:
+    p_code = str(item.get("part_code") or "0").strip()
+    if len(p_code) < 3:
+        return None
+
+    raw_name = str(item.get("part_name") or "").strip()
+    if not raw_name:
+        raw_name = p_code
+
+    source_name = str(item.get("source_name") or item.get("original_name") or "").strip()
+    description = str(item.get("remarks") or "").strip()
+
+    dims = _best_dimension_candidate(
+        str(item.get("dimensions") or ""),
+        raw_name,
+        source_name,
+        description,
+    )
+
+    raw_name_upper = _turkish_upper(raw_name)
+
+    if dims and _is_fastener_text(raw_name_upper, source_name, description):
+        if dims.upper() not in raw_name_upper:
+            raw_name_upper = f"{raw_name_upper} {dims}".strip()
+
+    return ProductResult(
+        ref_number=str(item.get("ref_no") or "0"),
+        part_code=p_code,
+        part_name=raw_name_upper,
+        description=description,
+        quantity=1,
+        dimensions=dims
+    )
 
 # --- Endpoints ---
 
@@ -107,13 +184,15 @@ async def extract_metadata(file: UploadFile = File(...)):
         { "machine_model": "...", "machine_brand": "...", "machine_group": "...", "catalog_title": "..." }
         """
 
-        payload = {
+        payload = provider.normalize_generate_payload({
             "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": base64_image}}]}],
             "generationConfig": {"response_mime_type": "application/json", "temperature": 0.3}
-        }
+        })
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(GEMINI_API_URL, json=payload) as response:
+        url = provider.generate_content_url(settings.GEMINI_TABLE_MODEL)
+        headers = await provider.build_headers()
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.post(url, json=payload) as response:
                 if response.status == 200:
                     res = await response.json()
                     candidates = res.get("candidates", [])
@@ -208,12 +287,15 @@ async def extract_table(
     6. **FASTENER SIZES ARE CRITICAL:**
        - If the part name includes size/spec like M3, M3x5, M3-0.5x5, 3/16, 5mm, etc. KEEP IT.
        - Example: "Screw M3-0.5x5" -> "VİDA M3-0.5x5" (do not drop the size).
+       - If a row mixes Turkish and English, translate the noun to Turkish jargon but preserve all spec tokens exactly.
+       - Example: "vida screw M4x10" -> "VİDA M4x10"
 
     OUTPUT RULES:
     1. **FORMAT:** JSON List only.
     2. **FIELDS:**
        - "ref_no": Reference number.
        - "part_code": Exact part code (Remove spaces, fix OCR errors).
+       - "source_name": Original row text exactly as seen (no translation). This is required for recovery if OCR/translation loses dimensions.
        - "part_name": **THE TRANSLATED TURKISH NAME** (Uppercase).
        - "dimensions": Extract measurements (M4x10, M3-0.5x5, 3/16, 5mm) to this field.
        - "qty": Quantity.
@@ -221,7 +303,7 @@ async def extract_table(
     RETURN JSON LIST ONLY. NO MARKDOWN.
     """
 
-    payload = {
+    payload = provider.normalize_generate_payload({
         "contents": [{
             "parts": [
                 {"text": prompt_text},
@@ -229,17 +311,24 @@ async def extract_table(
             ]
         }],
         "generationConfig": {"response_mime_type": "application/json", "temperature": 0.1}
-    }
+    })
 
     products = []
     
-    async with aiohttp.ClientSession() as session:
+    url = provider.generate_content_url(settings.GEMINI_TABLE_MODEL)
+    headers = await provider.build_headers()
+    async with aiohttp.ClientSession(headers=headers) as session:
         for attempt in range(3):
             try:
-                async with session.post(GEMINI_API_URL, json=payload) as response:
+                async with session.post(url, json=payload) as response:
                     if response.status == 200:
                         res = await response.json()
-                        if not res.get("candidates"): break
+                        if not res.get("candidates"):
+                            logger.error(f"❌ [GEMINI] Aday döndürmedi (Sayfa {page_number}): {res}")
+                            raise HTTPException(
+                                status_code=502,
+                                detail="AI table extraction returned no candidates"
+                            )
                         
                         txt = res["candidates"][0]["content"]["parts"][0]["text"]
                         clean_txt = txt.replace("```json", "").replace("```", "").strip()
@@ -248,42 +337,31 @@ async def extract_table(
                         try:
                             raw_data = json.loads(clean_txt)
                             for item in raw_data:
-                                p_code = str(item.get("part_code") or "0").strip()
-                                if len(p_code) < 3: continue 
-
-                                dims = str(item.get("dimensions") or "").strip()
-                                if dims.lower() in ["null", "none"]: dims = None
-
-                                raw_name = str(item.get("part_name") or "").strip()
-                                if not raw_name:
-                                    raw_name = p_code
-
-                                raw_name_upper = raw_name.upper()
-
-                                if not dims:
-                                    name_dims = _extract_dimensions_from_name(raw_name_upper)
-                                    if name_dims:
-                                        dims = name_dims
-
-                                if dims and any(k in raw_name_upper for k in _FASTENER_KEYWORDS):
-                                    if dims.upper() not in raw_name_upper:
-                                        raw_name_upper = f"{raw_name_upper} {dims.upper()}".strip()
-
-                                products.append(ProductResult(
-                                    ref_number=str(item.get("ref_no") or "0"),
-                                    part_code=p_code,
-                                    part_name=raw_name_upper,
-                                    description=str(item.get("remarks") or "").strip(),
-                                    quantity=1,
-                                    dimensions=dims
-                                ))
+                                normalized_item = _normalize_product_item(item)
+                                if normalized_item is None:
+                                    continue
+                                products.append(normalized_item)
                             logger.success(f"✅ [GEMINI] {len(products)} parça TÜRKÇELEŞTİRİLDİ (Sayfa {page_number})")
                             break
-                        except:
+                        except json.JSONDecodeError as exc:
+                            logger.warning(f"⚠️ [GEMINI] JSON parse hatası (Sayfa {page_number}, Deneme {attempt + 1}): {exc}")
                             continue
                     else:
+                        error_body = await response.text()
+                        logger.error(
+                            f"❌ [GEMINI] Tablo okuma upstream hatası "
+                            f"(Sayfa {page_number}, Status {response.status}): {error_body}"
+                        )
+                        if response.status in {401, 403}:
+                            raise HTTPException(
+                                status_code=502,
+                                detail=f"AI table extraction upstream auth failed: {response.status}"
+                            )
                         await asyncio.sleep(1)
-            except Exception:
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning(f"⚠️ [GEMINI] Tablo okuma denemesi başarısız (Sayfa {page_number}, Deneme {attempt + 1}): {exc}")
                 await asyncio.sleep(1)
 
     return TableExtractionResponse(

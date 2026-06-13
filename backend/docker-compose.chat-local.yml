@@ -1,0 +1,178 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: katalogcu_db_chat_local
+    command:
+      - postgres
+      - -c
+      - max_connections=80
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - statement_timeout=30000
+      - -c
+      - lock_timeout=5000
+      - -c
+      - idle_in_transaction_session_timeout=60000
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      POSTGRES_DB: KatalogcuDb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_chat_local:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d KatalogcuDb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - katalogcu_chat_local_net
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: katalogcu_pgbouncer_chat_local
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      DB_NAME: KatalogcuDb
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 2
+      RESERVE_POOL_SIZE: 5
+      SERVER_RESET_QUERY: DISCARD ALL
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "6432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d KatalogcuDb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - katalogcu_chat_local_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: katalogcu_redis_chat_local
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - katalogcu_chat_local_net
+
+  partalog-ai:
+    build:
+      context: ../partalog-ai
+      dockerfile: Dockerfile.chat
+    container_name: partalog_ai_chat_local
+    env_file:
+      - ../partalog-ai/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      STARTUP_SKIP_MODEL_LOADING: "true"
+      ENABLE_HOTSPOT_ENDPOINTS: "false"
+      ENABLE_CATALOG_PROCESSING_ENDPOINTS: "false"
+      DB_CONNECTION_STRING: postgresql://postgres:${POSTGRES_PASSWORD:-CHANGE_ME}@pgbouncer:5432/KatalogcuDb
+      DB_POOL_MIN_SIZE: 1
+      DB_POOL_MAX_SIZE: 4
+      DB_POOL_COMMAND_TIMEOUT_SECONDS: 15
+      DB_STATEMENT_CACHE_SIZE: 0
+      DB_ALLOW_EPHEMERAL_FALLBACK: "false"
+      AI_CHAT_CAPACITY_PROVIDER: redis
+      AI_CHAT_REDIS_URL: redis://redis:6379/0
+      AI_CHAT_DISTRIBUTED_POOL_NAME: python-chat
+      CHAT_HTTP_RATE_LIMIT_ENABLED: "false"
+      GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_DIR: /shared/visual-parts
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - visual_parts_chat_local:/shared/visual-parts
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json:ro
+    networks:
+      - katalogcu_chat_local_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Katalogcu.API/Dockerfile
+    container_name: katalogcu_api_chat_local
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      partalog-ai:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      JwtSettings__SecretKey: local-chat-smoke-jwt-secret-32-bytes-minimum
+      PublicLink__SecretKey: local-chat-smoke-public-link-secret-32-bytes-minimum
+      ConnectionStrings__DefaultConnection: Host=pgbouncer;Port=5432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-CHANGE_ME};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=12;Timeout=15;Command Timeout=30;Max Auto Prepare=0
+      AiService__BaseUrl: http://partalog-ai:8000
+      AiCapacity__Provider: Redis
+      AiCapacity__RedisConnectionString: redis:6379,abortConnect=false
+      AiCapacity__DistributedPoolName: api-chat
+      DistributedRateLimits__RedisPublicChatEnabled: "true"
+      DistributedRateLimits__RedisConnectionString: redis:6379,abortConnect=false
+      DistributedRateLimits__FailOpen: "false"
+      DataProtection__Provider: Redis
+      DataProtection__RedisConnectionString: redis:6379,abortConnect=false
+      DataProtection__RedisKey: partalog:data-protection:keys
+      DataProtection__KeyEncryptionKey: ${DATA_PROTECTION_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      ProductFeatures__EnableChatbot: "true"
+      ProductFeatures__EnableCatalogAnalysis: "false"
+      ProductFeatures__EnableEcommerce: "false"
+      ProductFeatures__EnableUpgradePrompts: "false"
+      ProductFeatures__EnablePlanManagement: "false"
+      Frontend__BaseUrl: http://127.0.0.1:4200
+      Cors__AllowedOrigins__0: http://127.0.0.1:4200
+      BackgroundProcessing__EnableCatalogAiServer: "false"
+      BackgroundProcessing__EnableExternalSiteCrawlServer: "false"
+      BackgroundProcessing__EnableDefaultServer: "false"
+      BackgroundProcessing__EnableRecurringJobs: "false"
+      Database__RunMigrationsOnStartup: "false"
+    ports:
+      - "5159:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - visual_parts_chat_local:/app/wwwroot/static/visual-parts
+    networks:
+      - katalogcu_chat_local_net
+
+volumes:
+  pgdata_chat_local:
+  visual_parts_chat_local:
+
+networks:
+  katalogcu_chat_local_net:
+    driver: bridge
