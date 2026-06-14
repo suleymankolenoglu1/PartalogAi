@@ -69,6 +69,12 @@ public sealed class ProductionReadinessService : IProductionReadinessService
             CheckDistributedPublicChatRateLimit(),
             CheckNpgsqlPoolConfiguration()
         };
+        checks.AddRange(ProductionConfigurationGuard.Check(
+            _configuration,
+            _environment.IsProduction(),
+            _featurePolicy.ChatbotEnabled || _featurePolicy.CatalogAnalysisEnabled,
+            _aiServiceOptions,
+            _dataProtectionOptions));
 
         checks.Add(await CheckDatabaseAsync(cancellationToken));
         checks.Add(await CheckAiCapacityAsync(cancellationToken));
