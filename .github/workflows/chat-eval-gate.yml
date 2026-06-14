@@ -32,6 +32,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Validate eval case files
+        working-directory: partalog-ai
+        run: |
+          python eval/validate_cases.py \
+            eval/queries.hard.jsonl \
+            eval/queries.behavior_smoke.jsonl \
+            eval/queries.feedback_regressions.jsonl \
+            --allow-empty eval/queries.feedback_regressions.jsonl \
+            --require-freshness eval/queries.feedback_regressions.jsonl
+
       - name: Validate required secrets
         id: validate-secrets
         run: |

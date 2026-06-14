@@ -7,6 +7,7 @@ import statistics
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
 
 import aiohttp
 
@@ -153,6 +154,35 @@ def best_rank(codes: List[str], expected: List[str]) -> Optional[int]:
     return None
 
 
+def precision_at_k(codes: List[str], expected: List[str], k: int) -> Optional[float]:
+    if not expected:
+        return None
+    expected_set = {e.strip().upper() for e in expected if e and e.strip()}
+    if not expected_set:
+        return None
+    top_k = [c.strip().upper() for c in codes[:k] if c and c.strip()]
+    if not top_k:
+        return 0.0
+    hits = sum(1 for c in top_k if c in expected_set)
+    return hits / min(k, len(top_k))
+
+
+def case_age_days(case: Dict[str, Any]) -> Optional[int]:
+    raw = str(case.get("last_verified_at") or case.get("updated_at") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        verified_at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if verified_at.tzinfo is None:
+        verified_at = verified_at.replace(tzinfo=timezone.utc)
+
+    return max(0, (datetime.now(timezone.utc) - verified_at.astimezone(timezone.utc)).days)
+
+
 def percentile(values: List[float], p: float) -> float:
     if not values:
         return 0.0
@@ -271,11 +301,13 @@ async def run_case(
     expected_codes = [str(x).strip().upper() for x in (case.get("expected_codes") or []) if str(x).strip()]
     expect_no_codes = bool(case.get("expect_no_codes", False))
     rank = best_rank(codes, expected_codes)
+    precision3 = precision_at_k(codes, expected_codes, 3)
     req_ok, forb_ok = check_required_forbidden(
         reply_text,
         case.get("required_terms") or [],
         case.get("forbidden_terms") or [],
     )
+    age_days = case_age_days(case)
 
     hallucinated_codes = sorted(
         [
@@ -307,9 +339,12 @@ async def run_case(
         "hit_at_1": rank is not None and rank <= 1,
         "hit_at_3": rank is not None and rank <= 3,
         "hit_at_5": rank is not None and rank <= 5,
+        "precision_at_3": precision3,
         "mrr": (1.0 / rank) if rank else 0.0,
         "required_ok": req_ok,
         "forbidden_ok": forb_ok,
+        "case_age_days": age_days,
+        "case_has_freshness_metadata": age_days is not None,
         "mentioned_codes": mentioned_codes,
         "hallucinated_codes": hallucinated_codes,
         "case": case,
@@ -327,6 +362,8 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     expected_cases = [r for r in ok_results if r["expected_codes"]]
     no_code_cases = [r for r in ok_results if r.get("expect_no_codes")]
+    precision3_values = [r["precision_at_3"] for r in expected_cases if r.get("precision_at_3") is not None]
+    stale_case_results = [r for r in results if r.get("case_age_days") is not None]
 
     hallucination_cases = [r for r in ok_results if r["mentioned_codes"]]
     hallucination_hits = [r for r in hallucination_cases if r["hallucinated_codes"]]
@@ -344,12 +381,15 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "hit_at_1": (sum(1 for r in expected_cases if r["hit_at_1"]) / len(expected_cases)) if expected_cases else 0.0,
         "hit_at_3": (sum(1 for r in expected_cases if r["hit_at_3"]) / len(expected_cases)) if expected_cases else 0.0,
         "hit_at_5": (sum(1 for r in expected_cases if r["hit_at_5"]) / len(expected_cases)) if expected_cases else 0.0,
+        "precision_at_3": statistics.mean(precision3_values) if precision3_values else 0.0,
         "mrr": (sum(r["mrr"] for r in expected_cases) / len(expected_cases)) if expected_cases else 0.0,
         "no_code_case_count": len(no_code_cases),
         "no_code_pass_rate": (sum(1 for r in no_code_cases if r.get("no_code_ok")) / len(no_code_cases)) if no_code_cases else 0.0,
         "required_term_pass_rate": (sum(1 for r in ok_results if r["required_ok"]) / len(ok_results)) if ok_results else 0.0,
         "forbidden_term_pass_rate": (sum(1 for r in ok_results if r["forbidden_ok"]) / len(ok_results)) if ok_results else 0.0,
         "hallucination_rate": (len(hallucination_hits) / len(hallucination_cases)) if hallucination_cases else 0.0,
+        "freshness_metadata_case_count": len(stale_case_results),
+        "max_case_age_days": max((r["case_age_days"] or 0) for r in stale_case_results) if stale_case_results else 0,
     }
 
 
@@ -364,11 +404,17 @@ def print_summary(summary: Dict[str, Any]) -> None:
     print(f"Hit@1: {summary['hit_at_1']:.2%}")
     print(f"Hit@3: {summary['hit_at_3']:.2%}")
     print(f"Hit@5: {summary['hit_at_5']:.2%}")
+    print(f"Precision@3: {summary['precision_at_3']:.2%}")
     print(f"MRR: {summary['mrr']:.3f}")
     print(f"No-code pass: {summary['no_code_pass_rate']:.2%} (cases={summary['no_code_case_count']})")
     print(f"Required-term pass: {summary['required_term_pass_rate']:.2%}")
     print(f"Forbidden-term pass: {summary['forbidden_term_pass_rate']:.2%}")
     print(f"Hallucination rate: {summary['hallucination_rate']:.2%}")
+    print(
+        "Freshness metadata: "
+        f"cases={summary['freshness_metadata_case_count']} "
+        f"max_age_days={summary['max_case_age_days']}"
+    )
 
 
 def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, Any]]) -> None:
@@ -383,9 +429,12 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
     lines.append(f"- SuccessRate: `{summary['success_rate']:.2%}`")
     lines.append(f"- Latency avg/p95 (ms): `{summary['latency_ms_avg']:.1f}` / `{summary['latency_ms_p95']:.1f}`")
     lines.append(f"- Hit@1 / Hit@3 / Hit@5: `{summary['hit_at_1']:.2%}` / `{summary['hit_at_3']:.2%}` / `{summary['hit_at_5']:.2%}`")
+    lines.append(f"- Precision@3: `{summary['precision_at_3']:.2%}`")
     lines.append(f"- MRR: `{summary['mrr']:.3f}`")
     lines.append(f"- No-code pass rate: `{summary['no_code_pass_rate']:.2%}` (cases={summary['no_code_case_count']})")
     lines.append(f"- Hallucination rate: `{summary['hallucination_rate']:.2%}`")
+    lines.append(f"- Freshness metadata cases: `{summary['freshness_metadata_case_count']}`")
+    lines.append(f"- Max case age days: `{summary['max_case_age_days']}`")
     lines.append("")
     lines.append("## Cases")
     lines.append("")
@@ -423,6 +472,12 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
     if args.min_hit_at_1 is not None and summary["hit_at_1"] < args.min_hit_at_1:
         failures.append(f"hit_at_1 {summary['hit_at_1']:.3f} < min_hit_at_1 {args.min_hit_at_1:.3f}")
 
+    if args.min_precision_at_3 is not None and summary["precision_at_3"] < args.min_precision_at_3:
+        failures.append(
+            f"precision_at_3 {summary['precision_at_3']:.3f} < "
+            f"min_precision_at_3 {args.min_precision_at_3:.3f}"
+        )
+
     if args.max_latency_p95_ms is not None and summary["latency_ms_p95"] > args.max_latency_p95_ms:
         failures.append(
             f"latency_ms_p95 {summary['latency_ms_p95']:.1f} > max_latency_p95_ms {args.max_latency_p95_ms:.1f}"
@@ -443,6 +498,33 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
                 f"min_no_code_pass_rate {args.min_no_code_pass_rate:.3f}"
             )
 
+    if (
+        args.min_required_term_pass_rate is not None
+        and summary["required_term_pass_rate"] < args.min_required_term_pass_rate
+    ):
+        failures.append(
+            f"required_term_pass_rate {summary['required_term_pass_rate']:.3f} < "
+            f"min_required_term_pass_rate {args.min_required_term_pass_rate:.3f}"
+        )
+
+    if (
+        args.min_forbidden_term_pass_rate is not None
+        and summary["forbidden_term_pass_rate"] < args.min_forbidden_term_pass_rate
+    ):
+        failures.append(
+            f"forbidden_term_pass_rate {summary['forbidden_term_pass_rate']:.3f} < "
+            f"min_forbidden_term_pass_rate {args.min_forbidden_term_pass_rate:.3f}"
+        )
+
+    if args.max_case_age_days is not None:
+        if summary["freshness_metadata_case_count"] == 0:
+            failures.append("max_case_age_days set but no case has last_verified_at/updated_at metadata")
+        elif summary["max_case_age_days"] > args.max_case_age_days:
+            failures.append(
+                f"max_case_age_days {summary['max_case_age_days']} > "
+                f"max_case_age_days {args.max_case_age_days}"
+            )
+
     return failures
 
 
@@ -457,9 +539,13 @@ async def main() -> int:
     parser.add_argument("--fail-on-error", action="store_true")
     parser.add_argument("--min-success-rate", type=float, default=None)
     parser.add_argument("--min-hit-at-1", type=float, default=None)
+    parser.add_argument("--min-precision-at-3", type=float, default=None)
     parser.add_argument("--max-latency-p95-ms", type=float, default=None)
     parser.add_argument("--max-hallucination-rate", type=float, default=None)
     parser.add_argument("--min-no-code-pass-rate", type=float, default=None)
+    parser.add_argument("--min-required-term-pass-rate", type=float, default=None)
+    parser.add_argument("--min-forbidden-term-pass-rate", type=float, default=None)
+    parser.add_argument("--max-case-age-days", type=int, default=None)
     args = parser.parse_args()
 
     cases = resolve_case_placeholders(load_cases(args.cases))

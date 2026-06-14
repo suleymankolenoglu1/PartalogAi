@@ -1,0 +1,6 @@
+# Small PR-safe behavior smoke set.
+# Keep this focused on stable, high-signal public chat behaviors.
+
+{"id":"BS1","text":"160000 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"BS2","text":"yamato vg2500-8f vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["vida"],"forbidden_terms":["telefon"]}
+{"id":"BS3","text":"otomobil fren balatası var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true,"forbidden_terms":["160000","4109410"]}
