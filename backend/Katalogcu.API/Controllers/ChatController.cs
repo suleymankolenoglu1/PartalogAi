@@ -12,6 +12,7 @@ using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Security.Claims;
 using Microsoft.AspNetCore.RateLimiting;
@@ -81,6 +82,8 @@ namespace Katalogcu.API.Controllers
         [HttpPost("ask")]
         public async Task<IActionResult> Ask([FromForm] AiChatRequestWithHistoryDto request)
         {
+            var requestId = HttpContext.TraceIdentifier;
+            var elapsed = Stopwatch.StartNew();
             var validationError = UploadValidation.ValidateImage(request.Image, required: false);
             if (!string.IsNullOrWhiteSpace(validationError))
             {
@@ -103,7 +106,6 @@ namespace Katalogcu.API.Controllers
                 }
 
                 var catalogIds = accessResult.Value!.CatalogIds.ToList();
-                _logger.LogInformation("Chat request catalogs: {CatalogCount}", catalogIds.Count);
 
                 var userResult = await _sender.Send(new ResolveChatUserQuery(tokenUserId, request.PublicToken));
                 if (!userResult.IsSuccess)
@@ -112,8 +114,24 @@ namespace Katalogcu.API.Controllers
                 }
 
                 var usage = await _aiUsageQuotaService.GetCurrentUsageAsync(userResult.Value!.UserId, HttpContext.RequestAborted);
+                _logger.LogInformation(
+                    "Chat ask started | RequestId={RequestId} | UserId={UserId} | CatalogCount={CatalogCount} | HasImage={HasImage} | Plan={Plan} | RemainingThisMonth={RemainingThisMonth}",
+                    requestId,
+                    userResult.Value.UserId,
+                    catalogIds.Count,
+                    request.Image is not null,
+                    usage.Plan,
+                    usage.Unlimited ? (int?)null : usage.RemainingThisMonth);
+
                 if (!usage.AiEnabled || (!usage.Unlimited && usage.RemainingThisMonth <= 0))
                 {
+                    _logger.LogWarning(
+                        "Chat ask rejected | RequestId={RequestId} | UserId={UserId} | Reason={Reason} | DurationMs={DurationMs}",
+                        requestId,
+                        userResult.Value.UserId,
+                        "plan_limit",
+                        elapsed.ElapsedMilliseconds);
+
                     return StatusCode(StatusCodes.Status403Forbidden, new { message = "AI sorgu limitinize ulaştınız, planınızı yükseltin" });
                 }
 
@@ -123,6 +141,13 @@ namespace Katalogcu.API.Controllers
                     HttpContext.RequestAborted);
                 if (capacityLease is null)
                 {
+                    _logger.LogWarning(
+                        "Chat ask rejected | RequestId={RequestId} | UserId={UserId} | Reason={Reason} | DurationMs={DurationMs}",
+                        requestId,
+                        userResult.Value.UserId,
+                        "ai_capacity_limited",
+                        elapsed.ElapsedMilliseconds);
+
                     return StatusCode(StatusCodes.Status429TooManyRequests, new
                     {
                         message = _aiCapacityGuard.BusyMessage,
@@ -210,20 +235,43 @@ namespace Katalogcu.API.Controllers
                 }
 
                 var response = chatResult.Value!;
-                if (IsBillableAiResponse(aiResponse))
+                var billable = IsBillableAiResponse(aiResponse);
+                var fallbackReason = ReadDebugIntentString(debugIntentJson, "fallback_reason");
+                if (billable)
                 {
                     var aiQuota = await _aiUsageQuotaService.ConsumeAsync(userResult.Value.UserId, HttpContext.RequestAborted);
                     if (!aiQuota.Allowed)
                     {
+                        _logger.LogWarning(
+                            "Chat ask quota consume failed after billable response | RequestId={RequestId} | UserId={UserId} | Message={Message} | DurationMs={DurationMs}",
+                            requestId,
+                            userResult.Value.UserId,
+                            aiQuota.Message,
+                            elapsed.ElapsedMilliseconds);
+
                         return StatusCode(StatusCodes.Status403Forbidden, new { message = aiQuota.Message });
                     }
                 }
+
+                _logger.LogInformation(
+                    "Chat ask completed | RequestId={RequestId} | UserId={UserId} | CatalogCount={CatalogCount} | SourceCount={SourceCount} | Billable={Billable} | FallbackReason={FallbackReason} | DurationMs={DurationMs}",
+                    requestId,
+                    userResult.Value.UserId,
+                    catalogIds.Count,
+                    sourceInputs.Count,
+                    billable,
+                    fallbackReason,
+                    elapsed.ElapsedMilliseconds);
 
                 return Ok(response);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Chat Controller Hatası");
+                _logger.LogError(
+                    ex,
+                    "Chat Controller Hatası | RequestId={RequestId} | DurationMs={DurationMs}",
+                    requestId,
+                    elapsed.ElapsedMilliseconds);
                 return StatusCode(500, new { error = "Sistem hatası oluştu. Lütfen tekrar deneyin." });
             }
         }
@@ -231,6 +279,8 @@ namespace Katalogcu.API.Controllers
         [HttpPost("ask-stream")]
         public async Task AskStream([FromForm] AiChatRequestWithHistoryDto request)
         {
+            var requestId = HttpContext.TraceIdentifier;
+            var elapsed = Stopwatch.StartNew();
             var validationError = UploadValidation.ValidateImage(request.Image, required: false);
             if (!string.IsNullOrWhiteSpace(validationError))
             {
@@ -248,6 +298,12 @@ namespace Katalogcu.API.Controllers
                 requestedCatalogIds));
             if (!accessResult.IsSuccess)
             {
+                _logger.LogWarning(
+                    "Chat stream rejected | RequestId={RequestId} | Reason={Reason} | DurationMs={DurationMs}",
+                    requestId,
+                    "catalog_access",
+                    elapsed.ElapsedMilliseconds);
+
                 Response.StatusCode = 400;
                 return;
             }
@@ -258,14 +314,36 @@ namespace Katalogcu.API.Controllers
             var userResult = await _sender.Send(new ResolveChatUserQuery(tokenUserId, request.PublicToken));
             if (!userResult.IsSuccess)
             {
+                _logger.LogWarning(
+                    "Chat stream rejected | RequestId={RequestId} | Reason={Reason} | DurationMs={DurationMs}",
+                    requestId,
+                    "user_resolution",
+                    elapsed.ElapsedMilliseconds);
+
                 Response.StatusCode = 400;
                 await WriteStreamMessageAsync(userResult.ErrorMessage ?? "Geçerli kullanıcı veya public token gerekli.");
                 return;
             }
 
             var usage = await _aiUsageQuotaService.GetCurrentUsageAsync(userResult.Value!.UserId, HttpContext.RequestAborted);
+            _logger.LogInformation(
+                "Chat stream started | RequestId={RequestId} | UserId={UserId} | CatalogCount={CatalogCount} | HasImage={HasImage} | Plan={Plan} | RemainingThisMonth={RemainingThisMonth}",
+                requestId,
+                userResult.Value.UserId,
+                catalogIds.Count,
+                request.Image is not null,
+                usage.Plan,
+                usage.Unlimited ? (int?)null : usage.RemainingThisMonth);
+
             if (!usage.AiEnabled || (!usage.Unlimited && usage.RemainingThisMonth <= 0))
             {
+                _logger.LogWarning(
+                    "Chat stream rejected | RequestId={RequestId} | UserId={UserId} | Reason={Reason} | DurationMs={DurationMs}",
+                    requestId,
+                    userResult.Value.UserId,
+                    "plan_limit",
+                    elapsed.ElapsedMilliseconds);
+
                 Response.StatusCode = 200;
                 await WriteStreamMessageAsync("AI sorgu limitinize ulaştınız, planınızı yükseltin", "plan_limit");
                 return;
@@ -277,6 +355,13 @@ namespace Katalogcu.API.Controllers
                 HttpContext.RequestAborted);
             if (capacityLease is null)
             {
+                _logger.LogWarning(
+                    "Chat stream rejected | RequestId={RequestId} | UserId={UserId} | Reason={Reason} | DurationMs={DurationMs}",
+                    requestId,
+                    userResult.Value.UserId,
+                    "ai_capacity_limited",
+                    elapsed.ElapsedMilliseconds);
+
                 Response.StatusCode = StatusCodes.Status200OK;
                 await WriteStreamMessageAsync(_aiCapacityGuard.BusyMessage, "ai_capacity_limited");
                 return;
@@ -302,15 +387,33 @@ namespace Katalogcu.API.Controllers
                     if (!aiQuota.Allowed)
                     {
                         _logger.LogWarning(
-                            "Stream AI quota consume failed after billable response. UserId={UserId} Message={Message}",
+                            "Stream AI quota consume failed after billable response | RequestId={RequestId} | UserId={UserId} | Message={Message} | DurationMs={DurationMs}",
+                            requestId,
                             userResult.Value.UserId,
-                            aiQuota.Message);
+                            aiQuota.Message,
+                            elapsed.ElapsedMilliseconds);
                     }
                 }
+
+                _logger.LogInformation(
+                    "Chat stream completed | RequestId={RequestId} | UserId={UserId} | CatalogCount={CatalogCount} | Billable={Billable} | FallbackReason={FallbackReason} | EventCount={EventCount} | SourceCount={SourceCount} | TokenEventCount={TokenEventCount} | DurationMs={DurationMs}",
+                    requestId,
+                    userResult.Value.UserId,
+                    catalogIds.Count,
+                    proxyResult.Billable,
+                    proxyResult.FallbackReason,
+                    proxyResult.EventCount,
+                    proxyResult.SourceCount,
+                    proxyResult.TokenEventCount,
+                    elapsed.ElapsedMilliseconds);
             }
-            catch
+            catch (Exception ex)
             {
-                // Hata logu servis tarafında tutuluyor.
+                _logger.LogError(
+                    ex,
+                    "Chat stream controller caught proxy error | RequestId={RequestId} | DurationMs={DurationMs}",
+                    requestId,
+                    elapsed.ElapsedMilliseconds);
             }
         }
 
