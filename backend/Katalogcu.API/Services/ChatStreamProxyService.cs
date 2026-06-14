@@ -89,6 +89,29 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         {
             var requestMsg = new HttpRequestMessage(HttpMethod.Post, "api/chat/stream") { Content = formContent };
             using var pythonResponse = await httpClient.SendAsync(requestMsg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!pythonResponse.IsSuccessStatusCode)
+            {
+                var errorBody = await pythonResponse.Content.ReadAsStringAsync(cancellationToken);
+                var (message, reason) = TryReadAiError(errorBody);
+                var fallbackReason = pythonResponse.StatusCode == System.Net.HttpStatusCode.TooManyRequests
+                    ? FirstNonEmpty(reason, "ai_capacity_limited")
+                    : FirstNonEmpty(reason, "ai_upstream_error");
+
+                _logger.LogWarning(
+                    "AskStream upstream başarısız döndü | Status={StatusCode} | Reason={Reason} | Body={Body}",
+                    (int)pythonResponse.StatusCode,
+                    fallbackReason,
+                    errorBody);
+
+                await WriteFallbackStreamAsync(
+                    response,
+                    FirstNonEmpty(message, "AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin."),
+                    fallbackReason,
+                    cancellationToken);
+
+                return ChatStreamProxyResult.NotBillable(fallbackReason);
+            }
+
             using var stream = await pythonResponse.Content.ReadAsStreamAsync(cancellationToken);
             using var reader = new StreamReader(stream);
             var catalogGuids = ParseCatalogGuids(catalogIds);
@@ -115,16 +138,106 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
 
             return billing.ToResult();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Client disconnected or request aborted.
             return ChatStreamProxyResult.NotBillable("client_disconnected");
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "AskStream upstream zaman aşımına uğradı");
+            await WriteFallbackStreamAsync(
+                response,
+                "AI yanıtı zaman aşımına uğradı. Lütfen tekrar deneyin.",
+                "ai_timeout",
+                cancellationToken);
+            return ChatStreamProxyResult.NotBillable("ai_timeout");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "AskStream upstream bağlantı hatası");
+            await WriteFallbackStreamAsync(
+                response,
+                "AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin.",
+                "ai_upstream_error",
+                cancellationToken);
+            return ChatStreamProxyResult.NotBillable("ai_upstream_error");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "AskStream proxy hatası");
             throw;
         }
+    }
+
+    private static async Task WriteFallbackStreamAsync(
+        HttpResponse response,
+        string message,
+        string fallbackReason,
+        CancellationToken cancellationToken)
+    {
+        await response.WriteAsync(
+            ChatStreamEventContract.ToSseDataLine(
+                ChatStreamEventContract.CreateSources(
+                    Array.Empty<object>(),
+                    fallbackUsed: true,
+                    fallbackReason: fallbackReason)),
+            cancellationToken);
+        await response.WriteAsync(
+            ChatStreamEventContract.ToSseDataLine(
+                ChatStreamEventContract.CreateToken(
+                    message,
+                    fallbackUsed: true,
+                    fallbackReason: fallbackReason)),
+            cancellationToken);
+        await response.WriteAsync(
+            ChatStreamEventContract.ToSseDataLine(
+                ChatStreamEventContract.CreateDone(
+                    fallbackUsed: true,
+                    fallbackReason: fallbackReason)),
+            cancellationToken);
+        await response.Body.FlushAsync(cancellationToken);
+    }
+
+    private static (string? Message, string? Reason) TryReadAiError(string errorBody)
+    {
+        if (string.IsNullOrWhiteSpace(errorBody))
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(errorBody);
+            var root = document.RootElement;
+            if (root.TryGetProperty("detail", out var detail))
+            {
+                if (detail.ValueKind == JsonValueKind.String)
+                {
+                    return (detail.GetString(), null);
+                }
+
+                if (detail.ValueKind == JsonValueKind.Object)
+                {
+                    return (
+                        GetString(detail, "message"),
+                        GetString(detail, "reason"));
+                }
+            }
+
+            return (
+                GetString(root, "message"),
+                GetString(root, "reason"));
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
     private async Task FlushEventAsync(

@@ -129,18 +129,138 @@ public class ChatStreamProxyServiceTests
         Assert.Contains("\"similarity\":0.82", proxiedBody);
     }
 
+    [Fact]
+    public async Task ProxyAskStreamAsync_MapsUpstreamNonSuccessToFallbackSse()
+    {
+        var proxy = new ChatStreamProxyService(
+            new StubHttpClientFactory(_ => new HttpResponseMessage(HttpStatusCode.BadGateway)
+            {
+                Content = new StringContent(
+                    "{\"detail\":{\"message\":\"AI servisi geçici olarak yanıt veremiyor.\",\"reason\":\"ai_upstream_error\"}}",
+                    Encoding.UTF8,
+                    "application/json")
+            }),
+            new StubChatQueryService(),
+            NullLogger<ChatStreamProxyService>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Response.Body = new MemoryStream();
+
+        var result = await proxy.ProxyAskStreamAsync(
+            httpContext.Response,
+            text: "vida",
+            history: "[]",
+            contextJson: null,
+            catalogIds: Array.Empty<string>(),
+            image: null,
+            userPlan: null,
+            aiLimitPerMonth: null,
+            aiUsedThisMonth: null,
+            cancellationToken: CancellationToken.None);
+
+        Assert.False(result.Billable);
+        Assert.Equal("ai_upstream_error", result.FallbackReason);
+
+        var proxiedBody = await ReadResponseBodyAsync(httpContext.Response);
+
+        Assert.Contains("\"type\":\"sources\"", proxiedBody);
+        Assert.Contains("\"type\":\"token\"", proxiedBody);
+        Assert.Contains("\"type\":\"done\"", proxiedBody);
+        Assert.Contains("\"used\":true", proxiedBody);
+        Assert.Contains("\"reason\":\"ai_upstream_error\"", proxiedBody);
+        Assert.Contains("AI servisi ge", proxiedBody);
+    }
+
+    [Fact]
+    public async Task ProxyAskStreamAsync_MapsUpstreamTimeoutToFallbackSse()
+    {
+        var proxy = new ChatStreamProxyService(
+            new StubHttpClientFactory(_ => throw new OperationCanceledException("upstream timeout")),
+            new StubChatQueryService(),
+            NullLogger<ChatStreamProxyService>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Response.Body = new MemoryStream();
+
+        var result = await proxy.ProxyAskStreamAsync(
+            httpContext.Response,
+            text: "vida",
+            history: "[]",
+            contextJson: null,
+            catalogIds: Array.Empty<string>(),
+            image: null,
+            userPlan: null,
+            aiLimitPerMonth: null,
+            aiUsedThisMonth: null,
+            cancellationToken: CancellationToken.None);
+
+        Assert.False(result.Billable);
+        Assert.Equal("ai_timeout", result.FallbackReason);
+
+        var proxiedBody = await ReadResponseBodyAsync(httpContext.Response);
+
+        Assert.Contains("\"reason\":\"ai_timeout\"", proxiedBody);
+        Assert.Contains("zaman a", proxiedBody);
+    }
+
+    [Fact]
+    public async Task ProxyAskStreamAsync_DoesNotWriteFallbackWhenClientDisconnects()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var proxy = new ChatStreamProxyService(
+            new StubHttpClientFactory(_ => throw new OperationCanceledException("client disconnected")),
+            new StubChatQueryService(),
+            NullLogger<ChatStreamProxyService>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Response.Body = new MemoryStream();
+
+        var result = await proxy.ProxyAskStreamAsync(
+            httpContext.Response,
+            text: "vida",
+            history: "[]",
+            contextJson: null,
+            catalogIds: Array.Empty<string>(),
+            image: null,
+            userPlan: null,
+            aiLimitPerMonth: null,
+            aiUsedThisMonth: null,
+            cancellationToken: cts.Token);
+
+        Assert.False(result.Billable);
+        Assert.Equal("client_disconnected", result.FallbackReason);
+        Assert.Equal(0, httpContext.Response.Body.Length);
+    }
+
+    private static async Task<string> ReadResponseBodyAsync(HttpResponse response)
+    {
+        response.Body.Position = 0;
+        using var reader = new StreamReader(response.Body, Encoding.UTF8, leaveOpen: true);
+        return await reader.ReadToEndAsync();
+    }
+
     private sealed class StubHttpClientFactory : IHttpClientFactory
     {
-        private readonly string _responseBody;
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
 
         public StubHttpClientFactory(string responseBody)
+            : this(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(responseBody)))
+            })
         {
-            _responseBody = responseBody;
+        }
+
+        public StubHttpClientFactory(Func<HttpRequestMessage, HttpResponseMessage> responder)
+        {
+            _responder = responder;
         }
 
         public HttpClient CreateClient(string name)
         {
-            return new HttpClient(new StubHandler(_responseBody))
+            return new HttpClient(new StubHandler(_responder))
             {
                 BaseAddress = new Uri("http://localhost/")
             };
@@ -209,21 +329,16 @@ public class ChatStreamProxyServiceTests
 
     private sealed class StubHandler : HttpMessageHandler
     {
-        private readonly string _responseBody;
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
 
-        public StubHandler(string responseBody)
+        public StubHandler(Func<HttpRequestMessage, HttpResponseMessage> responder)
         {
-            _responseBody = responseBody;
+            _responder = responder;
         }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            var response = new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(_responseBody)))
-            };
-
-            return Task.FromResult(response);
+            return Task.FromResult(_responder(request));
         }
     }
 }
