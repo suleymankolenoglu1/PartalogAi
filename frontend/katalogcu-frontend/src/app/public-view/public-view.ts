@@ -7,33 +7,13 @@ import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
 import { environment } from '../../environments/environment';
 import { emitEmbedEvent, startEmbedAutoResize } from '../core/utils/embed-bridge';
-
-// 🔥 Yanıt Tipi Tanımı (HTML ile uyumlu olması için)
-interface AiResponse {
-  replySuggestion: string; // Eskiden 'text' idi
-  products: any[];         // Eskiden 'suggestedParts' idi
-  debugInfo?: string;      // Yeni eklendi
-
-  // ✅ Compare için yan yana gruplar
-  compareGroups?: CompareGroup[];
-}
-
-interface CompareGroup {
-  query: string;
-  results: any[];
-}
-
-// ✨ Sohbet Mesaj Tipi
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  text: string;
-  timestamp: string;
-  products?: any[];
-  compareGroups?: CompareGroup[];
-  isStreaming?: boolean;
-  feedback?: 'up' | 'down';
-  feedbackSubmitted?: boolean;
-}
+import {
+  AiResponse,
+  ChatMessage,
+  PublicChatStreamState,
+  beginPublicChatStream,
+  reducePublicChatStreamState,
+} from './public-view.stream-state';
 
 interface PublicBreadcrumb {
   id: string | null;
@@ -159,19 +139,13 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     if (saved) {
       try { 
         const parsed = JSON.parse(saved);
-        this.messages = parsed;
-        this.chatHistory = parsed.map((m: ChatMessage) => ({ role: m.role, text: m.text }));
-        this.updateLatestAssistantMessage();
+        this.applyStreamState(
+          reducePublicChatStreamState(this.captureStreamState(), {
+            type: 'restore',
+            messages: parsed,
+          })
+        );
         if (this.messages.length > 0) {
-          this.aiState.isActive = true;
-          const lastAi = [...this.messages].reverse().find(m => m.role === 'assistant');
-          if (lastAi) {
-            this.aiState.response = {
-              replySuggestion: lastAi.text,
-              products: lastAi.products || [],
-              compareGroups: lastAi.compareGroups || [],
-            };
-          }
           setTimeout(() => this.scrollMessagesToBottom(), 0);
         }
       } catch (e) { console.warn('chat history parse error:', e); }
@@ -381,28 +355,18 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     if (!this.searchText && !this.selectedImage) return;
 
     this.aiState.isActive = true;
-    this.aiState.isLoading = true;
-    this.aiState.response = null;
 
     const userText = this.searchText || '(Resim Gönderildi)';
-    const userMsg: ChatMessage = { role: 'user', text: userText, timestamp: new Date().toISOString() };
-    this.messages.push(userMsg);
-    this.chatHistory.push({ role: 'user', text: userText });
+    this.applyStreamState(
+      beginPublicChatStream(
+        this.captureStreamState(),
+        userText,
+        new Date().toISOString(),
+        new Date().toISOString()
+      )
+    );
     this.saveHistory();
     this.scrollMessagesToBottom();
-
-    // Streaming asistan mesajı placeholder ekle
-    const streamingMsg: ChatMessage = {
-      role: 'assistant',
-      text: '',
-      timestamp: new Date().toISOString(),
-      products: [],
-      isStreaming: true,
-    };
-    this.messages.push(streamingMsg);
-    this.scrollMessagesToBottom();
-
-    let streamingText = '';
 
     this.aiService.sendMessageStream(
       this.searchText,
@@ -413,78 +377,77 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     ).subscribe({
       next: (event) => {
         if (event.type === 'sources') {
-          const mappedProducts = (event.sources || []).map((part: any) => ({
-            id: part.id,
-            catalogItemId: part.catalogItemId ?? part.catalog_item_id ?? part.id ?? this.buildAiCartItemId(part),
-            code: part.code,
-            refNo: part.refNo ?? part.ref_no,
-            name: part.name,
-            brand: part.brand,
-            description: part.description,
-            catalogId: part.catalogId,
-            pageNumber: part.pageNumber || '1',
-            model: part.model,
-            price: part.price,
-            productId: this.isEmptyGuid(part.productId ?? part.product_id) ? null : (part.productId ?? part.product_id),
-            stockStatus: part.stockStatus || 'Stokta Yok',
-            imageUrl: part.imageUrl,
-            query: part.query,
-            similarity: typeof part.similarity === 'number' ? part.similarity : null,
-            visualMatch: part.visualMatch ?? false,
-            visualImageUrl: part.visualImageUrl ?? null,
-            visualSimilarity: part.visualSimilarity ?? null,
-            fallback: part.fallback ?? false,
-            fallbackReason: part.fallbackReason ?? part.fallback_reason ?? null,
-          }));
-          streamingMsg.products = mappedProducts;
-          this.aiState.isLoading = false;
-          this.aiState.response = {
-            replySuggestion: '',
-            products: mappedProducts,
-          };
-          this.messages = [...this.messages];
-          this.scrollMessagesToBottom();
+          this.applyStreamEvent({
+            type: 'sources',
+            products: this.mapStreamSources(event.sources || []),
+          });
         } else if (event.type === 'token') {
-          streamingText += event.token;
-          streamingMsg.text = streamingText;
-          this.messages = [...this.messages];
-          this.scrollMessagesToBottom();
-          if (this.aiState.response) {
-            this.aiState.response = { ...this.aiState.response, replySuggestion: streamingText };
-          }
+          this.applyStreamEvent({ type: 'token', token: event.token });
         } else if (event.type === 'done') {
-          streamingMsg.isStreaming = false;
-          this.aiState.isLoading = false;
-          this.aiState.response = {
-            replySuggestion: streamingText,
-            products: streamingMsg.products || [],
-          };
-          this.messages = [...this.messages];
-          this.scrollMessagesToBottom();
-          this.chatHistory.push({ role: 'assistant', text: streamingText });
+          this.applyStreamEvent({ type: 'done' });
           this.saveHistory();
           this.feedbackMessage = null;
           this.feedbackError = null;
           this.chatFeedbackReason = '';
           this.chatFeedbackMessage = null;
           this.chatFeedbackError = null;
-          this.updateLatestAssistantMessage();
         }
       },
       error: (err) => {
         console.error('AI Stream Hatası:', err);
-        this.aiState.isLoading = false;
-        streamingMsg.text = '⚠️ Bağlantı hatası, lütfen tekrar deneyin.';
-        streamingMsg.isStreaming = false;
-        this.messages = [...this.messages];
-        this.scrollMessagesToBottom();
+        this.applyStreamEvent({
+          type: 'error',
+          message: '⚠️ Bağlantı hatası, lütfen tekrar deneyin.',
+        });
       }
     });
   }
 
-  private updateLatestAssistantMessage() {
-    this.latestAssistantMessage =
-      [...this.messages].reverse().find(m => m.role === 'assistant' && !m.isStreaming) ?? null;
+  private captureStreamState(): PublicChatStreamState {
+    return {
+      messages: this.messages,
+      chatHistory: this.chatHistory,
+      aiState: this.aiState,
+      latestAssistantMessage: this.latestAssistantMessage,
+    };
+  }
+
+  private applyStreamEvent(event: Parameters<typeof reducePublicChatStreamState>[1]) {
+    this.applyStreamState(reducePublicChatStreamState(this.captureStreamState(), event));
+    this.scrollMessagesToBottom();
+  }
+
+  private applyStreamState(state: PublicChatStreamState) {
+    this.messages = state.messages;
+    this.chatHistory = state.chatHistory;
+    this.aiState = state.aiState;
+    this.latestAssistantMessage = state.latestAssistantMessage;
+  }
+
+  private mapStreamSources(sources: any[]) {
+    return sources.map((part: any) => ({
+      id: part.id,
+      catalogItemId: part.catalogItemId ?? part.catalog_item_id ?? part.id ?? this.buildAiCartItemId(part),
+      code: part.code,
+      refNo: part.refNo ?? part.ref_no,
+      name: part.name,
+      brand: part.brand,
+      description: part.description,
+      catalogId: part.catalogId,
+      pageNumber: part.pageNumber || '1',
+      model: part.model,
+      price: part.price,
+      productId: this.isEmptyGuid(part.productId ?? part.product_id) ? null : (part.productId ?? part.product_id),
+      stockStatus: part.stockStatus || 'Stokta Yok',
+      imageUrl: part.imageUrl,
+      query: part.query,
+      similarity: typeof part.similarity === 'number' ? part.similarity : null,
+      visualMatch: part.visualMatch ?? false,
+      visualImageUrl: part.visualImageUrl ?? null,
+      visualSimilarity: part.visualSimilarity ?? null,
+      fallback: part.fallback ?? false,
+      fallbackReason: part.fallbackReason ?? part.fallback_reason ?? null,
+    }));
   }
 
   private findUserQueryBefore(target: ChatMessage): string {

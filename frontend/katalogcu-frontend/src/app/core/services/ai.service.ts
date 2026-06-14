@@ -2,6 +2,11 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import {
+  ChatStreamEvent,
+  extractChatStreamEvents,
+  flushChatStreamBuffer,
+} from './ai-stream-contract';
 // 🔥 GÜNCELLENDİ: Backend (ChatController) Response Yapısı
 // PublicViewComponent'te kullandığımız 'res.replySuggestion' ve 'res.products' ile eşleşmeli.
 export interface AiChatResponse {
@@ -103,7 +108,7 @@ export class AiService {
     history: any[],
     catalogIds?: string[],
     publicToken?: string
-  ): Observable<{type: string; token?: string; sources?: any[]; debug_intent?: any}> {
+  ): Observable<ChatStreamEvent> {
     return new Observable(observer => {
       const formData = new FormData();
       if (text) formData.append('text', text);
@@ -128,33 +133,23 @@ export class AiService {
         const read = () => {
           reader.read().then(({ done, value }) => {
             if (done) {
-              if (buffer.trim().length > 0) {
-                const line = buffer.trim();
-                if (line.startsWith('data:')) {
-                  try {
-                    const data = JSON.parse(line.slice(5).trim());
-                    observer.next(data);
-                  } catch (e) {
-                    console.debug('SSE satırı parse edilemedi:', line);
-                  }
-                }
+              const flushed = flushChatStreamBuffer(buffer);
+              if (flushed.errors.length > 0) {
+                observer.error(new Error(flushed.errors[0]));
+                return;
               }
+              flushed.events.forEach(event => observer.next(event));
               observer.complete();
               return;
             }
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() ?? '';
-            for (const rawLine of lines) {
-              const line = rawLine.trim();
-              if (!line.startsWith('data:')) continue;
-              try {
-                const data = JSON.parse(line.slice(5).trim());
-                observer.next(data);
-              } catch (e) {
-                console.debug('SSE satırı parse edilemedi:', line);
-              }
+            const parsed = extractChatStreamEvents(buffer);
+            buffer = parsed.remaining;
+            if (parsed.errors.length > 0) {
+              observer.error(new Error(parsed.errors[0]));
+              return;
             }
+            parsed.events.forEach(event => observer.next(event));
             read();
           }).catch(err => observer.error(err));
         };
