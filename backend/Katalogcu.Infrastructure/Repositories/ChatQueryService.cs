@@ -210,24 +210,11 @@ public sealed class ChatQueryService : IChatQueryService
             return [];
         }
 
-        // AND logic: Build a single query where ALL tokens must match at least one field on the SAME record.
-        // This eliminates the noisy union of per-token OR results.
         var query = _context.CatalogItems
             .AsNoTracking()
             .Where(ci => catalogIds.Contains(ci.CatalogId));
 
-        foreach (var token in tokens)
-        {
-            var localToken = token;
-            query = query.Where(ci =>
-                EF.Functions.ILike(ci.PartName, $"%{localToken}%") ||
-                EF.Functions.ILike(ci.Description, $"%{localToken}%") ||
-                EF.Functions.ILike(ci.PartCode, $"%{localToken}%") ||
-                EF.Functions.ILike(ci.RefNumber, $"%{localToken}%") ||
-                EF.Functions.ILike(ci.MachineModel ?? string.Empty, $"%{localToken}%") ||
-                EF.Functions.ILike(ci.MachineBrand ?? string.Empty, $"%{localToken}%")
-            );
-        }
+        query = ApplyNameSearchFilters(query, tokens);
 
         var candidates = await query
             .Take(120)
@@ -250,6 +237,46 @@ public sealed class ChatQueryService : IChatQueryService
             .Take(8)
             .Select(x => x.Item)
             .ToList();
+    }
+
+    internal static IQueryable<CatalogItem> ApplyNameSearchFilters(
+        IQueryable<CatalogItem> query,
+        IReadOnlyList<NameSearchToken> tokens)
+    {
+        // AND logic: every meaningful token must match at least one field on the same record.
+        // Raw and normalized variants keep Turkish text working while still matching ASCII catalog data.
+        foreach (var token in tokens)
+        {
+            var primaryPattern = BuildContainsLikePattern(token.Raw);
+            var normalizedPattern = token.Normalized.Equals(token.Raw, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : BuildContainsLikePattern(token.Normalized);
+            query = query.Where(ci =>
+                EF.Functions.ILike(ci.PartName, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.Description, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.SearchText ?? string.Empty, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.PartCode, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.RefNumber, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.MachineModel ?? string.Empty, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.MachineBrand ?? string.Empty, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.MachineGroup ?? string.Empty, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.Mechanism ?? string.Empty, primaryPattern, "\\") ||
+                EF.Functions.ILike(ci.Dimensions ?? string.Empty, primaryPattern, "\\") ||
+                (normalizedPattern != null && (
+                    EF.Functions.ILike(ci.PartName, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.Description, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.SearchText ?? string.Empty, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.PartCode, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.RefNumber, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.MachineModel ?? string.Empty, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.MachineBrand ?? string.Empty, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.MachineGroup ?? string.Empty, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.Mechanism ?? string.Empty, normalizedPattern, "\\") ||
+                    EF.Functions.ILike(ci.Dimensions ?? string.Empty, normalizedPattern, "\\")))
+            );
+        }
+
+        return query;
     }
 
     public async Task<IReadOnlyList<EnrichedPartDto>> EnrichResultsAsync(
@@ -334,7 +361,7 @@ public sealed class ChatQueryService : IChatQueryService
         return string.IsNullOrWhiteSpace(item.PageNumber) ? "1" : item.PageNumber;
     }
 
-    private static IReadOnlyList<string> ExtractSearchTokens(string text)
+    internal static IReadOnlyList<NameSearchToken> ExtractSearchTokens(string text)
     {
         var stopWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -399,23 +426,30 @@ public sealed class ChatQueryService : IChatQueryService
 
         return text
             .Split([' ', '-', '/', ',', ';', '_', ':', '(', ')', '[', ']'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NormalizeForSearch)
-            .Where(token => token.Length >= 2)
-            .Where(token => !stopWords.Contains(token))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(raw => new NameSearchToken(raw, NormalizeForSearch(raw)))
+            .Where(token => token.Normalized.Length >= 2)
+            .Where(token => !token.IsShortNumericNoise)
+            .Where(token => !stopWords.Contains(token.Normalized))
+            .DistinctBy(token => token.Normalized, StringComparer.OrdinalIgnoreCase)
             .Take(8)
             .ToList();
     }
 
-    private static int ScoreNameMatch(CatalogItem item, string query, IReadOnlyList<string> tokens)
+    internal static int ScoreNameMatch(CatalogItem item, string query, IReadOnlyList<NameSearchToken> tokens)
     {
         var normalizedQuery = NormalizeForSearch(query);
         var normalizedPartName = NormalizeForSearch(item.PartName);
         var normalizedDescription = NormalizeForSearch(item.Description);
+        var normalizedSearchText = NormalizeForSearch(item.SearchText);
         var normalizedCode = NormalizeForSearch(item.PartCode);
         var normalizedRef = NormalizeForSearch(item.RefNumber);
         var haystack = NormalizeForSearch(
-            $"{item.PartName} {item.Description} {item.PartCode} {item.RefNumber} {item.MachineBrand} {item.MachineModel}");
+            $"{item.PartName} {item.Description} {item.SearchText} {item.PartCode} {item.RefNumber} {item.MachineBrand} {item.MachineModel} {item.MachineGroup} {item.Mechanism} {item.Dimensions}");
+
+        if (tokens.Count > 1 && !tokens.All(token => haystack.Contains(token.Normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return 0;
+        }
 
         var score = 0;
         if (!string.IsNullOrWhiteSpace(normalizedQuery))
@@ -423,22 +457,37 @@ public sealed class ChatQueryService : IChatQueryService
             if (normalizedPartName == normalizedQuery) score += 120;
             if (normalizedPartName.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase)) score += 80;
             if (normalizedDescription.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase)) score += 50;
+            if (normalizedSearchText.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase)) score += 45;
         }
 
-        if (tokens.Count > 0 && tokens.All(token => haystack.Contains(token, StringComparison.OrdinalIgnoreCase)))
+        if (tokens.Count > 0 && tokens.All(token => haystack.Contains(token.Normalized, StringComparison.OrdinalIgnoreCase)))
         {
             score += 60;
         }
 
         foreach (var token in tokens)
         {
-            if (normalizedPartName.Contains(token, StringComparison.OrdinalIgnoreCase)) score += 15;
-            if (normalizedDescription.Contains(token, StringComparison.OrdinalIgnoreCase)) score += 10;
-            if (normalizedCode.Contains(token, StringComparison.OrdinalIgnoreCase)) score += 8;
-            if (normalizedRef == token) score += 8;
+            if (normalizedPartName.Contains(token.Normalized, StringComparison.OrdinalIgnoreCase)) score += 15;
+            if (normalizedDescription.Contains(token.Normalized, StringComparison.OrdinalIgnoreCase)) score += 10;
+            if (normalizedSearchText.Contains(token.Normalized, StringComparison.OrdinalIgnoreCase)) score += 10;
+            if (normalizedCode.Contains(token.Normalized, StringComparison.OrdinalIgnoreCase)) score += 8;
+            if (normalizedRef == token.Normalized) score += 8;
         }
 
         return score;
+    }
+
+    internal static string BuildContainsLikePattern(string token)
+    {
+        return $"%{EscapeLikePattern(token)}%";
+    }
+
+    private static string EscapeLikePattern(string value)
+    {
+        return value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
     }
 
     private static string NormalizeForSearch(string? value)
@@ -463,5 +512,10 @@ public sealed class ChatQueryService : IChatQueryService
             .Replace('=', ' ');
 
         return string.Join(' ', normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    internal readonly record struct NameSearchToken(string Raw, string Normalized)
+    {
+        public bool IsShortNumericNoise => Normalized.Length < 3 && Normalized.All(char.IsDigit);
     }
 }
