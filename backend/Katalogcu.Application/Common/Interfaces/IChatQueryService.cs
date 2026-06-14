@@ -22,6 +22,16 @@ public interface IChatQueryService
         IReadOnlyCollection<Guid> catalogIds,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<CatalogItem>> SearchByRefNumberAsync(
+        string? term,
+        IReadOnlyCollection<Guid> catalogIds,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<CatalogItem>> SearchByNameAsync(
+        string? term,
+        IReadOnlyCollection<Guid> catalogIds,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<EnrichedPartDto>> EnrichResultsAsync(
         IReadOnlyCollection<CatalogItem> items,
         IReadOnlyCollection<Guid> catalogIds,

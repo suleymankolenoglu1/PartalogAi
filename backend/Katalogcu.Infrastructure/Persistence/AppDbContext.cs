@@ -27,6 +27,7 @@ namespace Katalogcu.Infrastructure.Persistence
         public DbSet<EmbedTarget> EmbedTargets { get; set; }
         public DbSet<CatalogAiJob> CatalogAiJobs { get; set; }
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
+        public DbSet<PolicyThreshold> PolicyThresholds { get; set; }
 
         // İlişki ve Davranış Ayarları
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -142,6 +143,10 @@ namespace Katalogcu.Infrastructure.Persistence
 
             modelBuilder.Entity<Customer>()
                 .HasIndex(c => new { c.UserId, c.PublicSessionToken });
+
+            modelBuilder.Entity<CatalogItem>()
+                .Property(i => i.SearchText)
+                .HasColumnType("text");
 
             modelBuilder.Entity<Order>()
                 .HasIndex(o => o.CustomerId);
@@ -307,6 +312,52 @@ namespace Katalogcu.Infrastructure.Persistence
                 .WithMany()
                 .HasForeignKey(j => j.CatalogId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.ScopeType)
+                .HasMaxLength(32);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.ScopeKey)
+                .HasMaxLength(128);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.HighConfidence)
+                .HasPrecision(5, 4);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.LowConfidence)
+                .HasPrecision(5, 4);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.AmbiguityScoreDelta)
+                .HasPrecision(5, 4);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.IsActive)
+                .HasDefaultValue(true);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.Version)
+                .HasDefaultValue(1);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.Notes)
+                .HasMaxLength(1024);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .Property(x => x.UpdatedBy)
+                .HasMaxLength(256);
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .HasIndex(x => new { x.ScopeType, x.ScopeKey })
+                .IsUnique()
+                .HasDatabaseName("UX_PolicyThresholds_ActiveScope")
+                .HasFilter("\"IsActive\" = TRUE");
+
+            modelBuilder.Entity<PolicyThreshold>()
+                .HasIndex(x => new { x.IsActive, x.ScopeType, x.ScopeKey })
+                .HasDatabaseName("IX_PolicyThresholds_ActiveScope");
 
             modelBuilder.Entity<PlatformAuditLog>()
                 .Property(x => x.Action)

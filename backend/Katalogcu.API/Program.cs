@@ -20,6 +20,8 @@ using System.Threading.RateLimiting;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,12 +56,17 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<CatalogAiProcessingOptions>(builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName));
 builder.Services.Configure<ErpGatewayOptions>(builder.Configuration.GetSection(ErpGatewayOptions.SectionName));
 builder.Services.Configure<ProductFeatureOptions>(builder.Configuration.GetSection("ProductFeatures"));
+builder.Services.Configure<AiServiceOptions>(builder.Configuration.GetSection(AiServiceOptions.SectionName));
+builder.Services.Configure<DistributedRateLimitOptions>(builder.Configuration.GetSection(DistributedRateLimitOptions.SectionName));
+builder.Services.Configure<DataProtectionKeyRingOptions>(builder.Configuration.GetSection(DataProtectionKeyRingOptions.SectionName));
 builder.Services.AddSingleton<IProductFeaturePolicy, ProductFeaturePolicy>();
 
 var catalogAiProcessingOptions = builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName).Get<CatalogAiProcessingOptions>()
     ?? new CatalogAiProcessingOptions();
 
-var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+var defaultConnection = FirstNonEmpty(
+    builder.Configuration.GetConnectionString("DefaultConnection"),
+    builder.Configuration["ConnectionStrings:DefaultConnection"]);
 if (string.IsNullOrWhiteSpace(defaultConnection))
 {
     throw new InvalidOperationException("ConnectionStrings:DefaultConnection zorunludur.");
@@ -89,12 +96,18 @@ builder.Services.AddScoped<CatalogAiHangfireJob>();
 builder.Services.AddScoped<IErpGatewayService, ErpGatewayService>();
 builder.Services.AddScoped<IErpGatewayStrategy, SnapshotErpGatewayStrategy>();
 builder.Services.AddScoped<IAiUsageQuotaService, AiUsageQuotaService>();
+builder.Services.AddScoped<IProductionReadinessService, ProductionReadinessService>();
+builder.Services.Configure<AiCapacityOptions>(builder.Configuration.GetSection("AiCapacity"));
+builder.Services.AddSingleton<IAiCapacityGuard, AiCapacityGuard>();
+builder.Services.AddSingleton<IDistributedPublicChatRateLimiter, RedisDistributedPublicChatRateLimiter>();
 builder.Services.AddSingleton<CatalogAiHangfireFilter>();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructureServices();
 
 // 🔥 AI SERVİS ENTEGRASYONU (POLLY İLE GÜÇLENDİRİLDİ) 🔥
-var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"] ?? "http://127.0.0.1:8000";
+var aiServiceOptions = builder.Configuration.GetSection(AiServiceOptions.SectionName).Get<AiServiceOptions>()
+    ?? new AiServiceOptions();
+var aiServiceBaseUrl = aiServiceOptions.BaseUrl;
 if (!aiServiceBaseUrl.EndsWith("/"))
 {
     aiServiceBaseUrl += "/";
@@ -103,7 +116,7 @@ if (!aiServiceBaseUrl.EndsWith("/"))
 builder.Services.AddHttpClient<IPartalogAiService, PartalogAiService>(client =>
 {
     client.BaseAddress = new Uri(aiServiceBaseUrl);
-    client.Timeout = TimeSpan.FromMinutes(10); // Timeout süresini biraz artırdık
+    client.Timeout = aiServiceOptions.GetLongRunningTimeout();
 })
 .AddPolicyHandler(GetRetryPolicy()); // 👈 Hata Telafisi Eklendi
 
@@ -111,7 +124,7 @@ builder.Services.AddHttpClient<IPartalogAiService, PartalogAiService>(client =>
 builder.Services.AddHttpClient("PartalogAi", client =>
 {
     client.BaseAddress = new Uri(aiServiceBaseUrl);
-    client.Timeout = TimeSpan.FromMinutes(2);
+    client.Timeout = aiServiceOptions.GetStreamTimeout();
 });
 
 // Controller ve JSON Ayarları
@@ -134,27 +147,52 @@ builder.Services.AddHangfire(configuration => configuration
     .UseRecommendedSerializerSettings()
     .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(defaultConnection)));
 
-builder.Services.AddHangfireServer(options =>
+var enableCatalogAiHangfireServer = builder.Configuration.GetValue<bool?>("BackgroundProcessing:EnableCatalogAiServer") ?? true;
+var enableDefaultHangfireServer = builder.Configuration.GetValue<bool?>("BackgroundProcessing:EnableDefaultServer") ?? true;
+
+if (enableCatalogAiHangfireServer || enableDefaultHangfireServer)
 {
-    options.Queues =
-    [
-        CatalogAiHangfireJob.QueueName,
-        "default"
-    ];
-    options.WorkerCount = catalogAiProcessingOptions.GetNormalizedWorkerCount();
-});
+    builder.Services.AddHangfireServer(options =>
+    {
+        var queues = new List<string>();
+        if (enableCatalogAiHangfireServer)
+        {
+            queues.Add(CatalogAiHangfireJob.QueueName);
+        }
+
+        if (enableDefaultHangfireServer)
+        {
+            queues.Add("default");
+        }
+
+        options.Queues = queues.ToArray();
+        options.WorkerCount = catalogAiProcessingOptions.GetNormalizedWorkerCount();
+    });
+}
 
 builder.Services.AddHealthChecks();
 
+var dataProtectionOptions = GetDataProtectionKeyRingOptions(builder.Configuration);
+var dataProtectionBuilder = builder.Services
+    .AddDataProtection()
+    .SetApplicationName(dataProtectionOptions.ApplicationName);
+
+ConfigureDataProtectionKeyRing(
+    dataProtectionBuilder,
+    dataProtectionOptions,
+    builder.Environment);
+
 // JWT Authentication Ayarları
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var jwtSecret = jwtSettings["SecretKey"];
+var jwtSecret = JwtSecretResolver.Resolve(builder.Configuration);
 if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Trim().Length < 32)
 {
     throw new InvalidOperationException("JwtSettings:SecretKey zorunludur ve en az 32 karakter olmalıdır.");
 }
 
-var publicLinkSecret = builder.Configuration["PublicLink:SecretKey"];
+var publicLinkSecret = FirstNonEmpty(
+    builder.Configuration["PublicLink:SecretKey"],
+    builder.Configuration["PublicLinkSecret"]);
 if (builder.Environment.IsProduction())
 {
     if (jwtSecret.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
@@ -173,16 +211,10 @@ if (builder.Environment.IsProduction())
     }
 }
 
-var secretKey = Encoding.ASCII.GetBytes(jwtSecret);
+var secretKey = Encoding.UTF8.GetBytes(jwtSecret);
 
 // CORS origins (prod ortamında config zorunlu, development'ta localhost fallback var)
-var configuredCorsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
-    .Get<string[]>()?
-    .Where(x => !string.IsNullOrWhiteSpace(x))
-    .Select(x => x.Trim().TrimEnd('/'))
-    .Distinct(StringComparer.OrdinalIgnoreCase)
-    .ToArray()
-    ?? [];
+var configuredCorsOrigins = GetConfiguredCorsOrigins(builder.Configuration);
 
 if (configuredCorsOrigins.Length == 0 && builder.Environment.IsDevelopment())
 {
@@ -389,48 +421,60 @@ GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<CatalogAiHangfireFi
 
 var featurePolicy = app.Services.GetRequiredService<IProductFeaturePolicy>();
 app.Logger.LogInformation(
-    "ProductFeatures mode => AI: {AiEnabled}, ECommerce: {EcommerceEnabled}, UpgradePrompts: {UpgradePromptsEnabled}",
-    featurePolicy.AiEnabled,
+    "ProductFeatures mode => Chatbot: {ChatbotEnabled}, CatalogAnalysis: {CatalogAnalysisEnabled}, ECommerce: {EcommerceEnabled}, UpgradePrompts: {UpgradePromptsEnabled}, PlanManagement: {PlanManagementEnabled}",
+    featurePolicy.ChatbotEnabled,
+    featurePolicy.CatalogAnalysisEnabled,
     featurePolicy.EcommerceEnabled,
-    featurePolicy.UpgradePromptsEnabled);
+    featurePolicy.UpgradePromptsEnabled,
+    featurePolicy.PlanManagementEnabled);
 
-if (app.Environment.IsProduction() && (featurePolicy.AiEnabled || featurePolicy.EcommerceEnabled))
+if (app.Environment.IsProduction() && (featurePolicy.ChatbotEnabled || featurePolicy.CatalogAnalysisEnabled || featurePolicy.EcommerceEnabled))
 {
     app.Logger.LogWarning(
-        "Production mode is running with premium modules enabled (AI={AiEnabled}, ECommerce={EcommerceEnabled}).",
-        featurePolicy.AiEnabled,
+        "Production mode is running with premium modules enabled (Chatbot={ChatbotEnabled}, CatalogAnalysis={CatalogAnalysisEnabled}, ECommerce={EcommerceEnabled}).",
+        featurePolicy.ChatbotEnabled,
+        featurePolicy.CatalogAnalysisEnabled,
         featurePolicy.EcommerceEnabled);
 }
 
-// Uygulama açılırken bekleyen migration'ları uygula
-using (var scope = app.Services.CreateScope())
+var runMigrationsOnStartup = builder.Configuration.GetValue("Database:RunMigrationsOnStartup", true);
+if (runMigrationsOnStartup)
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var pendingMigrations = db.Database.GetPendingMigrations().ToArray();
-    if (pendingMigrations.Length > 0)
+    // Uygulama açılırken bekleyen migration'ları uygula
+    using var scope = app.Services.CreateScope();
     {
-        app.Logger.LogInformation(
-            "Applying {Count} pending EF migration(s): {Migrations}",
-            pendingMigrations.Length,
-            string.Join(", ", pendingMigrations));
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var pendingMigrations = db.Database.GetPendingMigrations().ToArray();
+        if (pendingMigrations.Length > 0)
+        {
+            app.Logger.LogInformation(
+                "Applying {Count} pending EF migration(s): {Migrations}",
+                pendingMigrations.Length,
+                string.Join(", ", pendingMigrations));
+        }
+
+        db.Database.Migrate();
+
+        var stillPendingMigrations = db.Database.GetPendingMigrations().ToArray();
+        if (stillPendingMigrations.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Database startup check failed. Pending migrations remain: {string.Join(", ", stillPendingMigrations)}");
+        }
+
+        if (db.Database.HasPendingModelChanges())
+        {
+            throw new InvalidOperationException(
+                "Database startup check failed. EF model has pending changes. Add and apply a migration before starting API.");
+        }
+
+        app.Logger.LogInformation("Database startup check passed: migrations and EF model are in sync.");
     }
-
-    db.Database.Migrate();
-
-    var stillPendingMigrations = db.Database.GetPendingMigrations().ToArray();
-    if (stillPendingMigrations.Length > 0)
-    {
-        throw new InvalidOperationException(
-            $"Database startup check failed. Pending migrations remain: {string.Join(", ", stillPendingMigrations)}");
-    }
-
-    if (db.Database.HasPendingModelChanges())
-    {
-        throw new InvalidOperationException(
-            "Database startup check failed. EF model has pending changes. Add and apply a migration before starting API.");
-    }
-
-    app.Logger.LogInformation("Database startup check passed: migrations and EF model are in sync.");
+}
+else
+{
+    app.Logger.LogWarning(
+        "Database migration startup check is disabled by Database:RunMigrationsOnStartup=false. Use this only for local smoke tests or externally managed migrations.");
 }
 
 // ========================================================
@@ -483,8 +527,9 @@ app.Use(async (context, next) =>
 });
 app.UseMiddleware<DynamicEmbedCorsMiddleware>();
 app.UseCors("AllowAngularApp");
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
+app.UseMiddleware<DistributedPublicChatRateLimitMiddleware>();
 app.UseMiddleware<UserSuspensionMiddleware>();
 app.UseMiddleware<ModuleFeatureGateMiddleware>();
 app.UseMiddleware<CatalogPlanLimitMiddleware>();
@@ -495,7 +540,7 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
     Predicate = _ => false
 });
-app.MapGet("/health/ready", async (AppDbContext db, CancellationToken cancellationToken) =>
+app.MapGet("/health/ready", async (AppDbContext db, IAiCapacityGuard aiCapacityGuard, CancellationToken cancellationToken) =>
 {
     var canConnect = await db.Database.CanConnectAsync(cancellationToken);
     if (!canConnect)
@@ -506,7 +551,26 @@ app.MapGet("/health/ready", async (AppDbContext db, CancellationToken cancellati
             detail: "Database connection check failed.");
     }
 
-    return Results.Ok(new { status = "ready" });
+    var capacityHealth = await aiCapacityGuard.CheckHealthAsync(cancellationToken);
+    if (!capacityHealth.Ready)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Service Unavailable",
+            detail: $"AI capacity dependency check failed: {capacityHealth.Error}");
+    }
+
+    return Results.Ok(new
+    {
+        status = "ready",
+        capacity = new
+        {
+            ready = capacityHealth.Ready,
+            mode = capacityHealth.Mode,
+            provider = capacityHealth.Provider,
+            latencyMs = capacityHealth.LatencyMs
+        }
+    });
 });
 app.MapGet("/health/migrations", async (AppDbContext db, CancellationToken cancellationToken) =>
 {
@@ -546,4 +610,163 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
         // 3. Bekle ve Tekrar Dene (Exponential Backoff)
         // İlk deneme: 2sn, İkinci: 4sn, Üçüncü: 8sn bekle.
         .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+}
+
+static string? FirstNonEmpty(params string?[] values)
+{
+    foreach (var value in values)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value.Trim();
+        }
+    }
+
+    return null;
+}
+
+static string[] GetConfiguredCorsOrigins(IConfiguration configuration)
+{
+    var sectionOrigins = configuration.GetSection("Cors:AllowedOrigins")
+        .Get<string[]>()?
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Select(x => x.Trim().TrimEnd('/'))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    if (sectionOrigins is { Length: > 0 })
+    {
+        return sectionOrigins;
+    }
+
+    var aliasOrigins = FirstNonEmpty(
+        configuration["CorsOrigins"],
+        configuration["AllowedOrigins"]);
+
+    if (string.IsNullOrWhiteSpace(aliasOrigins))
+    {
+        return [];
+    }
+
+    return aliasOrigins
+        .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Select(x => x.TrimEnd('/'))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+}
+
+static DataProtectionKeyRingOptions GetDataProtectionKeyRingOptions(IConfiguration configuration)
+{
+    var options = configuration
+        .GetSection(DataProtectionKeyRingOptions.SectionName)
+        .Get<DataProtectionKeyRingOptions>()
+        ?? new DataProtectionKeyRingOptions();
+
+    options.Provider = FirstNonEmpty(
+        options.Provider,
+        configuration["DATA_PROTECTION_PROVIDER"])
+        ?? "";
+
+    options.ApplicationName = FirstNonEmpty(
+        options.ApplicationName,
+        configuration["DATA_PROTECTION_APPLICATION_NAME"])
+        ?? "Katalogcu.API";
+
+    options.KeysDirectory = FirstNonEmpty(
+        options.KeysDirectory,
+        configuration["DATA_PROTECTION_KEYS_DIRECTORY"])
+        ?? "";
+
+    options.RedisConnectionString = FirstNonEmpty(
+        options.RedisConnectionString,
+        configuration["DATA_PROTECTION_REDIS_CONNECTION_STRING"])
+        ?? "";
+
+    options.RedisKey = FirstNonEmpty(
+        options.RedisKey,
+        configuration["DATA_PROTECTION_REDIS_KEY"])
+        ?? "partalog:data-protection:keys";
+
+    options.KeyEncryptionKey = FirstNonEmpty(
+        options.KeyEncryptionKey,
+        configuration["DATA_PROTECTION_KEY_ENCRYPTION_KEY"])
+        ?? "";
+
+    return options;
+}
+
+static void ConfigureDataProtectionKeyRing(
+    IDataProtectionBuilder builder,
+    DataProtectionKeyRingOptions options,
+    IWebHostEnvironment environment)
+{
+    var provider = FirstNonEmpty(options.Provider);
+    if (string.IsNullOrWhiteSpace(provider))
+    {
+        provider = !string.IsNullOrWhiteSpace(options.RedisConnectionString)
+            ? "Redis"
+            : !string.IsNullOrWhiteSpace(options.KeysDirectory)
+                ? "FileSystem"
+                : "";
+    }
+
+    ConfigureDataProtectionXmlEncryption(builder, options, environment);
+
+    if (provider.Equals("Redis", StringComparison.OrdinalIgnoreCase))
+    {
+        if (string.IsNullOrWhiteSpace(options.RedisConnectionString))
+        {
+            throw new InvalidOperationException(
+                "DataProtection:Provider=Redis seçildi ama DataProtection:RedisConnectionString boş.");
+        }
+
+        builder.Services.Configure<KeyManagementOptions>(keyManagementOptions =>
+        {
+            keyManagementOptions.XmlRepository = new RedisDataProtectionXmlRepository(
+                options.RedisConnectionString,
+                options.RedisKey);
+        });
+        return;
+    }
+
+    if (provider.Equals("FileSystem", StringComparison.OrdinalIgnoreCase))
+    {
+        if (string.IsNullOrWhiteSpace(options.KeysDirectory))
+        {
+            throw new InvalidOperationException(
+                "DataProtection:Provider=FileSystem seçildi ama DataProtection:KeysDirectory boş.");
+        }
+
+        Directory.CreateDirectory(options.KeysDirectory);
+        builder.PersistKeysToFileSystem(new DirectoryInfo(options.KeysDirectory));
+        return;
+    }
+
+    if (environment.IsProduction())
+    {
+        throw new InvalidOperationException(
+            "Production ortamında DataProtection:Provider zorunludur. Redis veya FileSystem key-ring yapılandırın.");
+    }
+}
+
+static void ConfigureDataProtectionXmlEncryption(
+    IDataProtectionBuilder builder,
+    DataProtectionKeyRingOptions options,
+    IWebHostEnvironment environment)
+{
+    if (AesGcmDataProtectionXmlEncryptor.IsConfigured(options.KeyEncryptionKey))
+    {
+        builder.Services.Configure<KeyManagementOptions>(keyManagementOptions =>
+        {
+            keyManagementOptions.XmlEncryptor = new AesGcmDataProtectionXmlEncryptor(options.KeyEncryptionKey);
+        });
+        return;
+    }
+
+    if (environment.IsProduction())
+    {
+        throw new InvalidOperationException(
+            "Production ortamında DataProtection:KeyEncryptionKey zorunludur. 32 byte random base64 secret yapılandırın.");
+    }
 }

@@ -1,11 +1,15 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text; // Encoding için gerekli
 using Katalogcu.Application.Common.Exceptions;
 using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Common.Models;
 using Katalogcu.Application.Features.Ai.Common;
-using Katalogcu.Domain.Entities; 
+using Katalogcu.Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Katalogcu.API.Services;
 
@@ -14,32 +18,39 @@ public class PartalogAiService : IPartalogAiService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<PartalogAiService> _logger;
+    private readonly AiServiceOptions _options;
     private readonly JsonSerializerOptions _jsonOptions;
 
     public PartalogAiService(HttpClient httpClient, ILogger<PartalogAiService> logger)
+        : this(httpClient, logger, Options.Create(new AiServiceOptions()))
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public PartalogAiService(HttpClient httpClient, ILogger<PartalogAiService> logger, IOptions<AiServiceOptions> options)
     {
         _httpClient = httpClient;
         _logger = logger;
-        
-        // Timeout ayarı (Uzun süren AI işlemleri için 5 dakika)
-        _httpClient.Timeout = TimeSpan.FromMinutes(5);
+        _options = options.Value;
+
+        _httpClient.Timeout = _options.GetLongRunningTimeout();
 
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
             NumberHandling = JsonNumberHandling.AllowReadingFromString,
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower 
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
     }
 
     // --- 1. YOLO (HOTSPOT TESPİTİ) ---
-    public async Task<List<Hotspot>> DetectHotspotsAsync(IFormFile file, Guid pageId, bool throwOnFailure = false)
+    public async Task<List<Hotspot>> DetectHotspotsAsync(UploadedFile file, Guid pageId, bool throwOnFailure = false)
     {
         try
         {
             var responseJson = await SendFileStreamAsync(file, "/api/hotspot/detect");
             var result = JsonSerializer.Deserialize<YoloResponseDto>(responseJson, _jsonOptions);
-            
+
             if (result == null || !result.Success || result.Hotspots == null)
             {
                 if (throwOnFailure)
@@ -82,7 +93,7 @@ public class PartalogAiService : IPartalogAiService
         }
     }
 
-    public async Task<HotspotLabelReadResultDto> ReadHotspotLabelAsync(IFormFile file)
+    public async Task<HotspotLabelReadResultDto> ReadHotspotLabelAsync(UploadedFile file)
     {
         try
         {
@@ -110,14 +121,24 @@ public class PartalogAiService : IPartalogAiService
     {
         try
         {
+            _logger.LogInformation(
+                "📋 Table extraction request başladı | Page={PageNumber} | Bytes={ByteLength}",
+                pageNumber,
+                fileBytes.Length);
+
             using var content = new MultipartFormDataContent();
             var fileContent = new ByteArrayContent(fileBytes);
             fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
             content.Add(fileContent, "file", "page.jpg");
-            
+
             var response = await _httpClient.PostAsync($"/api/table/extract?page_number={pageNumber}", content);
             if (!response.IsSuccessStatusCode)
             {
+                _logger.LogWarning(
+                    "⚠️ Table extraction başarısız döndü | Page={PageNumber} | Status={StatusCode}",
+                    pageNumber,
+                    (int)response.StatusCode);
+
                 if (throwOnFailure)
                 {
                     throw new CatalogAiRetryableException(
@@ -130,9 +151,14 @@ public class PartalogAiService : IPartalogAiService
 
             var responseJson = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<TableResponseDto>(responseJson, _jsonOptions);
-            
+
             if (result == null || !result.Success || result.Tables == null)
             {
+                _logger.LogWarning(
+                    "⚠️ Table extraction geçersiz cevap döndürdü | Page={PageNumber} | BodyLength={BodyLength}",
+                    pageNumber,
+                    responseJson.Length);
+
                 if (throwOnFailure)
                 {
                     throw new CatalogAiRetryableException(
@@ -143,7 +169,14 @@ public class PartalogAiService : IPartalogAiService
                 return new List<ProductItemDto>();
             }
 
-            return result.Tables.SelectMany(t => t.Products ?? new List<ProductItemDto>()).ToList();
+            var products = result.Tables.SelectMany(t => t.Products ?? new List<ProductItemDto>()).ToList();
+            _logger.LogInformation(
+                "✅ Table extraction tamamlandı | Page={PageNumber} | Tables={TableCount} | Products={ProductCount}",
+                pageNumber,
+                result.Tables.Count,
+                products.Count);
+
+            return products;
         }
         catch (Exception ex) when (!throwOnFailure)
         {
@@ -171,19 +204,36 @@ public class PartalogAiService : IPartalogAiService
             fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
             content.Add(fileContent, "file", "page.jpg");
 
-            var response = await _httpClient.PostAsync("/api/analysis/analyze-page-title", content); 
+            var response = await _httpClient.PostAsync("/api/analysis/analyze-page-title", content);
             if (response.IsSuccessStatusCode)
             {
                 var responseJson = await response.Content.ReadAsStringAsync();
                 var result = JsonSerializer.Deserialize<PageAnalysisResult>(responseJson, _jsonOptions);
                 return result ?? new PageAnalysisResult();
             }
+
+            var errorBody = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning(
+                "⚠️ Sayfa analiz servisi başarısız döndü | Status={StatusCode} | Body={Body}",
+                (int)response.StatusCode,
+                errorBody);
+
+            throw new CatalogAiRetryableException(
+                "AI page analysis",
+                $"Sayfa analiz servisi başarısız döndü: {(int)response.StatusCode}");
+        }
+        catch (CatalogAiRetryableException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Sayfa analiz servisi hatası.");
+            throw new CatalogAiRetryableException(
+                "AI page analysis",
+                "Sayfa analiz servisi çağrısı başarısız oldu.",
+                ex);
         }
-        return new PageAnalysisResult { IsTechnicalDrawing = false, IsPartsList = false, Title = "Analiz Edilemedi" };
     }
 
     // --- 4. EXPERT AI CHAT (GÜNCELLENMİŞ VERSİYON) ---
@@ -204,6 +254,11 @@ public class PartalogAiService : IPartalogAiService
                 content.Add(new StringContent(idsJson), "catalog_ids");
             }
 
+            if (!string.IsNullOrWhiteSpace(request.ContextJson))
+            {
+                content.Add(new StringContent(request.ContextJson), "context_json");
+            }
+
             if (!string.IsNullOrWhiteSpace(request.UserPlan))
             {
                 content.Add(new StringContent(request.UserPlan), "user_plan");
@@ -216,36 +271,127 @@ public class PartalogAiService : IPartalogAiService
             {
                 content.Add(new StringContent(request.AiUsedThisMonth.Value.ToString()), "ai_used_this_month");
             }
+            if (!string.IsNullOrWhiteSpace(request.PolicyThresholdOverride))
+            {
+                content.Add(new StringContent(request.PolicyThresholdOverride), "policy_threshold_override");
+            }
 
             if (request.Image != null)
             {
                 var fileStream = request.Image.OpenReadStream();
                 var fileContent = new StreamContent(fileStream);
-                fileContent.Headers.ContentType = new MediaTypeHeaderValue(request.Image.ContentType);
+                fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+                    string.IsNullOrWhiteSpace(request.Image.ContentType)
+                        ? ResolveImageContentType(request.Image.FileName)
+                        : request.Image.ContentType);
                 content.Add(fileContent, "file", request.Image.FileName);
             }
 
-            var response = await _httpClient.PostAsync("/api/chat/expert-chat", content);
+            using var timeoutCts = new CancellationTokenSource(_options.GetChatTimeout());
+            var response = await _httpClient.PostAsync("/api/chat/expert-chat", content, timeoutCts.Token);
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorMsg = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Chat API Hatası ({response.StatusCode}): {errorMsg}");
-                // 🔥 HATA DURUMUNDA ANSWER DOLDURULUYOR
-                return new AiChatResponseDto { Answer = "AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin." };
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    var (message, reason) = TryReadAiError(errorMsg);
+                    var fallbackReason = string.IsNullOrWhiteSpace(reason) ? "ai_capacity_limited" : reason;
+                    _logger.LogWarning(
+                        "Chat AI isteği kapasite/rate limit nedeniyle reddedildi | Reason={Reason} | Body={Body}",
+                        fallbackReason,
+                        errorMsg);
+
+                    return BuildFallbackChatResponse(
+                        string.IsNullOrWhiteSpace(message)
+                            ? "AI kapasitesi şu an dolu. Lütfen birkaç saniye sonra tekrar deneyin."
+                            : message,
+                        fallbackReason);
+                }
+
+                _logger.LogError("Chat API Hatası ({StatusCode}): {Body}", response.StatusCode, errorMsg);
+                return BuildFallbackChatResponse(
+                    "AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin.",
+                    "ai_upstream_error");
             }
 
             var jsonResponse = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<AiChatResponseDto>(jsonResponse, _jsonOptions);
-            
+
             // 🔥 BOŞ DÖNERSE VARSAYILAN MESAJ
             return result ?? new AiChatResponseDto { Answer = "Cevap anlaşılamadı." };
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Chat servisi zaman aşımına uğradı.");
+            return BuildFallbackChatResponse(
+                "AI yanıtı zaman aşımına uğradı. Lütfen tekrar deneyin.",
+                "ai_timeout");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Chat servisi hatası.");
-            return new AiChatResponseDto { Answer = "Sistem hatası oluştu." };
+            return BuildFallbackChatResponse("Sistem hatası oluştu.", "ai_exception");
         }
+    }
+
+    private static AiChatResponseDto BuildFallbackChatResponse(string answer, string reason)
+    {
+        return new AiChatResponseDto
+        {
+            Answer = answer,
+            Sources = [],
+            DebugIntent = new Dictionary<string, object?>
+            {
+                ["fallback"] = true,
+                ["fallback_reason"] = reason
+            }
+        };
+    }
+
+    private static (string? Message, string? Reason) TryReadAiError(string errorBody)
+    {
+        if (string.IsNullOrWhiteSpace(errorBody))
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(errorBody);
+            var root = document.RootElement;
+            if (root.TryGetProperty("detail", out var detail))
+            {
+                if (detail.ValueKind == JsonValueKind.String)
+                {
+                    return (detail.GetString(), null);
+                }
+
+                if (detail.ValueKind == JsonValueKind.Object)
+                {
+                    return (
+                        TryGetStringProperty(detail, "message"),
+                        TryGetStringProperty(detail, "reason"));
+                }
+            }
+
+            return (
+                TryGetStringProperty(root, "message"),
+                TryGetStringProperty(root, "reason"));
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
+    }
+
+    private static string? TryGetStringProperty(JsonElement element, string propertyName)
+    {
+        return element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(propertyName, out var property)
+            && property.ValueKind == JsonValueKind.String
+                ? property.GetString()
+                : null;
     }
 
     // --- 4.1 Görsel Geri Bildirim Kaydı ---
@@ -324,7 +470,65 @@ public class PartalogAiService : IPartalogAiService
         }
     }
 
-    // --- 6. EMBEDDING (VEKTÖR) ALMA ---
+    // --- 6. CANONICAL INGESTION SEARCH TEXT ---
+    public async Task<IReadOnlyList<string>> BuildSearchTextsAsync(
+        IReadOnlyList<IngestionSearchTextRequest> rows,
+        CancellationToken cancellationToken = default)
+    {
+        if (rows.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var jsonContent = new StringContent(
+                JsonSerializer.Serialize(rows, _jsonOptions),
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await _httpClient.PostAsync(
+                "/api/v1/ingestion/build-search-texts",
+                jsonContent,
+                cancellationToken);
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "SearchText build API Hatası ({StatusCode}): {Body}",
+                    response.StatusCode,
+                    responseJson);
+                throw new CatalogAiRetryableException(
+                    "canonical search text build",
+                    $"SearchText üretim servisi başarısız döndü: {(int)response.StatusCode}");
+            }
+
+            var searchTexts = JsonSerializer.Deserialize<List<string>>(responseJson, _jsonOptions);
+            if (searchTexts == null || searchTexts.Count != rows.Count)
+            {
+                throw new CatalogAiRetryableException(
+                    "canonical search text build",
+                    $"SearchText üretim servisi geçersiz sayıda sonuç döndürdü. Expected={rows.Count}, Actual={searchTexts?.Count ?? 0}");
+            }
+
+            return searchTexts;
+        }
+        catch (CatalogAiRetryableException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SearchText üretim servisi hatası.");
+            throw new CatalogAiRetryableException(
+                "canonical search text build",
+                "SearchText üretim servisi çağrısı başarısız oldu.",
+                ex);
+        }
+    }
+
+    // --- 7. EMBEDDING (VEKTÖR) ALMA ---
     public async Task<float[]?> GetEmbeddingAsync(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -333,8 +537,8 @@ public class PartalogAiService : IPartalogAiService
         {
             var payload = new { text = text };
             var jsonContent = new StringContent(
-                JsonSerializer.Serialize(payload), 
-                Encoding.UTF8, 
+                JsonSerializer.Serialize(payload),
+                Encoding.UTF8,
                 "application/json");
 
             var response = await _httpClient.PostAsync("/api/embed", jsonContent);
@@ -359,7 +563,7 @@ public class PartalogAiService : IPartalogAiService
     }
 
     // --- YARDIMCI METODLAR ---
-    private async Task<string> SendFileStreamAsync(IFormFile file, string relativeUrl)
+    private async Task<string> SendFileStreamAsync(UploadedFile file, string relativeUrl)
     {
         using var content = new MultipartFormDataContent();
         using var stream = file.OpenReadStream();
@@ -418,4 +622,5 @@ public class PartalogAiService : IPartalogAiService
         [JsonPropertyName("embedding")]
         public float[]? Embedding { get; set; }
     }
+
 }

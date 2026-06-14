@@ -4,18 +4,16 @@ import json
 import io
 import asyncio
 from PIL import Image
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from loguru import logger
 from config import settings
+from services.genai_provider import provider
 
 router = APIRouter()
 
 # 🚀 HIZ AYARI
 CONCURRENCY_LIMIT = asyncio.Semaphore(10)
-
-# ⚡ MODEL: gemini-2.0-flash-lite
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={settings.GEMINI_API_KEY}"
 
 # ✅ GÜVENLİK: Yanıt Şeması
 class PageAnalysisResponse(BaseModel):
@@ -58,7 +56,7 @@ async def analyze_page_title(file: UploadFile = File(...)):
             }
             """
 
-            payload = {
+            payload = provider.normalize_generate_payload({
                 "contents": [{
                     "parts": [
                         {"text": prompt_text},
@@ -66,18 +64,28 @@ async def analyze_page_title(file: UploadFile = File(...)):
                     ]
                 }],
                 "generationConfig": { "response_mime_type": "application/json" }
-            }
+            })
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(GEMINI_API_URL, json=payload) as response:
+            url = provider.generate_content_url(settings.GEMINI_ANALYSIS_MODEL)
+            headers = await provider.build_headers()
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.post(url, json=payload) as response:
                     if response.status != 200:
-                        logger.error(f"AI API Hatası: {await response.text()}")
-                        return PageAnalysisResponse(is_technical_drawing=False, is_parts_list=False, title="Hata")
+                        error_body = await response.text()
+                        logger.error(f"AI API Hatası ({response.status}): {error_body}")
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"AI page analysis upstream failed: {response.status}"
+                        )
 
                     result_json = await response.json()
                     
                     if "candidates" not in result_json or not result_json["candidates"]:
-                        return PageAnalysisResponse(is_technical_drawing=False, is_parts_list=False, title="Tanımsız")
+                        logger.error(f"AI page analysis aday döndürmedi: {result_json}")
+                        raise HTTPException(
+                            status_code=502,
+                            detail="AI page analysis returned no candidates"
+                        )
 
                     raw_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
                     clean_text = raw_text.replace("```json", "").replace("```", "").strip()
@@ -103,6 +111,8 @@ async def analyze_page_title(file: UploadFile = File(...)):
                         title=data.get("title", "GENEL GÖRÜNÜM")
                     )
 
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Sistem Hatası: {e}")
-            return PageAnalysisResponse(is_technical_drawing=False, is_parts_list=False, title="İşlem Hatası")
+            raise HTTPException(status_code=500, detail="AI page analysis failed")

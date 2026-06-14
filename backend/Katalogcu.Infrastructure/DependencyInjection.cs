@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<ICustomerRepository, CustomerRepository>();
         services.AddScoped<IFolderRepository, FolderRepository>();
         services.AddScoped<IHotspotRepository, HotspotRepository>();
+        services.AddScoped<IPolicyThresholdRepository, PolicyThresholdRepository>();
         return services;
     }
 }

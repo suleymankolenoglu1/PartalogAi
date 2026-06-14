@@ -146,7 +146,12 @@ import json, pathlib, sys
 p = pathlib.Path("'"$BACKEND_API_DIR"'") / "appsettings.json"
 data = json.loads(p.read_text(encoding="utf-8"))
 pf = data.get("ProductFeatures") or {}
-expected = {"EnableAi": False, "EnableEcommerce": False, "EnableUpgradePrompts": False}
+expected = {
+    "EnableChatbot": False,
+    "EnableCatalogAnalysis": False,
+    "EnableEcommerce": False,
+    "EnableUpgradePrompts": False,
+}
 for k, v in expected.items():
     if pf.get(k) is not v:
         print(f"[FAIL] appsettings.json ProductFeatures.{k} expected {v}, got {pf.get(k)!r}")
@@ -166,8 +171,16 @@ if [[ "$SKIP_MIGRATION_CHECK" == "false" ]]; then
   require_cmd dotnet
   echo "[3/5] EF migration/model checks"
   if dotnet ef --version >/dev/null 2>&1; then
-    (cd "$BACKEND_API_DIR" && run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations has-pending-model-changes --no-build)
-    (cd "$BACKEND_API_DIR" && run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations list --no-build)
+    run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations has-pending-model-changes \
+      --no-build \
+      --project "$ROOT_DIR/backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj" \
+      --startup-project "$ROOT_DIR/backend/Katalogcu.API/Katalogcu.API.csproj" \
+      --context AppDbContext
+    run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations list \
+      --no-build \
+      --project "$ROOT_DIR/backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj" \
+      --startup-project "$ROOT_DIR/backend/Katalogcu.API/Katalogcu.API.csproj" \
+      --context AppDbContext
     echo "[OK] EF migration/model checks passed"
   else
     echo "[WARN] dotnet-ef bulunamadı, design-time migration check atlandı."

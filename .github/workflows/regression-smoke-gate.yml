@@ -35,12 +35,27 @@ jobs:
           python-version: "3.11"
 
       - name: Validate required secret
+        id: validate-secrets
         run: |
           set -euo pipefail
-          [ -n "${PARTALOG_BASE_URL:-}" ] || (echo "Missing secret: PARTALOG_BASE_URL" && exit 1)
-          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || (echo "Missing secret: PARTALOG_PUBLIC_TOKEN" && exit 1)
+          missing=()
+          [ -n "${PARTALOG_BASE_URL:-}" ] || missing+=("PARTALOG_BASE_URL")
+          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || missing+=("PARTALOG_PUBLIC_TOKEN")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing secrets: ${missing[*]}"
+            if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+              echo "run_remote_smoke=false" >> "$GITHUB_OUTPUT"
+              echo "Remote regression smoke skipped on pull_request because required secrets are unavailable."
+              exit 0
+            fi
+            exit 1
+          fi
+
+          echo "run_remote_smoke=true" >> "$GITHUB_OUTPUT"
 
       - name: Run regression smoke (remote)
+        if: steps.validate-secrets.outputs.run_remote_smoke == 'true'
         run: |
           chmod +x backend/scripts/smoke_all.sh
           backend/scripts/smoke_all.sh \

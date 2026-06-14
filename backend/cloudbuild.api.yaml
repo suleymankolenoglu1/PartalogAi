@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - europe-west1-docker.pkg.dev/partalog/partalog/api:latest
+      - -f
+      - backend/Katalogcu.API/Dockerfile
+      - backend
+images:
+  - europe-west1-docker.pkg.dev/partalog/partalog/api:latest
