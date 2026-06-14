@@ -13,7 +13,8 @@ Bu dokuman ilk canli cikis icin catalog-only mimariyi tarif eder.
 
 Ilk canli cikista AI servisi deploy edilmez. Chatbot/e-ticaret/plan yonetimi feature flag ile kapali kalir.
 
-AI fazi icin ayri plan: `deploy/google-cloud/vertex-ai-ai-plan.md`.
+AI/chat fazi icin ayri prod/staging readiness runbook'u:
+- `deploy/prod-chat-readiness-runbook.md`
 
 ## Gerekli Bilgiler
 
