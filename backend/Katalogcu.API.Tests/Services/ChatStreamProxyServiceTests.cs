@@ -42,6 +42,9 @@ public class ChatStreamProxyServiceTests
 
         Assert.False(result.Billable);
         Assert.Equal("zero_tokens", result.FallbackReason);
+        Assert.Equal(3, result.EventCount);
+        Assert.Equal(0, result.SourceCount);
+        Assert.Equal(1, result.TokenEventCount);
 
         httpContext.Response.Body.Position = 0;
         using var reader = new StreamReader(httpContext.Response.Body);
@@ -117,6 +120,9 @@ public class ChatStreamProxyServiceTests
 
         Assert.True(result.Billable);
         Assert.Null(result.FallbackReason);
+        Assert.Equal(3, result.EventCount);
+        Assert.Equal(1, result.SourceCount);
+        Assert.Equal(1, result.TokenEventCount);
 
         httpContext.Response.Body.Position = 0;
         using var reader = new StreamReader(httpContext.Response.Body);
@@ -160,6 +166,9 @@ public class ChatStreamProxyServiceTests
 
         Assert.False(result.Billable);
         Assert.Equal("ai_upstream_error", result.FallbackReason);
+        Assert.Equal(3, result.EventCount);
+        Assert.Equal(0, result.SourceCount);
+        Assert.Equal(1, result.TokenEventCount);
 
         var proxiedBody = await ReadResponseBodyAsync(httpContext.Response);
 
@@ -196,6 +205,9 @@ public class ChatStreamProxyServiceTests
 
         Assert.False(result.Billable);
         Assert.Equal("ai_timeout", result.FallbackReason);
+        Assert.Equal(3, result.EventCount);
+        Assert.Equal(0, result.SourceCount);
+        Assert.Equal(1, result.TokenEventCount);
 
         var proxiedBody = await ReadResponseBodyAsync(httpContext.Response);
 
@@ -231,6 +243,9 @@ public class ChatStreamProxyServiceTests
 
         Assert.False(result.Billable);
         Assert.Equal("client_disconnected", result.FallbackReason);
+        Assert.Equal(0, result.EventCount);
+        Assert.Equal(0, result.SourceCount);
+        Assert.Equal(0, result.TokenEventCount);
         Assert.Equal(0, httpContext.Response.Body.Length);
     }
 

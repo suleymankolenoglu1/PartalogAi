@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Features.Chat.Common;
@@ -19,9 +20,21 @@ public interface IChatStreamProxyService
         CancellationToken cancellationToken);
 }
 
-public sealed record ChatStreamProxyResult(bool Billable, string? FallbackReason = null)
+public sealed record ChatStreamProxyResult(
+    bool Billable,
+    string? FallbackReason = null,
+    int EventCount = 0,
+    int SourceCount = 0,
+    int TokenEventCount = 0)
 {
-    public static ChatStreamProxyResult NotBillable(string? fallbackReason = null) => new(false, fallbackReason);
+    public static ChatStreamProxyResult NotBillable(
+        string? fallbackReason = null,
+        int eventCount = 0,
+        int sourceCount = 0,
+        int tokenEventCount = 0)
+    {
+        return new(false, fallbackReason, eventCount, sourceCount, tokenEventCount);
+    }
 }
 
 public sealed class ChatStreamProxyService : IChatStreamProxyService
@@ -56,6 +69,8 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         response.Headers["Cache-Control"] = "no-cache";
         response.Headers["Connection"] = "keep-alive";
 
+        var requestId = response.HttpContext.TraceIdentifier;
+        var elapsed = Stopwatch.StartNew();
         var httpClient = _httpClientFactory.CreateClient("PartalogAi");
 
         using var formContent = new MultipartFormDataContent();
@@ -88,6 +103,7 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         try
         {
             var requestMsg = new HttpRequestMessage(HttpMethod.Post, "api/chat/stream") { Content = formContent };
+            requestMsg.Headers.TryAddWithoutValidation("X-Request-Id", requestId);
             using var pythonResponse = await httpClient.SendAsync(requestMsg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (!pythonResponse.IsSuccessStatusCode)
             {
@@ -109,7 +125,11 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
                     fallbackReason,
                     cancellationToken);
 
-                return ChatStreamProxyResult.NotBillable(fallbackReason);
+                return Complete(
+                    ChatStreamProxyResult.NotBillable(fallbackReason, eventCount: 3, tokenEventCount: 1),
+                    requestId,
+                    elapsed,
+                    "upstream_non_success");
             }
 
             using var stream = await pythonResponse.Content.ReadAsStreamAsync(cancellationToken);
@@ -136,12 +156,15 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
                 eventLines.Add(line);
             }
 
-            return billing.ToResult();
+            return Complete(billing.ToResult(), requestId, elapsed, "completed");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Client disconnected or request aborted.
-            return ChatStreamProxyResult.NotBillable("client_disconnected");
+            return Complete(
+                ChatStreamProxyResult.NotBillable("client_disconnected"),
+                requestId,
+                elapsed,
+                "client_disconnected");
         }
         catch (OperationCanceledException ex)
         {
@@ -151,7 +174,11 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
                 "AI yanıtı zaman aşımına uğradı. Lütfen tekrar deneyin.",
                 "ai_timeout",
                 cancellationToken);
-            return ChatStreamProxyResult.NotBillable("ai_timeout");
+            return Complete(
+                ChatStreamProxyResult.NotBillable("ai_timeout", eventCount: 3, tokenEventCount: 1),
+                requestId,
+                elapsed,
+                "upstream_timeout");
         }
         catch (HttpRequestException ex)
         {
@@ -161,13 +188,42 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
                 "AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin.",
                 "ai_upstream_error",
                 cancellationToken);
-            return ChatStreamProxyResult.NotBillable("ai_upstream_error");
+            return Complete(
+                ChatStreamProxyResult.NotBillable("ai_upstream_error", eventCount: 3, tokenEventCount: 1),
+                requestId,
+                elapsed,
+                "upstream_http_error");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AskStream proxy hatası");
+            _logger.LogError(
+                ex,
+                "AskStream proxy hatası | RequestId={RequestId} | DurationMs={DurationMs}",
+                requestId,
+                elapsed.ElapsedMilliseconds);
             throw;
         }
+    }
+
+    private ChatStreamProxyResult Complete(
+        ChatStreamProxyResult result,
+        string requestId,
+        Stopwatch elapsed,
+        string status)
+    {
+        elapsed.Stop();
+        _logger.LogInformation(
+            "Chat stream proxy completed | RequestId={RequestId} | Status={Status} | Billable={Billable} | FallbackReason={FallbackReason} | EventCount={EventCount} | SourceCount={SourceCount} | TokenEventCount={TokenEventCount} | DurationMs={DurationMs}",
+            requestId,
+            status,
+            result.Billable,
+            result.FallbackReason,
+            result.EventCount,
+            result.SourceCount,
+            result.TokenEventCount,
+            elapsed.ElapsedMilliseconds);
+
+        return result;
     }
 
     private static async Task WriteFallbackStreamAsync(
@@ -707,18 +763,29 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         private bool _sawDone;
         private bool _fallbackUsed;
         private string? _fallbackReason;
+        private int _eventCount;
+        private int _sourceCount;
+        private int _tokenEventCount;
 
         public void Observe(ChatStreamEventContract.ChatStreamEvent streamEvent)
         {
+            _eventCount++;
             if (streamEvent.Fallback.Used)
             {
                 _fallbackUsed = true;
                 _fallbackReason ??= streamEvent.Fallback.Reason;
             }
 
+            if (streamEvent.Type == "sources" &&
+                streamEvent.Sources is { ValueKind: JsonValueKind.Array } sources)
+            {
+                _sourceCount += sources.GetArrayLength();
+            }
+
             if (streamEvent.Type == "token")
             {
                 _sawToken = true;
+                _tokenEventCount++;
             }
 
             if (streamEvent.Type == "done")
@@ -731,7 +798,10 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         {
             return new ChatStreamProxyResult(
                 Billable: _sawDone && _sawToken && !_fallbackUsed,
-                FallbackReason: _fallbackReason);
+                FallbackReason: _fallbackReason,
+                EventCount: _eventCount,
+                SourceCount: _sourceCount,
+                TokenEventCount: _tokenEventCount);
         }
     }
 }

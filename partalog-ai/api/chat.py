@@ -9,6 +9,8 @@ Partalog AI - Chat API (Final v4.2 - Turkish Native Mode + Hybrid Search 🇹�
 
 import aiohttp
 import json
+import time
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -47,6 +49,14 @@ GEMINI_CHAT_GENERATION_CONFIG = {
 }
 
 router = APIRouter()
+
+
+def _request_id(request: Request) -> str:
+    return (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-correlation-id")
+        or uuid.uuid4().hex
+    )
 
 
 def optional_chat_rate_limit(func):
@@ -93,10 +103,17 @@ async def chat_endpoint(
     ai_used_this_month: int = Form(None),
     policy_threshold_override: str = Form(None),
 ):
+    request_id = _request_id(request)
+    started_at = time.perf_counter()
+    completion_status = "unknown"
+    fallback_reason = None
     capacity_lease = None
     try:
+        logger.info(f"chat_started request_id={request_id} has_image={file is not None}")
         limit_msg = _plan_limit_message(user_plan, ai_limit_per_month, ai_used_this_month)
         if limit_msg:
+            completion_status = "plan_limit"
+            fallback_reason = "plan_limit"
             return {
                 "answer": limit_msg,
                 "reply": limit_msg,
@@ -116,6 +133,8 @@ async def chat_endpoint(
             policy_threshold_override,
         )
         if ctx["early"]:
+            completion_status = "early_response"
+            fallback_reason = "early_response"
             return ctx["response"]
 
         api_url = provider.generate_content_url(settings.GEMINI_CHAT_MODEL)
@@ -129,22 +148,29 @@ async def chat_endpoint(
                 }
             )
             if not provider.has_credentials() or not api_url:
-                logger.error("⚠️ GenAI credentials/config eksik.")
+                logger.error(f"⚠️ GenAI credentials/config eksik. request_id={request_id}")
                 fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                completion_status = "missing_api_key"
+                fallback_reason = "missing_api_key"
                 return {
-                "answer": fallback,
-                "reply": fallback,
-                "sources": ctx.get("all_sources", []),
-                "debug_intent": ctx.get("analysis"),
-                "search_trace": ctx.get("search_trace"),
-            }
+                    "answer": fallback,
+                    "reply": fallback,
+                    "sources": ctx.get("all_sources", []),
+                    "debug_intent": ctx.get("analysis"),
+                    "search_trace": ctx.get("search_trace"),
+                }
             async with session.post(api_url, json=payload) as resp:
                 if resp.status == 200:
                     ai_reply = (await resp.json())["candidates"][0]["content"]["parts"][0]["text"]
                 else:
-                    logger.warning(f"Gemini generateContent non-200: {resp.status}")
+                    logger.warning(f"Gemini generateContent non-200: {resp.status} request_id={request_id}")
                     ai_reply = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                    completion_status = "upstream_non_200"
+                    fallback_reason = "upstream_non_200"
         ai_reply = sanitize_reply_safety_language(_ensure_unavailable_feature_notice(ai_reply, ctx.get("analysis")))
+
+        if completion_status == "unknown":
+            completion_status = "completed"
 
         return {
             "answer": ai_reply,
@@ -155,6 +181,8 @@ async def chat_endpoint(
         }
 
     except AiCapacityLimitExceeded:
+        completion_status = "ai_capacity_limited"
+        fallback_reason = "ai_capacity_limited"
         raise HTTPException(
             status_code=429,
             detail={
@@ -163,7 +191,9 @@ async def chat_endpoint(
             },
         )
     except Exception as e:
-        logger.error(f"Chat Hatası: {e}")
+        completion_status = "exception"
+        fallback_reason = "exception"
+        logger.error(f"Chat Hatası: {e} request_id={request_id}")
         return {
             "answer": "Sistemsel bir hata oluştu ustam.",
             "reply": "Hata",
@@ -173,10 +203,16 @@ async def chat_endpoint(
     finally:
         if capacity_lease is not None:
             await capacity_lease.release()
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        logger.info(
+            f"chat_completed request_id={request_id} status={completion_status} "
+            f"fallback_reason={fallback_reason} duration_ms={duration_ms:.1f}"
+        )
 
 
 @router.post("/stream")
 async def chat_stream_endpoint(
+    request: Request,
     text: str = Form(None),
     message: str = Form(None),
     history: str = Form("[]"),
@@ -188,28 +224,34 @@ async def chat_stream_endpoint(
     ai_used_this_month: int = Form(None),
     policy_threshold_override: str = Form(None),
 ):
+    request_id = _request_id(request)
+    started_at = time.perf_counter()
+
     async def event_generator():
         final_fallback_used = False
         final_fallback_reason = None
         capacity_lease = None
 
         try:
+            logger.info(f"chat_stream_started request_id={request_id} has_image={file is not None}")
             limit_msg = _plan_limit_message(user_plan, ai_limit_per_month, ai_used_this_month)
             if limit_msg:
+                final_fallback_used = True
+                final_fallback_reason = "plan_limit"
                 yield serialize_sse_event(
-                    build_sources_event([], fallback_used=True, fallback_reason="plan_limit")
+                    build_sources_event([], fallback_used=True, fallback_reason=final_fallback_reason)
                 )
                 yield serialize_sse_event(
                     build_token_event(
                         limit_msg,
                         fallback_used=True,
-                        fallback_reason="plan_limit",
+                        fallback_reason=final_fallback_reason,
                     )
                 )
                 yield serialize_sse_event(
                     build_done_event(
                         fallback_used=True,
-                        fallback_reason="plan_limit",
+                        fallback_reason=final_fallback_reason,
                     )
                 )
                 return
@@ -226,6 +268,8 @@ async def chat_stream_endpoint(
                 policy_threshold_override,
             )
             if ctx["early"]:
+                final_fallback_used = True
+                final_fallback_reason = "early_response"
                 resp = ctx["response"]
                 yield serialize_sse_event(
                     build_sources_event(
@@ -233,20 +277,20 @@ async def chat_stream_endpoint(
                         debug_intent=resp.get("debug_intent"),
                         search_trace=resp.get("search_trace"),
                         fallback_used=True,
-                        fallback_reason="early_response",
+                        fallback_reason=final_fallback_reason,
                     )
                 )
                 yield serialize_sse_event(
                     build_token_event(
                         resp.get("answer", ""),
                         fallback_used=True,
-                        fallback_reason="early_response",
+                        fallback_reason=final_fallback_reason,
                     )
                 )
                 yield serialize_sse_event(
                     build_done_event(
                         fallback_used=True,
-                        fallback_reason="early_response",
+                        fallback_reason=final_fallback_reason,
                     )
                 )
                 return
@@ -273,7 +317,7 @@ async def chat_stream_endpoint(
             )
             async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
                 if not provider.has_credentials() or not stream_url:
-                    logger.error("⚠️ GenAI credentials/config eksik.")
+                    logger.error(f"⚠️ GenAI credentials/config eksik. request_id={request_id}")
                     fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
                     final_fallback_used = True
                     final_fallback_reason = "missing_api_key"
@@ -292,13 +336,16 @@ async def chat_stream_endpoint(
                     )
                     return
                 async with session.post(stream_url, json=payload) as resp:
-                    logger.info(f"🤖 [GEMINI-STREAM] status={resp.status} content-type={resp.headers.get('Content-Type')}")
+                    logger.info(
+                        f"🤖 [GEMINI-STREAM] status={resp.status} "
+                        f"content-type={resp.headers.get('Content-Type')} request_id={request_id}"
+                    )
                     if resp.status != 200:
                         try:
                             err_text = await resp.text()
                         except Exception:
                             err_text = "<read-failed>"
-                        logger.error(f"🤖 [GEMINI-STREAM] error body: {err_text[:500]}")
+                        logger.error(f"🤖 [GEMINI-STREAM] error body: {err_text[:500]} request_id={request_id}")
                         fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
                         final_fallback_used = True
                         final_fallback_reason = "upstream_non_200"
@@ -355,7 +402,10 @@ async def chat_stream_endpoint(
                         if done:
                             break
                     if token_count == 0:
-                        logger.warning("🤖 [GEMINI-STREAM] 0 token üretildi. Yanıt formatı beklenenden farklı olabilir.")
+                        logger.warning(
+                            f"🤖 [GEMINI-STREAM] 0 token üretildi. "
+                            f"Yanıt formatı beklenenden farklı olabilir. request_id={request_id}"
+                        )
                         fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
                         final_fallback_used = True
                         final_fallback_reason = "zero_tokens"
@@ -393,7 +443,7 @@ async def chat_stream_endpoint(
                 )
             )
         except Exception as e:
-            logger.error(f"Chat Stream Hatası: {e}")
+            logger.error(f"Chat Stream Hatası: {e} request_id={request_id}")
             final_fallback_used = True
             final_fallback_reason = "exception"
             yield serialize_sse_event(
@@ -406,6 +456,12 @@ async def chat_stream_endpoint(
         finally:
             if capacity_lease is not None:
                 await capacity_lease.release()
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                f"chat_stream_completed request_id={request_id} "
+                f"fallback_used={final_fallback_used} "
+                f"fallback_reason={final_fallback_reason} duration_ms={duration_ms:.1f}"
+            )
 
         yield serialize_sse_event(
             build_done_event(
