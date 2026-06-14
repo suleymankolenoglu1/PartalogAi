@@ -33,27 +33,34 @@ jobs:
           python-version: "3.11"
 
       - name: Validate required secrets
+        id: validate-secrets
         run: |
           set -euo pipefail
-          if [ -z "${PARTALOG_BASE_URL:-}" ]; then
-            echo "Missing secret: PARTALOG_BASE_URL"
-            exit 1
-          fi
-          if [ -z "${PARTALOG_PUBLIC_TOKEN:-}" ]; then
-            echo "Missing secret: PARTALOG_PUBLIC_TOKEN"
-            exit 1
-          fi
-          if [ -z "${PARTALOG_CATALOG_IDS:-}" ]; then
-            echo "Missing secret: PARTALOG_CATALOG_IDS"
+          missing=()
+          [ -n "${PARTALOG_BASE_URL:-}" ] || missing+=("PARTALOG_BASE_URL")
+          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || missing+=("PARTALOG_PUBLIC_TOKEN")
+          [ -n "${PARTALOG_CATALOG_IDS:-}" ] || missing+=("PARTALOG_CATALOG_IDS")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing secrets: ${missing[*]}"
+            if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+              echo "run_remote_eval=false" >> "$GITHUB_OUTPUT"
+              echo "Remote chat eval skipped on pull_request because required secrets are unavailable."
+              exit 0
+            fi
             exit 1
           fi
 
+          echo "run_remote_eval=true" >> "$GITHUB_OUTPUT"
+
       - name: Install eval deps
+        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install aiohttp
 
       - name: Run chat eval thresholds
+        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
         working-directory: partalog-ai
         run: |
           python eval/chat_eval.py \
@@ -68,6 +75,7 @@ jobs:
             --min-no-code-pass-rate 0.9
 
       - name: Run behavior smoke thresholds
+        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
         working-directory: partalog-ai
         run: |
           python eval/chat_eval.py \
@@ -85,6 +93,7 @@ jobs:
             --min-forbidden-term-pass-rate 1.0
 
       - name: Run feedback regression thresholds
+        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
         working-directory: partalog-ai
         run: |
           if python - <<'PY'
@@ -112,7 +121,7 @@ jobs:
           fi
 
       - name: Upload eval report
-        if: always()
+        if: always() && steps.validate-secrets.outputs.run_remote_eval == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chat-eval-report
