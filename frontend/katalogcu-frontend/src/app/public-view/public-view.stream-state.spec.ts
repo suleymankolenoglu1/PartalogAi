@@ -4,6 +4,8 @@ import {
   PublicChatStreamState,
   reducePublicChatStreamState,
 } from './public-view.stream-state';
+import { extractChatStreamEvents } from '../core/services/ai-stream-contract';
+import { PUBLIC_CHAT_HAPPY_PATH_SSE } from '../core/services/chat-stream-contract.fixture';
 
 describe('public view stream state', () => {
   const emptyState = (): PublicChatStreamState => ({
@@ -47,6 +49,29 @@ describe('public view stream state', () => {
       { role: 'user', text: 'yağ deposu contası' },
       { role: 'assistant', text: 'Parça 4109410.' },
     ]);
+  });
+
+  it('replays the shared backend SSE fixture into message, loading and reply state', () => {
+    const parsed = extractChatStreamEvents(PUBLIC_CHAT_HAPPY_PATH_SSE);
+    expect(parsed.errors).toEqual([]);
+
+    let state = beginPublicChatStream(emptyState(), 'yağ deposu contası', 'u1', 'a1');
+    for (const event of parsed.events) {
+      if (event.type === 'sources') {
+        state = reducePublicChatStreamState(state, { type: 'sources', products: event.sources });
+      } else if (event.type === 'token') {
+        state = reducePublicChatStreamState(state, { type: 'token', token: event.token });
+      } else if (event.type === 'done') {
+        state = reducePublicChatStreamState(state, { type: 'done' });
+      }
+    }
+
+    expect(state.aiState.isLoading).toBeFalse();
+    expect(state.messages[1].isStreaming).toBeFalse();
+    expect(state.messages[1].text).toBe('Parça 4109410 bulundu.');
+    expect(state.aiState.response?.replySuggestion).toBe('Parça 4109410 bulundu.');
+    expect(state.aiState.response?.products[0].catalogItemId).toBe('ci-1');
+    expect(state.latestAssistantMessage?.products?.[0].code).toBe('4109410');
   });
 
   it('keeps UI consistent when tokens arrive before sources', () => {
