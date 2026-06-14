@@ -3,6 +3,7 @@ import {
   flushChatStreamBuffer,
   parseChatStreamPayload,
 } from './ai-stream-contract';
+import { PUBLIC_CHAT_HAPPY_PATH_SSE } from './chat-stream-contract.fixture';
 
 describe('ai stream contract', () => {
   it('replays sources, token and done events from SSE frames', () => {
@@ -22,6 +23,20 @@ describe('ai stream contract', () => {
     expect(result.remaining).toBe('');
     expect(result.events.map((event) => event.type)).toEqual(['sources', 'token', 'done']);
     expect(result.events[0].type === 'sources' && result.events[0].sources[0].code).toBe('4109410');
+  });
+
+  it('parses the shared backend/frontend happy-path fixture without contract drift', () => {
+    const result = extractChatStreamEvents(PUBLIC_CHAT_HAPPY_PATH_SSE);
+
+    expect(result.errors).toEqual([]);
+    expect(result.remaining).toBe('');
+    expect(result.events.map((event) => event.type)).toEqual(['sources', 'token', 'token', 'done']);
+    expect(result.events[0].type === 'sources' && result.events[0].sources[0].catalogItemId).toBe(
+      'ci-1'
+    );
+    expect(result.events[3].type === 'done' && result.events[3].completion.status).toBe(
+      'completed'
+    );
   });
 
   it('keeps incomplete frames in the remaining buffer', () => {
