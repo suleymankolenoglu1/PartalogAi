@@ -38,9 +38,6 @@ namespace Katalogcu.Domain.Entities
         [Column(TypeName = "vector(3072)")]
         public Pgvector.Vector? Embedding { get; set; }
 
-        // Embedding üretiminde kullanılan bağlamlı ham arama metni.
-        public string? SearchText { get; set; }
-
         // --- VISUAL SEARCH ALANLARI ---
         [Column(TypeName = "vector(3072)")]
         public Pgvector.Vector? VisualEmbedding { get; set; }

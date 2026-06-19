@@ -6,14 +6,37 @@ import { CatalogService, Catalog, CatalogPageItem, PublicFolderSummary, PublicSt
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
 import { environment } from '../../environments/environment';
-import { emitEmbedEvent, startEmbedAutoResize } from '../core/utils/embed-bridge';
 import {
-  AiResponse,
-  ChatMessage,
-  PublicChatStreamState,
-  beginPublicChatStream,
-  reducePublicChatStreamState,
+  initialPublicViewStreamState,
+  reducePublicViewStreamState,
 } from './public-view.stream-state';
+
+// 🔥 Yanıt Tipi Tanımı (HTML ile uyumlu olması için)
+interface AiResponse {
+  replySuggestion: string; // Eskiden 'text' idi
+  products: any[];         // Eskiden 'suggestedParts' idi
+  debugInfo?: string;      // Yeni eklendi
+
+  // ✅ Compare için yan yana gruplar
+  compareGroups?: CompareGroup[];
+}
+
+interface CompareGroup {
+  query: string;
+  results: any[];
+}
+
+// ✨ Sohbet Mesaj Tipi
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  products?: any[];
+  compareGroups?: CompareGroup[];
+  isStreaming?: boolean;
+  feedback?: 'up' | 'down';
+  feedbackSubmitted?: boolean;
+}
 
 interface PublicBreadcrumb {
   id: string | null;
@@ -46,6 +69,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     isLoading: false, 
     response: null as null | AiResponse
   };
+  streamState = initialPublicViewStreamState;
 
   // ✨ Sohbet Geçmişi
   chatHistory: { role: string; text: string }[] = []; 
@@ -66,7 +90,6 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   savingFeedbackCode: string | null = null;
   savedFeedbackKeys = new Set<string>();
   private pendingAutoScroll = false;
-  private stopEmbedAutoResize: (() => void) | null = null;
 
   // --- Veri Havuzu ---
   allCatalogs: Catalog[] = [];
@@ -76,8 +99,6 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   currentPublicFolderId: string | null = null;
   publicBreadcrumbs: PublicBreadcrumb[] = [{ id: null, name: 'Ana Dizin' }];
   publicToken: string | null = null;
-  embedKey: string | null = null;
-  isTargetedEmbed = false;
   publicLoadError: string | null = null;
   storefront: PublicStorefront = {
     businessName: 'Katalog Magazasi',
@@ -115,19 +136,11 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.stopEmbedAutoResize = startEmbedAutoResize('public-view');
     this.publicToken = this.route.snapshot.paramMap.get('publicToken');
-    this.embedKey = this.route.snapshot.queryParamMap.get('embedKey');
-    this.isTargetedEmbed = this.route.snapshot.queryParamMap.get('embedTarget') === '1';
     if (!this.publicToken) {
       console.error('Public token bulunamadı.');
       this.publicLoadError = 'Public link eksik veya hatalı.';
       this.isLoading = false;
-      return;
-    }
-
-    if (this.isTargetedEmbed && this.embedKey) {
-      this.router.navigate(['/embed/runtime', this.embedKey], { replaceUrl: true });
       return;
     }
 
@@ -139,13 +152,24 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     if (saved) {
       try { 
         const parsed = JSON.parse(saved);
-        this.applyStreamState(
-          reducePublicChatStreamState(this.captureStreamState(), {
-            type: 'restore',
-            messages: parsed,
-          })
-        );
+        this.messages = parsed;
+        this.chatHistory = parsed.map((m: ChatMessage) => ({ role: m.role, text: m.text }));
+        this.updateLatestAssistantMessage();
         if (this.messages.length > 0) {
+          this.aiState.isActive = true;
+          const lastAi = [...this.messages].reverse().find(m => m.role === 'assistant');
+          if (lastAi) {
+            this.streamState = reducePublicViewStreamState(initialPublicViewStreamState, {
+              type: 'restore',
+              replySuggestion: lastAi.text,
+              products: lastAi.products || [],
+            });
+            this.aiState.response = {
+              replySuggestion: lastAi.text,
+              products: lastAi.products || [],
+              compareGroups: lastAi.compareGroups || [],
+            };
+          }
           setTimeout(() => this.scrollMessagesToBottom(), 0);
         }
       } catch (e) { console.warn('chat history parse error:', e); }
@@ -157,8 +181,6 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.stopEmbedAutoResize?.();
-    this.stopEmbedAutoResize = null;
   }
 
   loadStorefront() {
@@ -301,6 +323,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     localStorage.removeItem(this.getHistoryStorageKey());
     this.aiState.isActive = false;
     this.aiState.response = null;
+    this.streamState = reducePublicViewStreamState(this.streamState, { type: 'reset' });
     this.latestAssistantMessage = null;
     this.chatFeedbackReason = '';
     this.chatFeedbackMessage = null;
@@ -355,17 +378,26 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     if (!this.searchText && !this.selectedImage) return;
 
     this.aiState.isActive = true;
+    this.aiState.isLoading = true;
+    this.aiState.response = null;
+    this.streamState = reducePublicViewStreamState(this.streamState, { type: 'start' });
 
     const userText = this.searchText || '(Resim Gönderildi)';
-    this.applyStreamState(
-      beginPublicChatStream(
-        this.captureStreamState(),
-        userText,
-        new Date().toISOString(),
-        new Date().toISOString()
-      )
-    );
+    const userMsg: ChatMessage = { role: 'user', text: userText, timestamp: new Date().toISOString() };
+    this.messages.push(userMsg);
+    this.chatHistory.push({ role: 'user', text: userText });
     this.saveHistory();
+    this.scrollMessagesToBottom();
+
+    // Streaming asistan mesajı placeholder ekle
+    const streamingMsg: ChatMessage = {
+      role: 'assistant',
+      text: '',
+      timestamp: new Date().toISOString(),
+      products: [],
+      isStreaming: true,
+    };
+    this.messages.push(streamingMsg);
     this.scrollMessagesToBottom();
 
     this.aiService.sendMessageStream(
@@ -377,77 +409,92 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     ).subscribe({
       next: (event) => {
         if (event.type === 'sources') {
-          this.applyStreamEvent({
-            type: 'sources',
-            products: this.mapStreamSources(event.sources || []),
+          const mappedProducts = (event.sources || []).map((part: any) => ({
+            id: part.id,
+            catalogItemId: part.catalogItemId ?? part.catalog_item_id ?? part.id ?? this.buildAiCartItemId(part),
+            code: part.code,
+            refNo: part.refNo ?? part.ref_no,
+            name: part.name,
+            brand: part.brand,
+            description: part.description,
+            catalogId: part.catalogId,
+            pageNumber: part.pageNumber || '1',
+            model: part.model,
+            price: part.price,
+            productId: this.isEmptyGuid(part.productId ?? part.product_id) ? null : (part.productId ?? part.product_id),
+            stockStatus: part.stockStatus || 'Stokta Yok',
+            imageUrl: part.imageUrl,
+            query: part.query,
+            similarity: typeof part.similarity === 'number' ? part.similarity : null,
+            visualMatch: part.visualMatch ?? false,
+            visualImageUrl: part.visualImageUrl ?? null,
+            visualSimilarity: part.visualSimilarity ?? null,
+            fallback: part.fallback ?? false,
+            fallbackReason: part.fallbackReason ?? part.fallback_reason ?? null,
+          }));
+          this.streamState = reducePublicViewStreamState(this.streamState, {
+            type: 'sourcesReceived',
+            products: mappedProducts,
           });
+          streamingMsg.products = mappedProducts;
+          this.aiState.isLoading = false;
+          this.aiState.response = {
+            replySuggestion: '',
+            products: mappedProducts,
+          };
+          this.messages = [...this.messages];
+          this.scrollMessagesToBottom();
         } else if (event.type === 'token') {
-          this.applyStreamEvent({ type: 'token', token: event.token });
+          this.streamState = reducePublicViewStreamState(this.streamState, {
+            type: 'tokenReceived',
+            token: event.token,
+          });
+          const streamingText = this.streamState.replySuggestion;
+          streamingMsg.text = streamingText;
+          this.messages = [...this.messages];
+          this.scrollMessagesToBottom();
+          if (this.aiState.response) {
+            this.aiState.response = { ...this.aiState.response, replySuggestion: streamingText };
+          }
         } else if (event.type === 'done') {
-          this.applyStreamEvent({ type: 'done' });
+          this.streamState = reducePublicViewStreamState(this.streamState, { type: 'complete' });
+          const streamingText = this.streamState.replySuggestion;
+          streamingMsg.isStreaming = false;
+          this.aiState.isLoading = false;
+          this.aiState.response = {
+            replySuggestion: streamingText,
+            products: streamingMsg.products || [],
+          };
+          this.messages = [...this.messages];
+          this.scrollMessagesToBottom();
+          this.chatHistory.push({ role: 'assistant', text: streamingText });
           this.saveHistory();
           this.feedbackMessage = null;
           this.feedbackError = null;
           this.chatFeedbackReason = '';
           this.chatFeedbackMessage = null;
           this.chatFeedbackError = null;
+          this.updateLatestAssistantMessage();
         }
       },
       error: (err) => {
         console.error('AI Stream Hatası:', err);
-        this.applyStreamEvent({
-          type: 'error',
-          message: '⚠️ Bağlantı hatası, lütfen tekrar deneyin.',
+        this.streamState = reducePublicViewStreamState(this.streamState, {
+          type: 'fail',
+          message: 'Baglanti hatasi, lutfen tekrar deneyin.',
         });
+        this.aiState.isLoading = false;
+        streamingMsg.text = this.streamState.replySuggestion;
+        streamingMsg.isStreaming = false;
+        this.messages = [...this.messages];
+        this.scrollMessagesToBottom();
       }
     });
   }
 
-  private captureStreamState(): PublicChatStreamState {
-    return {
-      messages: this.messages,
-      chatHistory: this.chatHistory,
-      aiState: this.aiState,
-      latestAssistantMessage: this.latestAssistantMessage,
-    };
-  }
-
-  private applyStreamEvent(event: Parameters<typeof reducePublicChatStreamState>[1]) {
-    this.applyStreamState(reducePublicChatStreamState(this.captureStreamState(), event));
-    this.scrollMessagesToBottom();
-  }
-
-  private applyStreamState(state: PublicChatStreamState) {
-    this.messages = state.messages;
-    this.chatHistory = state.chatHistory;
-    this.aiState = state.aiState;
-    this.latestAssistantMessage = state.latestAssistantMessage;
-  }
-
-  private mapStreamSources(sources: any[]) {
-    return sources.map((part: any) => ({
-      id: part.id,
-      catalogItemId: part.catalogItemId ?? part.catalog_item_id ?? part.id ?? this.buildAiCartItemId(part),
-      code: part.code,
-      refNo: part.refNo ?? part.ref_no,
-      name: part.name,
-      brand: part.brand,
-      description: part.description,
-      catalogId: part.catalogId,
-      pageNumber: part.pageNumber || '1',
-      model: part.model,
-      price: part.price,
-      productId: this.isEmptyGuid(part.productId ?? part.product_id) ? null : (part.productId ?? part.product_id),
-      stockStatus: part.stockStatus || 'Stokta Yok',
-      imageUrl: part.imageUrl,
-      query: part.query,
-      similarity: typeof part.similarity === 'number' ? part.similarity : null,
-      visualMatch: part.visualMatch ?? false,
-      visualImageUrl: part.visualImageUrl ?? null,
-      visualSimilarity: part.visualSimilarity ?? null,
-      fallback: part.fallback ?? false,
-      fallbackReason: part.fallbackReason ?? part.fallback_reason ?? null,
-    }));
+  private updateLatestAssistantMessage() {
+    this.latestAssistantMessage =
+      [...this.messages].reverse().find(m => m.role === 'assistant' && !m.isStreaming) ?? null;
   }
 
   private findUserQueryBefore(target: ChatMessage): string {
@@ -525,15 +572,6 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   openPartInCatalog(part: any) {
     const catalogId = String(part?.catalogId ?? '').trim();
     if (!catalogId) return;
-    emitEmbedEvent('part:viewed', {
-      catalogId,
-      pageNumber: part?.pageNumber ?? null,
-      refNo: part?.refNo ?? part?.ref_no ?? null,
-      partCode: part?.code ?? null,
-      partName: part?.name ?? null,
-      catalogItemId: part?.catalogItemId ?? null,
-      source: 'ai-result'
-    });
 
     const rawPageNumber = part?.pageNumber;
     const parsedPage = Number.parseInt(String(rawPageNumber ?? ''), 10);
@@ -605,10 +643,6 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   goCheckout() {
     if (!this.canUseEcommerce) return;
     if (!this.publicToken) return;
-    emitEmbedEvent('checkout:start', {
-      publicToken: this.publicToken,
-      source: 'public-view'
-    });
     this.router.navigate(['/p', this.publicToken, 'checkout']);
   }
 
@@ -649,14 +683,6 @@ export class PublicViewComponent implements OnInit, OnDestroy {
 
     this.cartService.addToCart(item);
     this.isCartOpen = true;
-    emitEmbedEvent('cart:add', {
-      catalogItemId: item.catalogItemId,
-      refNo: item.refNo,
-      partCode: item.partCode,
-      partName: item.partName,
-      productId: item.productId ?? null,
-      source: 'ai-result'
-    });
   }
 
   getPartFeedbackKey(part: any): string {

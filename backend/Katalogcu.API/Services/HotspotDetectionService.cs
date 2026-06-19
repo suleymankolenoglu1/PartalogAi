@@ -35,7 +35,7 @@ public sealed class HotspotDetectionService : IHotspotDetectionService
             ContentType = ResolveContentType(fileName)
         };
 
-        return await _aiService.DetectHotspotsAsync(formFile.ToUploadedFile(), pageId, throwOnFailure);
+        return await _aiService.DetectHotspotsAsync(formFile, pageId, throwOnFailure);
     }
 
     private static string ResolveContentType(string fileName)

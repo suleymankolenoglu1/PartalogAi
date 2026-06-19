@@ -251,9 +251,6 @@ namespace Katalogcu.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("SearchText")
-                        .HasColumnType("text");
-
                     b.Property<DateTime?>("UpdatedDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -855,71 +852,6 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.HasIndex("TargetOwnerUserId");
 
                     b.ToTable("PlatformAuditLogs");
-                });
-
-            modelBuilder.Entity("Katalogcu.Domain.Entities.PolicyThreshold", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal?>("AmbiguityScoreDelta")
-                        .HasPrecision(5, 4)
-                        .HasColumnType("numeric(5,4)");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal?>("HighConfidence")
-                        .HasPrecision(5, 4)
-                        .HasColumnType("numeric(5,4)");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
-
-                    b.Property<decimal?>("LowConfidence")
-                        .HasPrecision(5, 4)
-                        .HasColumnType("numeric(5,4)");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("ScopeKey")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ScopeType")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTime?>("UpdatedDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Version")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ScopeType", "ScopeKey")
-                        .IsUnique()
-                        .HasDatabaseName("UX_PolicyThresholds_ActiveScope")
-                        .HasFilter("\"IsActive\" = TRUE");
-
-                    b.HasIndex("IsActive", "ScopeType", "ScopeKey")
-                        .HasDatabaseName("IX_PolicyThresholds_ActiveScope");
-
-                    b.ToTable("PolicyThresholds");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.Product", b =>

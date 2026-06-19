@@ -26,6 +26,19 @@ public sealed class PublicCustomerDto
     public DateTime? LastLoginDate { get; init; }
 }
 
+public sealed class PublicCustomerMachineDto
+{
+    public Guid Id { get; init; }
+    public string Brand { get; init; } = string.Empty;
+    public string Model { get; init; } = string.Empty;
+    public string? Variant { get; init; }
+    public string? MachineGroup { get; init; }
+    public string? SerialNumber { get; init; }
+    public string DisplayName { get; init; } = string.Empty;
+    public bool IsActive { get; init; }
+    public DateTime CreatedDate { get; init; }
+}
+
 public sealed class PublicCustomerOrderSummaryDto
 {
     public Guid Id { get; init; }

@@ -54,11 +54,6 @@
                 <span class="label">Ayarlar</span>
             </a>
 
-            <a routerLink="/dashboard/embed" routerLinkActive="active" class="nav-item">
-                <span class="material-symbols-outlined icon">code_blocks</span>
-                <span class="label">Web Sitesine Ekle</span>
-            </a>
-
             @if (shouldShowSidebarUpgradePromo) {
                 <div class="upgrade-promo-box">
                     <div class="upgrade-promo-title">Planını Yükselt</div>
@@ -101,9 +96,6 @@
                     <button type="button" class="store-action-btn" (click)="goToLinkManagement()">
                         Link Yönetimi
                     </button>
-                    <a routerLink="/dashboard/embed" class="store-action-btn store-action-link">
-                        Web Sitesine Ekle
-                    </a>
                 </div>
 
                 @if (publicActionMessage) {

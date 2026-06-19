@@ -75,43 +75,6 @@
     }
   </section>
 
-  <section class="traffic-panel embed-panel">
-    <div class="panel-head">
-      <h2>Embed Etkileşimleri</h2>
-      <span class="traffic-badge">SDK v1</span>
-    </div>
-
-    @if (isLoading) {
-      <div class="state-box">Embed metrikleri yükleniyor...</div>
-    } @else {
-      <div class="traffic-grid">
-        <article class="traffic-card">
-          <span class="traffic-label">Toplam Event</span>
-          <strong class="traffic-value">{{ embedEventsTotal | number:'1.0-0' }}</strong>
-          <span class="traffic-hint">Tüm zamanlar</span>
-        </article>
-
-        <article class="traffic-card">
-          <span class="traffic-label">Son 7 Gün</span>
-          <strong class="traffic-value">{{ embedEventsLast7Days | number:'1.0-0' }}</strong>
-          <span class="traffic-hint">Haftalık embed aktivitesi</span>
-        </article>
-
-        <article class="traffic-card">
-          <span class="traffic-label">Parça İnceleme</span>
-          <strong class="traffic-value">{{ embedPartViewedCount | number:'1.0-0' }}</strong>
-          <span class="traffic-hint">`part:viewed`</span>
-        </article>
-
-        <article class="traffic-card">
-          <span class="traffic-label">Sepet / Checkout</span>
-          <strong class="traffic-value">{{ embedCartAddCount | number:'1.0-0' }} / {{ embedCheckoutStartCount | number:'1.0-0' }}</strong>
-          <span class="traffic-hint">`cart:add` / `checkout:start`</span>
-        </article>
-      </div>
-    }
-  </section>
-
   <section class="catalog-panel">
     <div class="panel-head">
       <h2>Kataloglarım</h2>

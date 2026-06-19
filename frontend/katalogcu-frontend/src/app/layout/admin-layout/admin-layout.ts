@@ -59,6 +59,7 @@ export class AdminLayoutComponent implements OnDestroy {
       modules.push(
         { key: 'ai', label: 'AI Ayarları', icon: 'auto_awesome', minPlan: 2, route: '/dashboard/ai', feature: 'ai', badge: this.hasPlan(2) ? null : 'PRO' },
         { key: 'ai-quality', label: 'AI Kalite', icon: 'monitoring', minPlan: 2, route: '/dashboard/chat-quality', feature: 'ai-quality', badge: this.hasPlan(2) ? null : 'PRO' },
+        { key: 'policy-thresholds', label: 'AI Policy', icon: 'tune', minPlan: 2, route: '/dashboard/policy-thresholds', feature: 'policy-thresholds', badge: this.hasPlan(2) ? null : 'PRO' },
         { key: 'visual-feedback', label: 'Görsel Feedback', icon: 'image_search', minPlan: 2, route: '/dashboard/visual-feedback', feature: 'visual-feedback', badge: this.hasPlan(2) ? null : 'PRO' },
       );
     }

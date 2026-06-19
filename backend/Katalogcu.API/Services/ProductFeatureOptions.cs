@@ -4,8 +4,9 @@ namespace Katalogcu.API.Services;
 
 public sealed class ProductFeatureOptions
 {
-    public bool EnableChatbot { get; set; } = true;
-    public bool EnableCatalogAnalysis { get; set; } = true;
+    public bool EnableAi { get; set; } = true;
+    public bool? EnableChatbot { get; set; }
+    public bool? EnableCatalogAnalysis { get; set; }
     public bool EnableEcommerce { get; set; } = true;
     public bool EnableUpgradePrompts { get; set; } = true;
     public bool EnablePlanManagement { get; set; } = true;
@@ -31,8 +32,8 @@ public sealed class ProductFeaturePolicy : IProductFeaturePolicy
     }
 
     public bool AiEnabled => ChatbotEnabled || CatalogAnalysisEnabled;
-    public bool ChatbotEnabled => _options.CurrentValue.EnableChatbot;
-    public bool CatalogAnalysisEnabled => _options.CurrentValue.EnableCatalogAnalysis;
+    public bool ChatbotEnabled => _options.CurrentValue.EnableChatbot ?? _options.CurrentValue.EnableAi;
+    public bool CatalogAnalysisEnabled => _options.CurrentValue.EnableCatalogAnalysis ?? _options.CurrentValue.EnableAi;
     public bool EcommerceEnabled => _options.CurrentValue.EnableEcommerce;
     public bool UpgradePromptsEnabled => _options.CurrentValue.EnableUpgradePrompts;
     public bool PlanManagementEnabled => _options.CurrentValue.EnablePlanManagement;

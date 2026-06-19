@@ -1,0 +1,19 @@
+# Fixed relevance benchmark set for search changes.
+# Keep this file stable; append only when you intentionally re-baseline metrics.
+# Use with: export PARTALOG_PUBLIC_TOKEN="..."
+
+{"id":"R1","text":"vida m3 0.5x3","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["vida"]}
+{"id":"R2","text":"m3-0.5x5 vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["120016"],"required_terms":["vida"]}
+{"id":"R3","text":"m4-0.7x5 vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["005075"],"required_terms":["vida"]}
+{"id":"R4","text":"perçin","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["000726"],"required_terms":["perçin"]}
+{"id":"R5","text":"yan kapak alt","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500854"],"required_terms":["yan kapak"]}
+{"id":"R6","text":"yağ haznesi conta","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500005","3500004"],"required_terms":["conta"]}
+{"id":"R7","text":"model plakası","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["4109410"],"required_terms":["plaka"]}
+{"id":"R8","text":"160000 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"R9","text":"110045 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110045"],"required_terms":["110045"]}
+{"id":"R10","text":"0037164 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["0037164"],"required_terms":["0037164"]}
+{"id":"R11","text":"yamato vg2500-8f vida","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["yamato","vida"]}
+{"id":"R12","text":"yamaot vg2500 8f vdia","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["vida"]}
+{"id":"R13","text":"yamaot vdia","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["vida"]}
+{"id":"R14","text":"999999 kodlu parça var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"R15","text":"telefon şarj kablosu arıyorum","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}

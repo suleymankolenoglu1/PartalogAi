@@ -1,4 +1,5 @@
 using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Features.Products.Queries.Common;
 using Katalogcu.Domain.Entities;
 using Katalogcu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -60,6 +61,70 @@ public sealed class StockRepository : IStockRepository
             .Where(p => p.Catalog != null && p.Catalog.UserId == userId)
             .OrderByDescending(p => p.CreatedDate)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<(IReadOnlyList<ProductListItemDto> Items, int TotalCount)> GetOwnedProductsPageAsync(
+        Guid userId,
+        Guid? catalogId,
+        string? stockStatus,
+        string? search,
+        int skip,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var query = _context.Products
+            .AsNoTracking()
+            .Include(p => p.Catalog)
+            .Where(p => p.Catalog != null && p.Catalog.UserId == userId);
+
+        if (catalogId.HasValue && catalogId.Value != Guid.Empty)
+        {
+            query = query.Where(p => p.CatalogId == catalogId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(stockStatus))
+        {
+            var normalized = stockStatus.Trim().ToLowerInvariant();
+            if (normalized is "in" or "in_stock" or "stocked")
+            {
+                query = query.Where(p => p.StockQuantity > 0);
+            }
+            else if (normalized is "out" or "out_of_stock")
+            {
+                query = query.Where(p => p.StockQuantity <= 0);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(p =>
+                p.Name.ToLower().Contains(term) ||
+                p.Code.ToLower().Contains(term) ||
+                (p.OemNo != null && p.OemNo.ToLower().Contains(term)));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(p => p.CreatedDate)
+            .Skip(Math.Max(0, skip))
+            .Take(Math.Clamp(take, 1, 100))
+            .Select(p => new ProductListItemDto
+            {
+                Id = p.Id,
+                Code = p.Code,
+                Name = p.Name,
+                OemNo = p.OemNo,
+                Price = p.Price,
+                StockQuantity = p.StockQuantity,
+                ImageUrl = p.ImageUrl,
+                Category = p.Category,
+                CatalogId = p.CatalogId,
+                CatalogName = p.Catalog != null ? p.Catalog.Name : "Genel Stok"
+            })
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
     }
 
     public async Task<IReadOnlyList<Product>> GetCatalogProductsForListAsync(

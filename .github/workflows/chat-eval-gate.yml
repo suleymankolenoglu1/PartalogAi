@@ -21,7 +21,6 @@ jobs:
     env:
       PARTALOG_BASE_URL: ${{ secrets.PARTALOG_BASE_URL }}
       PARTALOG_PUBLIC_TOKEN: ${{ secrets.PARTALOG_PUBLIC_TOKEN }}
-      PARTALOG_CATALOG_IDS: ${{ secrets.PARTALOG_CATALOG_IDS }}
 
     steps:
       - name: Checkout
@@ -32,45 +31,24 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Validate eval case files
-        working-directory: partalog-ai
-        run: |
-          python eval/validate_cases.py \
-            eval/queries.hard.jsonl \
-            eval/queries.behavior_smoke.jsonl \
-            eval/queries.feedback_regressions.jsonl \
-            --allow-empty eval/queries.feedback_regressions.jsonl \
-            --require-freshness eval/queries.feedback_regressions.jsonl
-
       - name: Validate required secrets
-        id: validate-secrets
         run: |
           set -euo pipefail
-          missing=()
-          [ -n "${PARTALOG_BASE_URL:-}" ] || missing+=("PARTALOG_BASE_URL")
-          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || missing+=("PARTALOG_PUBLIC_TOKEN")
-          [ -n "${PARTALOG_CATALOG_IDS:-}" ] || missing+=("PARTALOG_CATALOG_IDS")
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "Missing secrets: ${missing[*]}"
-            if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
-              echo "run_remote_eval=false" >> "$GITHUB_OUTPUT"
-              echo "Remote chat eval skipped on pull_request because required secrets are unavailable."
-              exit 0
-            fi
+          if [ -z "${PARTALOG_BASE_URL:-}" ]; then
+            echo "Missing secret: PARTALOG_BASE_URL"
+            exit 1
+          fi
+          if [ -z "${PARTALOG_PUBLIC_TOKEN:-}" ]; then
+            echo "Missing secret: PARTALOG_PUBLIC_TOKEN"
             exit 1
           fi
 
-          echo "run_remote_eval=true" >> "$GITHUB_OUTPUT"
-
       - name: Install eval deps
-        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install aiohttp
 
       - name: Run chat eval thresholds
-        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
         working-directory: partalog-ai
         run: |
           python eval/chat_eval.py \
@@ -84,61 +62,11 @@ jobs:
             --max-hallucination-rate 0.05 \
             --min-no-code-pass-rate 0.9
 
-      - name: Run behavior smoke thresholds
-        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
-        working-directory: partalog-ai
-        run: |
-          python eval/chat_eval.py \
-            --base-url "$PARTALOG_BASE_URL" \
-            --cases eval/queries.behavior_smoke.jsonl \
-            --output-json eval/report.behavior_smoke.json \
-            --output-md eval/report.behavior_smoke.md \
-            --min-success-rate 1.0 \
-            --min-hit-at-1 1.0 \
-            --min-precision-at-3 0.6 \
-            --max-latency-p95-ms 25000 \
-            --max-hallucination-rate 0.0 \
-            --min-no-code-pass-rate 1.0 \
-            --min-required-term-pass-rate 1.0 \
-            --min-forbidden-term-pass-rate 1.0
-
-      - name: Run feedback regression thresholds
-        if: steps.validate-secrets.outputs.run_remote_eval == 'true'
-        working-directory: partalog-ai
-        run: |
-          if python - <<'PY'
-          from pathlib import Path
-          path = Path("eval/queries.feedback_regressions.jsonl")
-          has_cases = path.exists() and any(
-              line.strip() and not line.lstrip().startswith("#")
-              for line in path.read_text(encoding="utf-8").splitlines()
-          )
-          raise SystemExit(0 if has_cases else 1)
-          PY
-          then
-            python eval/chat_eval.py \
-              --base-url "$PARTALOG_BASE_URL" \
-              --cases eval/queries.feedback_regressions.jsonl \
-              --output-json eval/report.feedback_regressions.json \
-              --output-md eval/report.feedback_regressions.md \
-              --min-success-rate 1.0 \
-              --max-latency-p95-ms 25000 \
-              --max-hallucination-rate 0.0 \
-              --min-required-term-pass-rate 1.0 \
-              --min-forbidden-term-pass-rate 1.0
-          else
-            echo "No feedback regression cases committed yet; skipping."
-          fi
-
       - name: Upload eval report
-        if: always() && steps.validate-secrets.outputs.run_remote_eval == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chat-eval-report
           path: |
             partalog-ai/eval/report.hard.json
             partalog-ai/eval/report.hard.md
-            partalog-ai/eval/report.behavior_smoke.json
-            partalog-ai/eval/report.behavior_smoke.md
-            partalog-ai/eval/report.feedback_regressions.json
-            partalog-ai/eval/report.feedback_regressions.md

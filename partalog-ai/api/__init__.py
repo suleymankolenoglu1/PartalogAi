@@ -1,8 +1,6 @@
-"""API router package.
+"""API - FastAPI router'ları."""
 
-Routers are imported explicitly by main.py according to the active runtime
-profile. Keep this module side-effect free so chat-only images do not import
-catalog-processing dependencies such as OpenCV, YOLO, or EasyOCR.
-"""
+from .hotspot import router as hotspot_router
+from .table import router as table_router
 
-__all__: list[str] = []
+__all__ = ['hotspot_router', 'table_router']

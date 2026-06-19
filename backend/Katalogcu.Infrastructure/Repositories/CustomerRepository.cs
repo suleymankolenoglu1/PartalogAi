@@ -96,6 +96,36 @@ public sealed class CustomerRepository : ICustomerRepository
             .FirstOrDefaultAsync(o => o.Id == orderId && o.CustomerId == customerId, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CustomerMachine>> GetMachinesByCustomerIdAsync(
+        Guid customerId,
+        CancellationToken cancellationToken)
+    {
+        return await _context.Set<CustomerMachine>()
+            .Where(m => m.CustomerId == customerId)
+            .OrderByDescending(m => m.IsActive)
+            .ThenByDescending(m => m.CreatedDate)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<CustomerMachine?> GetMachineByIdAsync(
+        Guid machineId,
+        Guid customerId,
+        CancellationToken cancellationToken)
+    {
+        return _context.Set<CustomerMachine>()
+            .FirstOrDefaultAsync(m => m.Id == machineId && m.CustomerId == customerId, cancellationToken);
+    }
+
+    public Task AddMachineAsync(CustomerMachine machine, CancellationToken cancellationToken)
+    {
+        return _context.Set<CustomerMachine>().AddAsync(machine, cancellationToken).AsTask();
+    }
+
+    public void RemoveMachine(CustomerMachine machine)
+    {
+        _context.Set<CustomerMachine>().Remove(machine);
+    }
+
     public Task SaveChangesAsync(CancellationToken cancellationToken)
     {
         return _context.SaveChangesAsync(cancellationToken);

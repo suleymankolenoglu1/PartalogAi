@@ -1,3 +1,4 @@
+using Katalogcu.Application.Features.Products.Queries.Common;
 using Katalogcu.Domain.Entities;
 
 namespace Katalogcu.Application.Common.Interfaces;
@@ -16,6 +17,15 @@ public interface IStockRepository
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Product>> GetOwnedProductsForListAsync(Guid userId, CancellationToken cancellationToken);
+
+    Task<(IReadOnlyList<ProductListItemDto> Items, int TotalCount)> GetOwnedProductsPageAsync(
+        Guid userId,
+        Guid? catalogId,
+        string? stockStatus,
+        string? search,
+        int skip,
+        int take,
+        CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Product>> GetCatalogProductsForListAsync(
         Guid userId,

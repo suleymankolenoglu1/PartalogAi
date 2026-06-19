@@ -6,7 +6,6 @@ import { CartService } from '../../core/services/cart.service';
 import { CustomerService, PublicCustomerOrder, PublicCustomerOrderDetail } from '../../core/services/customer.service';
 import { CatalogService, PublicStorefront } from '../../core/services/catalog.service';
 import { environment } from '../../../environments/environment';
-import { emitEmbedEvent, startEmbedAutoResize } from '../../core/utils/embed-bridge';
 
 type AuthTab = 'login' | 'register';
 type PaymentMethod = 'KapidaOdeme' | 'HavaleEFT';
@@ -70,7 +69,6 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
   isRequestingResetCode = false;
   isConfirmingReset = false;
 
-  private stopEmbedAutoResize: (() => void) | null = null;
   showResetPassword = false;
 
   loginMessage: string | null = null;
@@ -101,7 +99,6 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.stopEmbedAutoResize = startEmbedAutoResize('checkout');
     if (!this.publicToken) return;
     if (!environment.features.enableEcommerce) {
       this.router.navigate(['/p', this.publicToken]);
@@ -110,10 +107,6 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
     this.cartService.setScope(`public:${this.publicToken}`);
     this.cartService.setPublicToken(this.publicToken);
     this.loadStorefront();
-    emitEmbedEvent('checkout:start', {
-      publicToken: this.publicToken,
-      source: 'checkout-page'
-    });
     const stored = localStorage.getItem(this.getSessionKey());
     if (!stored) return;
     this.customerSessionToken = stored;
@@ -139,8 +132,6 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.stopEmbedAutoResize?.();
-    this.stopEmbedAutoResize = null;
   }
 
   private loadStorefront() {

@@ -11,9 +11,6 @@ public sealed class ChatFeedbackEntry
     public string? UserQuery { get; init; }
     public string ReplySuggestion { get; init; } = string.Empty;
     public IReadOnlyList<string> SourceCodes { get; init; } = [];
-    public IReadOnlyList<string> CatalogIds { get; init; } = [];
-    public string? PublicToken { get; init; }
-    public string? ContextJson { get; init; }
     public string? MessageId { get; init; }
     public string? ConversationId { get; init; }
     public string? UserAgent { get; init; }

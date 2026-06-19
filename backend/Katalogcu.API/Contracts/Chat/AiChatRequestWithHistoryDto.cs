@@ -6,5 +6,4 @@ public sealed class AiChatRequestWithHistoryDto
     public IFormFile? Image { get; set; }
     public string? History { get; set; }
     public string? PublicToken { get; set; }
-    public string? ContextJson { get; set; }
 }

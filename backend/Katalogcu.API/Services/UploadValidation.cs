@@ -61,6 +61,11 @@ public static class UploadValidation
         return ValidateByRule(file, required, maxBytes, allowedExtensions, SpreadsheetContentTypes, "Excel/CSV");
     }
 
+    public static string? ValidateExternalSiteImportFile(IFormFile? file)
+    {
+        return ValidateSpreadsheet(file, required: true, allowCsv: true, maxBytes: MaxSpreadsheetBytes);
+    }
+
     public static string? ValidateUploadFile(IFormFile? file)
     {
         if (file == null || file.Length == 0)

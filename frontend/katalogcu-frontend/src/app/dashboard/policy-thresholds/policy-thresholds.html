@@ -1,0 +1,302 @@
+<div class="pt-page">
+  <header class="pt-header">
+    <div>
+      <h1>AI Policy Thresholds</h1>
+      <p>Confidence gate eşiklerini katalog, marka veya global scope ile yönet.</p>
+    </div>
+    <div class="pt-header-actions">
+      <label class="pt-check">
+        <input type="checkbox" [(ngModel)]="includeInactive" (change)="loadPolicies()" />
+        Pasif versiyonları göster
+      </label>
+      <button class="pt-primary-btn" type="button" (click)="loadPolicies()">
+        <span class="material-symbols-outlined">refresh</span>
+        Yenile
+      </button>
+    </div>
+  </header>
+
+  <section class="pt-editor">
+    <div class="pt-editor-title">
+      <h2>{{ form.id ? 'Policy güncelle' : 'Yeni policy' }}</h2>
+      <button class="pt-secondary-btn" type="button" (click)="resetForm()">
+        <span class="material-symbols-outlined">restart_alt</span>
+        Sıfırla
+      </button>
+    </div>
+
+    <div class="pt-form-grid">
+      <label>
+        Scope
+        <select [ngModel]="form.scopeType" (ngModelChange)="onScopeTypeChange($event); onPolicyInputChange()">
+          @if (isPlatformAdmin) {
+            <option value="Global">Global</option>
+            <option value="Brand">Marka</option>
+          }
+          <option value="Catalog">Katalog</option>
+        </select>
+      </label>
+
+      @if (form.scopeType === 'Catalog') {
+        <label>
+          Katalog
+          <select [(ngModel)]="form.scopeKey" (ngModelChange)="onPolicyInputChange()">
+            <option value="">Katalog seç</option>
+            @for (catalog of catalogs; track catalog.id) {
+              <option [value]="catalog.id">{{ catalog.name }}</option>
+            }
+          </select>
+        </label>
+      } @else if (form.scopeType === 'Brand') {
+        <label>
+          Marka
+          <input type="text" [(ngModel)]="form.scopeKey" (ngModelChange)="onPolicyInputChange()" placeholder="juki, yamato..." />
+        </label>
+      } @else {
+        <label>
+          Scope key
+          <input type="text" value="default" disabled />
+        </label>
+      }
+
+      <label>
+        High confidence
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="form.highConfidence" (ngModelChange)="onPolicyInputChange()" />
+      </label>
+
+      <label>
+        Low confidence
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="form.lowConfidence" (ngModelChange)="onPolicyInputChange()" />
+      </label>
+
+      <label>
+        Ambiguity delta
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="form.ambiguityScoreDelta" (ngModelChange)="onPolicyInputChange()" />
+      </label>
+
+      <label class="pt-notes">
+        Not
+        <input type="text" [(ngModel)]="form.notes" placeholder="Neden değişti? Hangi eval/feedback gerekçesi?" />
+      </label>
+    </div>
+
+    <div class="pt-eval">
+      <div class="pt-eval-head">
+        <label class="pt-check">
+          <input type="checkbox" [(ngModel)]="form.requireEvaluation" />
+          Eval geçmeden aktif etme
+        </label>
+        <button class="pt-secondary-btn" type="button" [disabled]="isEvaluating" (click)="evaluatePolicy()">
+          <span class="material-symbols-outlined">play_arrow</span>
+          {{ isEvaluating ? 'Eval çalışıyor...' : 'Eval çalıştır' }}
+        </button>
+        <button class="pt-secondary-btn" type="button" [disabled]="isImportingFeedbackCases" (click)="appendRecentUnhelpfulFeedbackCases()">
+          <span class="material-symbols-outlined">playlist_add</span>
+          {{ isImportingFeedbackCases ? 'Ekleniyor...' : 'Son unhelpful feedbackleri ekle' }}
+        </button>
+        <button
+          class="pt-secondary-btn"
+          type="button"
+          [disabled]="isPromotingRegressionCases || !evalResult?.passed"
+          (click)="promoteEvalCasesToRegressionSet()">
+          <span class="material-symbols-outlined">library_add_check</span>
+          {{ isPromotingRegressionCases ? 'Ekleniyor...' : 'Regression set’e ekle' }}
+        </button>
+      </div>
+      <textarea
+        [(ngModel)]="evalJsonl"
+        placeholder='{"id":"FB_001","text":"model plakası kodu nedir","catalog_ids":["..."],"expected_codes":["4109410"]}'></textarea>
+      @if (evalResult) {
+        <div class="pt-eval-result" [class.ok]="evalResult.passed" [class.bad]="!evalResult.passed">
+          {{ evalResult.passed ? 'Eval geçti' : 'Eval kaldı' }}:
+          {{ evalResult.passedCount }}/{{ evalResult.total }} case başarılı.
+          <span class="mono">{{ evalResult.thresholdSource }}</span>
+        </div>
+        @if (!evalResult.passed) {
+          <div class="pt-eval-failures">
+            @for (result of evalResult.results; track result.id) {
+              @if (!result.ok) {
+                <div>
+                  <strong>{{ result.id }}</strong>
+                  <span class="mono">{{ result.codes.length ? result.codes.join(', ') : 'no-code' }}</span>
+                  <p>{{ result.answerPreview }}</p>
+                </div>
+              }
+            }
+          </div>
+        }
+      }
+      @if (evalError) {
+        <div class="pt-eval-result bad">{{ evalError }}</div>
+      }
+    </div>
+
+    <div class="pt-editor-actions">
+      <button class="pt-save-btn" type="button" [disabled]="isSaving" (click)="savePolicy()">
+        <span class="material-symbols-outlined">save</span>
+        {{ isSaving ? 'Kaydediliyor...' : 'Kaydet' }}
+      </button>
+      <span class="pt-hint">Aktif scope için eski kayıt pasifleştirilir, yeni versiyon açılır.</span>
+    </div>
+  </section>
+
+  @if (successMsg) {
+    <div class="pt-status ok">{{ successMsg }}</div>
+  }
+  @if (errorMsg) {
+    <div class="pt-status bad">{{ errorMsg }}</div>
+  }
+
+  <section class="pt-ops">
+    <div class="pt-ops-head">
+      <div>
+        <h2>Son policy operasyonları</h2>
+        <p>Threshold değişiklikleri, rollback ve regression promote aksiyonları.</p>
+      </div>
+      <button class="pt-secondary-btn" type="button" (click)="loadOperations()">
+        <span class="material-symbols-outlined">refresh</span>
+        Yenile
+      </button>
+    </div>
+
+    @if (isLoadingOperations) {
+      <div class="pt-loading compact">Operasyonlar yükleniyor...</div>
+    } @else if (operations.length === 0) {
+      <div class="pt-empty compact">Henüz policy operasyonu yok.</div>
+    } @else {
+      <div class="pt-ops-list">
+        @for (operation of operations; track operation.id) {
+          <article class="pt-op-item">
+            <div class="pt-op-icon">
+              <span class="material-symbols-outlined">history</span>
+            </div>
+            <div class="pt-op-body">
+              <div class="pt-op-title">
+                <strong>{{ operation.title }}</strong>
+                <span>{{ operation.createdAt | date:'d MMM yyyy, HH:mm':'':'tr' }}</span>
+              </div>
+              <div class="pt-op-sub">
+                <span>{{ operation.scopeLabel }}</span>
+                <span>{{ operation.actorEmail || operation.actorRole || '-' }}</span>
+              </div>
+              @if (operationMeta(operation)) {
+                <p>{{ operationMeta(operation) }}</p>
+              }
+            </div>
+          </article>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="pt-regression">
+    <div class="pt-ops-head">
+      <div>
+        <h2>Feedback regression set</h2>
+        <p>{{ regressionTotal }} kalıcı case. Gate ve nightly eval bu seti otomatik koşar.</p>
+      </div>
+      <button class="pt-secondary-btn" type="button" (click)="loadRegressionCases()">
+        <span class="material-symbols-outlined">refresh</span>
+        Yenile
+      </button>
+    </div>
+
+    @if (isLoadingRegressionCases) {
+      <div class="pt-loading compact">Regression set yükleniyor...</div>
+    } @else if (regressionCases.length === 0) {
+      <div class="pt-empty compact">Henüz kalıcı feedback regression case yok.</div>
+    } @else {
+      <div class="pt-regression-list">
+        @for (item of regressionCases; track item.lineNumber) {
+          <article class="pt-regression-item">
+            <div class="pt-regression-title">
+              <strong>{{ item.id || ('line-' + item.lineNumber) }}</strong>
+              <span class="mono">{{ regressionCaseAssertionLabel(item) }}</span>
+            </div>
+            <p>{{ item.text || item.message || '-' }}</p>
+            <div class="pt-regression-meta">
+              @if (item.feedbackReason) {
+                <span>{{ item.feedbackReason }}</span>
+              }
+              @if (item.catalogIds.length) {
+                <span class="mono">{{ item.catalogIds.join(', ') }}</span>
+              }
+              @if (item.hasContext) {
+                <span>Context</span>
+              }
+            </div>
+          </article>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="pt-table-wrap">
+    @if (isLoading) {
+      <div class="pt-loading">Policy kayıtları yükleniyor...</div>
+    } @else if (policies.length === 0) {
+      <div class="pt-empty">Henüz policy threshold kaydı yok.</div>
+    } @else {
+      <table class="pt-table">
+        <thead>
+          <tr>
+            <th>Scope</th>
+            <th>High</th>
+            <th>Low</th>
+            <th>Delta</th>
+            <th>Source</th>
+            <th>Versiyon</th>
+            <th>Durum</th>
+            <th>Güncelleyen</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (policy of policies; track policy.id) {
+            <tr [class.inactive]="!policy.isActive">
+              <td>
+                <strong>{{ scopeLabel(policy) }}</strong>
+                @if (policy.notes) {
+                  <span class="pt-note">{{ policy.notes }}</span>
+                }
+              </td>
+              <td>{{ formatThreshold(policy.highConfidence) }}</td>
+              <td>{{ formatThreshold(policy.lowConfidence) }}</td>
+              <td>{{ formatThreshold(policy.ambiguityScoreDelta) }}</td>
+              <td class="mono">{{ activeSourcePreview(policy) }}</td>
+              <td>v{{ policy.version }}</td>
+              <td>
+                <span class="pt-badge" [class.on]="policy.isActive">
+                  {{ policy.isActive ? 'Aktif' : 'Pasif' }}
+                </span>
+              </td>
+              <td>{{ policy.updatedBy || '-' }}</td>
+              <td class="pt-row-actions">
+                <button class="pt-icon-btn" type="button" title="Düzenle" (click)="editPolicy(policy)">
+                  <span class="material-symbols-outlined">edit</span>
+                </button>
+                @if (!policy.isActive) {
+                  <button
+                    class="pt-icon-btn restore"
+                    type="button"
+                    title="Bu versiyonu tekrar aktif et"
+                    (click)="activatePolicy(policy)">
+                    <span class="material-symbols-outlined">restore</span>
+                  </button>
+                }
+                <button
+                  class="pt-icon-btn danger"
+                  type="button"
+                  title="Pasifleştir"
+                  [disabled]="!policy.isActive"
+                  (click)="deactivatePolicy(policy)">
+                  <span class="material-symbols-outlined">block</span>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+</div>

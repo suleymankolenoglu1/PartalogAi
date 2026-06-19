@@ -73,8 +73,7 @@ p = pathlib.Path(sys.argv[1])
 data = json.loads(p.read_text(encoding="utf-8"))
 pf = data.get("ProductFeatures") or {}
 ok = (
-    pf.get("EnableChatbot") is False
-    and pf.get("EnableCatalogAnalysis") is False
+    pf.get("EnableAi") is False
     and pf.get("EnableEcommerce") is False
     and pf.get("EnableUpgradePrompts") is False
 )

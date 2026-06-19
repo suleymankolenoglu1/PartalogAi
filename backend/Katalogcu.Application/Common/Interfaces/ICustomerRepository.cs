@@ -28,5 +28,13 @@ public interface ICustomerRepository
 
     Task<Order?> GetOrderDetailByCustomerAsync(Guid orderId, Guid customerId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<CustomerMachine>> GetMachinesByCustomerIdAsync(Guid customerId, CancellationToken cancellationToken);
+
+    Task<CustomerMachine?> GetMachineByIdAsync(Guid machineId, Guid customerId, CancellationToken cancellationToken);
+
+    Task AddMachineAsync(CustomerMachine machine, CancellationToken cancellationToken);
+
+    void RemoveMachine(CustomerMachine machine);
+
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }

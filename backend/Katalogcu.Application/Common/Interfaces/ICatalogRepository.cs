@@ -57,6 +57,14 @@ public interface ICatalogRepository
 
     Task<IReadOnlyList<Catalog>> GetCatalogsByUserAsync(Guid userId, CancellationToken cancellationToken);
 
+    Task<(IReadOnlyList<CatalogListItemDto> Items, int TotalCount)> GetCatalogListPageByUserAsync(
+        Guid userId,
+        Guid? folderId,
+        int skip,
+        int take,
+        string? search,
+        CancellationToken cancellationToken);
+
     Task<Catalog?> GetCatalogByIdForAccessAsync(
         Guid catalogId,
         Guid userId,

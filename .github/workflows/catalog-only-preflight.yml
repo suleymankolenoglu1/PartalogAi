@@ -49,9 +49,6 @@ jobs:
         working-directory: frontend/katalogcu-frontend
         run: npm ci
 
-      - name: Prepare catalog-only appsettings
-        run: cp backend/Katalogcu.API/appsettings.catalog-only.example.json backend/Katalogcu.API/appsettings.json
-
       - name: Run catalog-only preflight
         run: |
           chmod +x backend/scripts/preflight_catalog_only.sh

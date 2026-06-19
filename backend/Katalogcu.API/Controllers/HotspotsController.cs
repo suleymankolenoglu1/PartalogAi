@@ -1,5 +1,4 @@
 using FluentValidation;
-using Katalogcu.API.Services;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Features.Hotspots.Commands.CreateHotspot;
 using Katalogcu.Application.Features.Hotspots.Commands.DeleteHotspot;
@@ -245,7 +244,7 @@ namespace Katalogcu.API.Controllers
                     ContentType = "image/png"
                 };
 
-                var result = await _partalogAiService.ReadHotspotLabelAsync(formFile.ToUploadedFile());
+                var result = await _partalogAiService.ReadHotspotLabelAsync(formFile);
                 return Ok(new ReadHotspotLabelResponse
                 {
                     Success = result.Success,

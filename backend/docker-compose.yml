@@ -2,18 +2,6 @@ services:
   db:
     image: pgvector/pgvector:pg16
     container_name: katalogcu_db
-    command:
-      - postgres
-      - -c
-      - max_connections=120
-      - -c
-      - log_min_duration_statement=500
-      - -c
-      - statement_timeout=30000
-      - -c
-      - lock_timeout=5000
-      - -c
-      - idle_in_transaction_session_timeout=60000
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
@@ -30,48 +18,6 @@ services:
     networks:
       - katalogcu_net
 
-  pgbouncer:
-    image: edoburu/pgbouncer:latest
-    container_name: katalogcu_pgbouncer
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
-      DB_NAME: KatalogcuDb
-      AUTH_TYPE: scram-sha-256
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 500
-      DEFAULT_POOL_SIZE: 40
-      MIN_POOL_SIZE: 5
-      RESERVE_POOL_SIZE: 10
-      SERVER_RESET_QUERY: DISCARD ALL
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "6432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d KatalogcuDb"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - katalogcu_net
-
-  redis:
-    image: redis:7-alpine
-    container_name: katalogcu_redis
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - katalogcu_net
-
   partalog-ai:
     build:
       context: ../partalog-ai
@@ -82,22 +28,11 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8000
-      DB_CONNECTION_STRING: postgresql://postgres:${POSTGRES_PASSWORD:-CHANGE_ME}@pgbouncer:5432/KatalogcuDb
-      DB_POOL_MIN_SIZE: 1
-      DB_POOL_MAX_SIZE: 6
-      DB_POOL_COMMAND_TIMEOUT_SECONDS: 15
-      DB_STATEMENT_CACHE_SIZE: 0
-      DB_ALLOW_EPHEMERAL_FALLBACK: "false"
-      AI_CHAT_CAPACITY_PROVIDER: redis
-      AI_CHAT_REDIS_URL: redis://redis:6379/0
-      AI_CHAT_DISTRIBUTED_POOL_NAME: python-chat
-      CHAT_HTTP_RATE_LIMIT_ENABLED: "false"
+      DB_CONNECTION_STRING: postgresql://postgres:${POSTGRES_PASSWORD:-CHANGE_ME}@db:5432/KatalogcuDb
       STORAGE_PROVIDER: local
       STORAGE_LOCAL_DIR: /shared/visual-parts
     depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
+      db:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -117,27 +52,15 @@ services:
       dockerfile: Katalogcu.API/Dockerfile
     container_name: katalogcu_api
     depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
+      db:
         condition: service_healthy
       partalog-ai:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Host=pgbouncer;Port=5432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-CHANGE_ME};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=20;Timeout=15;Command Timeout=30;Max Auto Prepare=0
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-CHANGE_ME}
       AiService__BaseUrl: http://partalog-ai:8000
-      AiCapacity__Provider: Redis
-      AiCapacity__RedisConnectionString: redis:6379,abortConnect=false
-      AiCapacity__DistributedPoolName: api-chat
-      DistributedRateLimits__RedisPublicChatEnabled: "true"
-      DistributedRateLimits__RedisConnectionString: redis:6379,abortConnect=false
-      DistributedRateLimits__FailOpen: "false"
-      DataProtection__Provider: Redis
-      DataProtection__RedisConnectionString: redis:6379,abortConnect=false
-      DataProtection__RedisKey: partalog:data-protection:keys
-      DataProtection__KeyEncryptionKey: ${DATA_PROTECTION_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
     ports:
       - "5159:8080"
     healthcheck:
@@ -158,3 +81,20 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    ports:
+      - "4200:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - katalogcu_net
+
+volumes:
+  pgdata:
+  visual_parts_data:
+
+networks:
+  katalogcu_net:
+    driver: bridge
