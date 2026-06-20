@@ -685,6 +685,14 @@ def evaluate_throughput_baseline(
     baseline_path: str,
     max_regression_rate: float,
 ) -> tuple[dict[str, Any], list[str]]:
+    if not baseline_path:
+        return {
+            "status": "skipped",
+            "reason": "baseline_disabled",
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, []
     path = Path(baseline_path)
     if not path.exists():
         return {
@@ -876,13 +884,15 @@ async def main() -> int:
         args.max_throughput_regression_rate,
     )
     report["baseline_comparison"] = baseline_comparison
+    failures = check_thresholds(args, scenario_summaries) + baseline_failures
+    report["status"] = "failed" if failures else "passed"
+    report["threshold_failures"] = failures
 
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if args.output_json:
         write_json_report(args.output_json, report)
 
-    failures = check_thresholds(args, scenario_summaries) + baseline_failures
     if failures:
         print("Threshold failures:")
         for failure in failures:

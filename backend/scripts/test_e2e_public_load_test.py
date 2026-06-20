@@ -438,6 +438,17 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(comparison["status"], "skipped")
         self.assertEqual(comparison["reason"], "baseline_not_found")
 
+    def test_evaluate_throughput_baseline_can_be_disabled(self) -> None:
+        comparison, failures = evaluate_throughput_baseline(
+            self.load_report(10.0),
+            "",
+            0.20,
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(comparison["status"], "skipped")
+        self.assertEqual(comparison["reason"], "baseline_disabled")
+
     def test_evaluate_throughput_baseline_rejects_invalid_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             baseline_path = Path(tmp) / "baseline.json"
