@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { PublicCatalogViewer } from './public-catalog-viewer';
+import { PublicCatalogViewerComponent } from './public-catalog-viewer';
 
 describe('PublicCatalogViewer', () => {
-  let component: PublicCatalogViewer;
-  let fixture: ComponentFixture<PublicCatalogViewer>;
+  let component: PublicCatalogViewerComponent;
+  let fixture: ComponentFixture<PublicCatalogViewerComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [PublicCatalogViewer]
+      imports: [PublicCatalogViewerComponent]
     })
     .compileComponents();
 
-    fixture = TestBed.createComponent(PublicCatalogViewer);
+    fixture = TestBed.createComponent(PublicCatalogViewerComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });

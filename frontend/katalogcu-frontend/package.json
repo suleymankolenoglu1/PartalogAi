@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "test:compile": "tsc -p tsconfig.spec.json --noEmit"
   },
   "prettier": {
     "printWidth": 100,

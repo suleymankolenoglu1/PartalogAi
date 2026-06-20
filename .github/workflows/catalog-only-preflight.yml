@@ -49,6 +49,10 @@ jobs:
         working-directory: frontend/katalogcu-frontend
         run: npm ci
 
+      - name: Frontend spec compile
+        working-directory: frontend/katalogcu-frontend
+        run: npm run test:compile
+
       - name: Prepare catalog-only appsettings
         run: |
           python - <<'PY'
