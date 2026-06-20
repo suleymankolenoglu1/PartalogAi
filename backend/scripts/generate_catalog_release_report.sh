@@ -142,10 +142,18 @@ health_status="NOT-RUN"
 gate_status="NOT-RUN"
 
 if [[ "$preflight_status" == "GO" ]]; then
-  migration_status="GO"
+  if [[ " $PREFLIGHT_EXTRA_ARGS " == *" --skip-migration-check "* ]]; then
+    migration_status="NOT-RUN"
+  else
+    migration_status="GO"
+  fi
   frontend_status="GO"
 elif [[ "$preflight_status" == "NO-GO" ]]; then
-  migration_status="NO-GO"
+  if [[ " $PREFLIGHT_EXTRA_ARGS " == *" --skip-migration-check "* ]]; then
+    migration_status="NOT-RUN"
+  else
+    migration_status="NO-GO"
+  fi
   frontend_status="NO-GO"
 fi
 

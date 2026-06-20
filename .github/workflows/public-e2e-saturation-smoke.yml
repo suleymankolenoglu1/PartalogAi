@@ -132,7 +132,8 @@ jobs:
           python backend/scripts/promote_public_load_baseline.py \
             --saturation-summary-json backend/reports/public-e2e-saturation-summary.json \
             --reports-dir backend/reports \
-            --output-json backend/reports/public-e2e-load-baseline.candidate.json
+            --output-json backend/reports/public-e2e-load-baseline.candidate.json \
+            --output-md backend/reports/public-e2e-load-baseline.candidate.md
 
       - name: Append saturation summary
         if: always()
@@ -206,6 +207,12 @@ jobs:
               print("## Failures")
               for failure in summary["failures"]:
                   print(f"- {failure}")
+          candidate = Path("backend/reports/public-e2e-load-baseline.candidate.md")
+          if candidate.exists():
+              print("")
+              print("## Baseline Candidate")
+              print("")
+              print("A reviewed baseline candidate was generated as `public-e2e-load-baseline.candidate.json`.")
           PY
 
       - name: Upload saturation reports
@@ -216,4 +223,5 @@ jobs:
           path: |
             backend/reports/public-e2e-saturation-*.json
             backend/reports/public-e2e-load-baseline.candidate.json
+            backend/reports/public-e2e-load-baseline.candidate.md
           if-no-files-found: warn

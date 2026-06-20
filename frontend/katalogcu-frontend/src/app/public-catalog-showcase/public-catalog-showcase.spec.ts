@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideStandaloneComponentTestDeps } from '../../testing/standalone-component-test-providers';
 
 import { PublicCatalogShowcaseComponent } from './public-catalog-showcase';
 
@@ -8,9 +9,9 @@ describe('PublicCatalogShowcase', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [PublicCatalogShowcaseComponent]
-    })
-    .compileComponents();
+      imports: [PublicCatalogShowcaseComponent],
+      providers: provideStandaloneComponentTestDeps(),
+    }).compileComponents();
 
     fixture = TestBed.createComponent(PublicCatalogShowcaseComponent);
     component = fixture.componentInstance;

@@ -124,9 +124,105 @@ def baseline_payload(report: dict[str, Any], source: dict[str, Any]) -> dict[str
     return payload
 
 
+def format_percent(value: Any) -> str:
+    try:
+        return f"{float(value):.2%}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def format_float(value: Any, suffix: str = "") -> str:
+    try:
+        return f"{float(value):.2f}{suffix}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def baseline_review_markdown(payload: dict[str, Any]) -> str:
+    config = payload.get("config", {})
+    overall = payload.get("overall", {})
+    metadata = payload.get("baseline_metadata", {})
+    lines = [
+        "# Public E2E Load Baseline Candidate",
+        "",
+        "## Source",
+        "",
+        f"- Source: `{metadata.get('source', '-')}`",
+        f"- Recommended concurrency: `{metadata.get('recommended_concurrency', config.get('concurrency', '-'))}`",
+        f"- Saturation status: `{metadata.get('saturation_status', '-')}`",
+        f"- Bottleneck scenario: `{metadata.get('bottleneck_scenario') or '-'}`",
+        "",
+        "## Profile",
+        "",
+        f"- Duration: `{config.get('duration_seconds', '-')}s`",
+        f"- Concurrency: `{config.get('concurrency', '-')}`",
+        f"- Timeout: `{config.get('timeout_seconds', '-')}s`",
+        f"- Chat queries: `{', '.join(str(q) for q in config.get('chat_queries', [])) or '-'}`",
+        f"- Weights: `{json.dumps(config.get('weights', {}), ensure_ascii=False, sort_keys=True)}`",
+        "",
+        "## Overall",
+        "",
+        f"- Successful throughput: `{format_float(overall.get('successful_throughput_rps'), ' req/s')}`",
+        f"- Success rate: `{format_percent(overall.get('success_rate'))}`",
+        f"- p95 latency: `{format_float(overall.get('latency_p95_ms'), ' ms')}`",
+        "",
+        "## Scenarios",
+        "",
+        "| scenario | successful rps | success | p95 ms | degraded fallback | first token p95 |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for name, summary in sorted((payload.get("scenarios") or {}).items()):
+        lines.append(
+            f"| {name} | "
+            f"{format_float(summary.get('successful_throughput_rps'))} | "
+            f"{format_percent(summary.get('success_rate'))} | "
+            f"{format_float(summary.get('latency_p95_ms'))} | "
+            f"{format_percent(summary.get('degraded_fallback_rate'))} | "
+            f"{format_float(summary.get('first_token_latency_p95_ms'))} |"
+        )
+
+    comparison = payload.get("source_baseline_comparison") or {}
+    if comparison:
+        lines.extend(
+            [
+                "",
+                "## Previous Baseline Comparison",
+                "",
+                f"- Status: `{comparison.get('status', '-')}`",
+                f"- Max regression rate: `{format_percent(comparison.get('max_regression_rate'))}`",
+            ]
+        )
+        metrics = comparison.get("metrics") or {}
+        if metrics:
+            lines.extend(
+                [
+                    "",
+                    "| metric | previous rps | candidate rps | regression | result |",
+                    "|---|---:|---:|---:|---|",
+                ]
+            )
+            for name, metric in sorted(metrics.items()):
+                result = "pass" if metric.get("passed") else "fail"
+                lines.append(
+                    f"| {name} | "
+                    f"{format_float(metric.get('baseline_rps'))} | "
+                    f"{format_float(metric.get('current_rps'))} | "
+                    f"{format_percent(metric.get('regression_rate'))} | "
+                    f"{result} |"
+                )
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def main() -> int:
@@ -136,6 +232,7 @@ def main() -> int:
     source.add_argument("--saturation-summary-json", default="", help="Saturation summary used to select a report")
     parser.add_argument("--reports-dir", default="", help="Directory containing saturation step reports")
     parser.add_argument("--output-json", default=DEFAULT_OUTPUT)
+    parser.add_argument("--output-md", default="", help="Optional markdown review output path")
     parser.add_argument(
         "--require-base-url-contains",
         default="",
@@ -177,6 +274,9 @@ def main() -> int:
         else:
             write_json(Path(args.output_json), payload)
             print(f"Baseline written: {args.output_json}")
+            if args.output_md:
+                write_text(Path(args.output_md), baseline_review_markdown(payload))
+                print(f"Baseline review written: {args.output_md}")
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"Baseline promotion failed: {exc}")
