@@ -33,7 +33,9 @@ dotnet ef migrations bundle \
   --project backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj \
   --startup-project backend/Katalogcu.API/Katalogcu.API.csproj \
   --context AppDbContext \
-  --self-contained false \
+  --configuration Release \
+  --no-build \
+  --target-runtime linux-x64 \
   --output backend/artifacts/efbundle
 ```
 
