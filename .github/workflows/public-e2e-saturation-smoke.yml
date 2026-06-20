@@ -19,6 +19,10 @@ on:
         description: "Drop above this rate fails the workflow"
         required: true
         default: "0.10"
+      baseline_base_url_marker:
+        description: "Required substring in PARTALOG_BASE_URL before a baseline candidate is generated"
+        required: true
+        default: "staging"
 
 jobs:
   saturation-smoke:
@@ -28,6 +32,7 @@ jobs:
       PARTALOG_BASE_URL: ${{ secrets.PARTALOG_BASE_URL }}
       PARTALOG_PUBLIC_TOKEN: ${{ secrets.PARTALOG_PUBLIC_TOKEN }}
       CONCURRENCY_LEVELS: ${{ inputs.concurrency_levels }}
+      BASELINE_BASE_URL_MARKER: ${{ inputs.baseline_base_url_marker }}
 
     steps:
       - name: Checkout
@@ -133,7 +138,8 @@ jobs:
             --saturation-summary-json backend/reports/public-e2e-saturation-summary.json \
             --reports-dir backend/reports \
             --output-json backend/reports/public-e2e-load-baseline.candidate.json \
-            --output-md backend/reports/public-e2e-load-baseline.candidate.md
+            --output-md backend/reports/public-e2e-load-baseline.candidate.md \
+            --require-base-url-contains "$BASELINE_BASE_URL_MARKER"
 
       - name: Append saturation summary
         if: always()
@@ -213,6 +219,12 @@ jobs:
               print("## Baseline Candidate")
               print("")
               print("A reviewed baseline candidate was generated as `public-e2e-load-baseline.candidate.json`.")
+          else:
+              marker = "${{ inputs.baseline_base_url_marker }}"
+              print("")
+              print("## Baseline Candidate")
+              print("")
+              print(f"No baseline candidate was generated. Confirm the run passed and PARTALOG_BASE_URL contains `{marker}`.")
           PY
 
       - name: Upload saturation reports
