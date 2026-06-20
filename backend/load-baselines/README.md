@@ -7,6 +7,9 @@ against an approved baseline when this file exists:
 
 To promote a baseline from staging:
 
+See `backend/load-baselines/STAGING_SATURATION_DISPATCH.md` for the exact
+manual workflow dispatch checklist.
+
 1. Run `Public E2E Saturation Smoke` against staging with the intended duration,
    concurrency levels, scenario weights, chat queries, and
    `baseline_base_url_marker=staging`.
