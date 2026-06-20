@@ -430,7 +430,13 @@ def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
     ok = sum(1 for item in outcomes if item.ok)
     statuses = Counter(item.status_code for item in outcomes)
     errors = Counter(item.error or "" for item in outcomes if item.error)
-    fallback_reasons = Counter(reason for item in outcomes for reason in item.fallback_reasons)
+    fallback_reasons = Counter(reason for item in outcomes for reason in set(item.fallback_reasons))
+    fallback_case_count = sum(1 for item in outcomes if item.fallback_reasons)
+    degraded_fallback_case_count = sum(
+        1
+        for item in outcomes
+        if any(reason in STREAM_FAILURE_REASONS for reason in item.fallback_reasons)
+    )
     event_counts = [item.event_count for item in outcomes]
     return {
         "total": total,
@@ -442,6 +448,10 @@ def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
         "latency_p95_ms": percentile(latencies, 0.95) if latencies else 0.0,
         "event_count_avg": statistics.mean(event_counts) if event_counts else 0.0,
         "status_counts": dict(statuses),
+        "fallback_case_count": fallback_case_count,
+        "fallback_rate": fallback_case_count / total if total else 0.0,
+        "degraded_fallback_case_count": degraded_fallback_case_count,
+        "degraded_fallback_rate": degraded_fallback_case_count / total if total else 0.0,
         "fallback_reason_counts": dict(fallback_reasons),
         "top_errors": errors.most_common(5),
     }
@@ -505,6 +515,20 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
             failures.append(
                 f"{name} latency_p95_ms {summary['latency_p95_ms']:.1f} > {args.max_latency_p95_ms:.1f}"
             )
+
+    stream_summary = scenario_summaries.get("stream")
+    max_stream_degraded_rate = getattr(args, "max_stream_degraded_rate", None)
+    if (
+        args.stream_weight > 0
+        and stream_summary
+        and stream_summary["total"] > 0
+        and max_stream_degraded_rate is not None
+        and stream_summary.get("degraded_fallback_rate", 0.0) > max_stream_degraded_rate
+    ):
+        failures.append(
+            f"stream degraded_fallback_rate {stream_summary['degraded_fallback_rate']:.3f} "
+            f"> {max_stream_degraded_rate:.3f}"
+        )
     return failures
 
 
@@ -526,6 +550,12 @@ async def main() -> int:
     parser.add_argument("--concurrency", type=int, default=8, help="Number of concurrent workers")
     parser.add_argument("--min-success-rate", type=float, default=0.90, help="Per-scenario minimum success rate")
     parser.add_argument("--max-latency-p95-ms", type=float, default=8000.0, help="Per-scenario max p95 latency")
+    parser.add_argument(
+        "--max-stream-degraded-rate",
+        type=float,
+        default=0.05,
+        help="Maximum share of stream requests using an upstream failure fallback",
+    )
     parser.add_argument("--browse-weight", type=int, default=4, help="Browse scenario weight")
     parser.add_argument("--chat-weight", type=int, default=3, help="Non-stream chat scenario weight")
     parser.add_argument("--stream-weight", type=int, default=2, help="SSE chat scenario weight")
@@ -587,6 +617,11 @@ async def main() -> int:
             "catalog_id": fixture.catalog_id,
             "product_id": fixture.product_id,
             "weights": {name: weight for name, weight in weights},
+            "thresholds": {
+                "min_success_rate": args.min_success_rate,
+                "max_latency_p95_ms": args.max_latency_p95_ms,
+                "max_stream_degraded_rate": args.max_stream_degraded_rate,
+            },
         },
         "overall": overall,
         "scenarios": scenario_summaries,
