@@ -17,6 +17,11 @@ public interface IChatStreamProxyService
 public sealed class ChatStreamProxyService : IChatStreamProxyService
 {
     private const int StreamBufferSize = 4096;
+    private const string UpstreamNonSuccessFallbackReason = "upstream_non_success";
+    private const string UpstreamTimeoutFallbackReason = "upstream_timeout";
+    private const string UpstreamConnectionFallbackReason = "upstream_connection_failure";
+    private const string UpstreamUnexpectedFallbackReason = "upstream_unexpected_error";
+    private const string FallbackMessage = "AI servisi su anda yanit veremiyor. Lutfen tekrar deneyin.";
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ChatStreamProxyService> _logger;
 
@@ -70,6 +75,15 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         {
             var requestMsg = new HttpRequestMessage(HttpMethod.Post, "api/chat/stream") { Content = formContent };
             using var pythonResponse = await httpClient.SendAsync(requestMsg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!pythonResponse.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "AskStream upstream returned non-success status {StatusCode}",
+                    (int)pythonResponse.StatusCode);
+                await WriteFallbackStreamAsync(response, UpstreamNonSuccessFallbackReason, cancellationToken);
+                return;
+            }
+
             using var stream = await pythonResponse.Content.ReadAsStreamAsync(cancellationToken);
 
             var buffer = new byte[StreamBufferSize];
@@ -82,12 +96,61 @@ public sealed class ChatStreamProxyService : IChatStreamProxyService
         }
         catch (OperationCanceledException)
         {
-            // Client disconnected or request aborted.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // Client disconnected or request aborted.
+                return;
+            }
+
+            _logger.LogWarning("AskStream upstream timed out");
+            await WriteFallbackStreamAsync(response, UpstreamTimeoutFallbackReason, CancellationToken.None);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "AskStream upstream connection failed");
+            await WriteFallbackStreamAsync(response, UpstreamConnectionFallbackReason, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "AskStream proxy hatası");
-            throw;
+            await WriteFallbackStreamAsync(response, UpstreamUnexpectedFallbackReason, cancellationToken);
         }
+    }
+
+    private static async Task WriteFallbackStreamAsync(
+        HttpResponse response,
+        string fallbackReason,
+        CancellationToken cancellationToken)
+    {
+        await WriteSseEventAsync(
+            response,
+            ChatStreamEventContract.CreateSources(
+                Array.Empty<object>(),
+                fallbackUsed: true,
+                fallbackReason: fallbackReason),
+            cancellationToken);
+        await WriteSseEventAsync(
+            response,
+            ChatStreamEventContract.CreateToken(
+                FallbackMessage,
+                fallbackUsed: true,
+                fallbackReason: fallbackReason),
+            cancellationToken);
+        await WriteSseEventAsync(
+            response,
+            ChatStreamEventContract.CreateDone(
+                fallbackUsed: true,
+                fallbackReason: fallbackReason),
+            cancellationToken);
+    }
+
+    private static async Task WriteSseEventAsync(
+        HttpResponse response,
+        ChatStreamEventContract.ChatStreamEvent streamEvent,
+        CancellationToken cancellationToken)
+    {
+        var line = ChatStreamEventContract.ToSseDataLine(streamEvent);
+        await response.WriteAsync(line, cancellationToken);
+        await response.Body.FlushAsync(cancellationToken);
     }
 }
