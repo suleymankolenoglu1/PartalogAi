@@ -43,6 +43,62 @@ def load_cases(path: str) -> List[Dict[str, Any]]:
     return cases
 
 
+def validate_cases(cases: List[Dict[str, Any]]) -> List[str]:
+    failures: List[str] = []
+    seen_ids: set[str] = set()
+
+    for idx, case in enumerate(cases, start=1):
+        label = f"line-{idx}"
+        if not isinstance(case, dict):
+            failures.append(f"{label}: case must be a JSON object")
+            continue
+
+        label = str(case.get("id") or label).strip()
+        case_id = str(case.get("id") or "").strip()
+        if not case_id:
+            failures.append(f"{label}: id is required")
+        elif case_id in seen_ids:
+            failures.append(f"{label}: duplicate id")
+        else:
+            seen_ids.add(case_id)
+
+        text = str(case.get("text") or case.get("message") or "").strip()
+        if not text:
+            failures.append(f"{label}: text or message is required")
+
+        catalog_ids = case.get("catalog_ids")
+        if catalog_ids is not None and not isinstance(catalog_ids, list):
+            failures.append(f"{label}: catalog_ids must be a list when present")
+
+        expected_codes = case.get("expected_codes") or []
+        if expected_codes and not isinstance(expected_codes, list):
+            failures.append(f"{label}: expected_codes must be a list")
+            expected_codes = []
+        for code in expected_codes:
+            if not str(code).strip():
+                failures.append(f"{label}: expected_codes contains an empty value")
+
+        expect_no_codes = case.get("expect_no_codes", False)
+        if not isinstance(expect_no_codes, bool):
+            failures.append(f"{label}: expect_no_codes must be a boolean")
+
+        if expected_codes and expect_no_codes:
+            failures.append(f"{label}: expected_codes and expect_no_codes cannot both be set")
+        if not expected_codes and not expect_no_codes:
+            failures.append(f"{label}: expected_codes or expect_no_codes is required")
+
+        for key in ("required_terms", "forbidden_terms"):
+            terms = case.get(key) or []
+            if terms and not isinstance(terms, list):
+                failures.append(f"{label}: {key} must be a list")
+                continue
+            for term in terms:
+                if not str(term).strip():
+                    failures.append(f"{label}: {key} contains an empty value")
+
+    return failures
+
+
 def resolve_case_placeholders(cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     env_token = (os.getenv("PARTALOG_PUBLIC_TOKEN") or "").strip()
     env_catalog_ids = [
@@ -443,6 +499,20 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
                 f"min_no_code_pass_rate {args.min_no_code_pass_rate:.3f}"
             )
 
+    min_required = getattr(args, "min_required_term_pass_rate", None)
+    if min_required is not None and summary["required_term_pass_rate"] < min_required:
+        failures.append(
+            f"required_term_pass_rate {summary['required_term_pass_rate']:.3f} < "
+            f"min_required_term_pass_rate {min_required:.3f}"
+        )
+
+    min_forbidden = getattr(args, "min_forbidden_term_pass_rate", None)
+    if min_forbidden is not None and summary["forbidden_term_pass_rate"] < min_forbidden:
+        failures.append(
+            f"forbidden_term_pass_rate {summary['forbidden_term_pass_rate']:.3f} < "
+            f"min_forbidden_term_pass_rate {min_forbidden:.3f}"
+        )
+
     return failures
 
 
@@ -455,17 +525,33 @@ async def main() -> int:
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
     parser.add_argument("--fail-on-error", action="store_true")
+    parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--min-success-rate", type=float, default=None)
     parser.add_argument("--min-hit-at-1", type=float, default=None)
     parser.add_argument("--max-latency-p95-ms", type=float, default=None)
     parser.add_argument("--max-hallucination-rate", type=float, default=None)
     parser.add_argument("--min-no-code-pass-rate", type=float, default=None)
+    parser.add_argument("--min-required-term-pass-rate", type=float, default=None)
+    parser.add_argument("--min-forbidden-term-pass-rate", type=float, default=None)
     args = parser.parse_args()
 
-    cases = resolve_case_placeholders(load_cases(args.cases))
+    cases = load_cases(args.cases)
     if not cases:
         print("No cases found.")
         return 1
+
+    validation_failures = validate_cases(cases)
+    if validation_failures:
+        print("--- Case validation failed ---")
+        for failure in validation_failures:
+            print(f"- {failure}")
+        return 4
+
+    if args.validate_only:
+        print(f"Case validation passed: {len(cases)} cases")
+        return 0
+
+    cases = resolve_case_placeholders(cases)
 
     timeout = aiohttp.ClientTimeout(total=args.timeout_seconds)
     connector = aiohttp.TCPConnector(limit=10)

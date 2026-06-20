@@ -31,6 +31,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install eval deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install aiohttp
+
+      - name: Validate relevance eval corpus
+        working-directory: partalog-ai
+        run: |
+          python eval/chat_eval.py \
+            --cases eval/queries.relevance.jsonl \
+            --validate-only
+
       - name: Check remote eval config
         id: eval-config
         run: |
@@ -51,12 +63,6 @@ jobs:
         if: steps.eval-config.outputs.run_eval != 'true'
         run: |
           echo "Remote chat eval skipped because PARTALOG_BASE_URL/PARTALOG_PUBLIC_TOKEN are not configured for this PR."
-
-      - name: Install eval deps
-        if: steps.eval-config.outputs.run_eval == 'true'
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install aiohttp
 
       - name: Run chat eval thresholds
         if: steps.eval-config.outputs.run_eval == 'true'

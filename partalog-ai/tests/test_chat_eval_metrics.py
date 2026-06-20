@@ -7,50 +7,42 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.chat_eval import (  # noqa: E402
+    best_rank,
     evaluate_thresholds,
-    expand_combined_identifier_variants,
-    extract_fallback_reasons_from_response,
-    precision_at_k,
+    extract_codes_from_response,
+    load_cases,
     summarize,
+    validate_cases,
 )
 
 
 class ChatEvalMetricsTests(unittest.TestCase):
-    def test_expand_combined_identifier_variants_splits_model_suffixes(self) -> None:
+    def test_best_rank_returns_first_expected_code_position(self) -> None:
         self.assertEqual(
-            expand_combined_identifier_variants("MF-7900-E22/E23"),
-            ["MF-7900-E22", "MF-7900-E23"],
+            best_rank(["ABC-001", "160000", "120016"], ["120016", "160000"]),
+            2,
         )
+        self.assertIsNone(best_rank(["ABC-001"], ["160000"]))
 
-    def test_precision_at_k_uses_fixed_k_denominator(self) -> None:
-        codes = ["160000", "120016", "XYZ"]
-        expected = ["160000", "120016", "005075"]
-
-        self.assertEqual(precision_at_k(codes, expected, 1), 1.0)
-        self.assertAlmostEqual(precision_at_k(codes, expected, 3), 2.0 / 3.0)
-        self.assertAlmostEqual(precision_at_k(codes, expected, 5), 2.0 / 5.0)
-
-    def test_extract_fallback_reasons_collects_unique_reasons(self) -> None:
+    def test_extract_codes_from_response_collects_and_deduplicates_sources(self) -> None:
         response = {
             "products": [
-                {"code": "160000", "fallback": True, "fallback_reason": "brand_removed"},
-                {"code": "120016", "fallback": True, "fallbackReason": "brand_removed"},
+                {"code": "160000"},
+                {"Code": "120016"},
             ],
             "compareGroups": [
                 {
                     "results": [
-                        {"code": "005075", "fallback": True, "fallback_reason": "all_filters_removed"}
+                        {"code": "160000"},
+                        {"Code": "005075"},
                     ]
                 }
             ],
         }
 
-        self.assertEqual(
-            extract_fallback_reasons_from_response(response),
-            ["brand_removed", "all_filters_removed"],
-        )
+        self.assertEqual(extract_codes_from_response(response), ["160000", "120016", "005075"])
 
-    def test_summarize_tracks_precision_and_fallback_trigger_rate(self) -> None:
+    def test_summarize_tracks_retrieval_and_no_code_rates(self) -> None:
         summary = summarize(
             [
                 {
@@ -63,12 +55,7 @@ class ChatEvalMetricsTests(unittest.TestCase):
                     "hit_at_1": True,
                     "hit_at_3": True,
                     "hit_at_5": True,
-                    "precision_at_1": 1.0,
-                    "precision_at_3": 2.0 / 3.0,
-                    "precision_at_5": 2.0 / 5.0,
                     "mrr": 1.0,
-                    "fallback_triggered": True,
-                    "fallback_reasons": ["brand_removed"],
                     "required_ok": True,
                     "forbidden_ok": True,
                     "mentioned_codes": ["160000"],
@@ -85,12 +72,7 @@ class ChatEvalMetricsTests(unittest.TestCase):
                     "hit_at_1": False,
                     "hit_at_3": False,
                     "hit_at_5": False,
-                    "precision_at_1": 0.0,
-                    "precision_at_3": 0.0,
-                    "precision_at_5": 0.0,
                     "mrr": 0.0,
-                    "fallback_triggered": False,
-                    "fallback_reasons": [],
                     "required_ok": True,
                     "forbidden_ok": True,
                     "mentioned_codes": [],
@@ -100,9 +82,8 @@ class ChatEvalMetricsTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["expected_case_count"], 1)
-        self.assertAlmostEqual(summary["precision_at_3"], 2.0 / 3.0)
-        self.assertAlmostEqual(summary["fallback_trigger_rate"], 0.5)
-        self.assertEqual(summary["fallback_reason_counts"], {"brand_removed": 1})
+        self.assertAlmostEqual(summary["hit_at_1"], 1.0)
+        self.assertAlmostEqual(summary["no_code_pass_rate"], 1.0)
 
     def test_thresholds_can_gate_required_and_forbidden_term_pass_rates(self) -> None:
         class Args:
@@ -137,6 +118,38 @@ class ChatEvalMetricsTests(unittest.TestCase):
             [
                 "required_term_pass_rate 0.750 < min_required_term_pass_rate 1.000",
                 "forbidden_term_pass_rate 0.500 < min_forbidden_term_pass_rate 1.000",
+            ],
+        )
+
+    def test_validate_cases_accepts_relevance_corpus_contract(self) -> None:
+        cases_path = Path(__file__).resolve().parents[1] / "eval" / "queries.relevance.jsonl"
+
+        failures = validate_cases(load_cases(str(cases_path)))
+
+        self.assertEqual(failures, [])
+
+    def test_validate_cases_rejects_ambiguous_expectations(self) -> None:
+        failures = validate_cases(
+            [
+                {
+                    "id": "BAD1",
+                    "text": "160000 kodlu parça",
+                    "expected_codes": ["160000"],
+                    "expect_no_codes": True,
+                },
+                {
+                    "id": "BAD1",
+                    "text": "ikinci case",
+                },
+            ]
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "BAD1: expected_codes and expect_no_codes cannot both be set",
+                "BAD1: duplicate id",
+                "BAD1: expected_codes or expect_no_codes is required",
             ],
         )
 

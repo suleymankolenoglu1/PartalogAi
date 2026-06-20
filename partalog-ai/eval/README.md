@@ -61,6 +61,14 @@ python eval/chat_eval.py \
   --output-md eval/report.nightly.md
 ```
 
+Relevance corpus formatını secrets veya çalışan API olmadan doğrulamak için:
+
+```bash
+python eval/chat_eval.py \
+  --cases eval/queries.relevance.jsonl \
+  --validate-only
+```
+
 ## Placeholder kullanımı (önerilen)
 
 `queries.*.jsonl` içindeki `<PUBLIC_TOKEN>` değerini elle değiştirmek yerine:
@@ -84,7 +92,9 @@ python eval/chat_eval.py \
   --min-hit-at-1 0.9 \
   --max-latency-p95-ms 8000 \
   --max-hallucination-rate 0.05 \
-  --min-no-code-pass-rate 0.9
+  --min-no-code-pass-rate 0.9 \
+  --min-required-term-pass-rate 0.95 \
+  --min-forbidden-term-pass-rate 1.0
 ```
 
 ## GitHub Actions (CI Gate)
@@ -96,7 +106,7 @@ Gerekli repository secrets:
 - `PARTALOG_BASE_URL` (örn: `https://api.senin-domainin.com`)
 - `PARTALOG_PUBLIC_TOKEN` (public-view token)
 
-Bu workflow PR/push sırasında `queries.hard.jsonl` setini eşiklerle çalıştırır; eşik geçilmezse pipeline fail olur.
+Bu workflow PR/push sırasında önce `queries.relevance.jsonl` formatını offline doğrular. Secrets varsa `queries.hard.jsonl` setini eşiklerle çalıştırır; eşik geçilmezse pipeline fail olur.
 
 Nightly workflow: `.github/workflows/chat-eval-nightly.yml`
 
