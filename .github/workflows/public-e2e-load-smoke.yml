@@ -15,6 +15,10 @@ on:
         description: "Per-scenario p95 latency threshold"
         required: true
         default: "10000"
+      min_samples_per_scenario:
+        description: "Minimum completed requests required per enabled scenario"
+        required: true
+        default: "5"
       max_stream_degraded_rate:
         description: "Maximum upstream failure fallback rate for SSE requests"
         required: true
@@ -60,6 +64,7 @@ jobs:
             --duration-seconds "${{ inputs.duration_seconds }}" \
             --concurrency "${{ inputs.concurrency }}" \
             --max-latency-p95-ms "${{ inputs.max_latency_p95_ms }}" \
+            --min-samples-per-scenario "${{ inputs.min_samples_per_scenario }}" \
             --max-stream-degraded-rate "${{ inputs.max_stream_degraded_rate }}" \
             --min-success-rate 0.90 \
             --browse-weight 4 \

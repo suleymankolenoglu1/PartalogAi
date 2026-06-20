@@ -495,6 +495,7 @@ async def worker(
 
 def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dict[str, Any]]) -> list[str]:
     failures: list[str] = []
+    min_samples_per_scenario = getattr(args, "min_samples_per_scenario", 1)
     configured_weights = {
         "browse": args.browse_weight,
         "chat": args.chat_weight,
@@ -506,6 +507,11 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
             continue
         if summary["total"] == 0:
             failures.append(f"{name} did not run")
+            continue
+        if summary["total"] < min_samples_per_scenario:
+            failures.append(
+                f"{name} sample_count {summary['total']} < {min_samples_per_scenario}"
+            )
             continue
         if summary["success_rate"] < args.min_success_rate:
             failures.append(
@@ -521,7 +527,7 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
     if (
         args.stream_weight > 0
         and stream_summary
-        and stream_summary["total"] > 0
+        and stream_summary["total"] >= min_samples_per_scenario
         and max_stream_degraded_rate is not None
         and stream_summary.get("degraded_fallback_rate", 0.0) > max_stream_degraded_rate
     ):
@@ -551,6 +557,12 @@ async def main() -> int:
     parser.add_argument("--min-success-rate", type=float, default=0.90, help="Per-scenario minimum success rate")
     parser.add_argument("--max-latency-p95-ms", type=float, default=8000.0, help="Per-scenario max p95 latency")
     parser.add_argument(
+        "--min-samples-per-scenario",
+        type=int,
+        default=5,
+        help="Minimum completed requests required for each enabled scenario",
+    )
+    parser.add_argument(
         "--max-stream-degraded-rate",
         type=float,
         default=0.05,
@@ -572,6 +584,8 @@ async def main() -> int:
         raise SystemExit("concurrency must be > 0")
     if args.duration_seconds <= 0:
         raise SystemExit("duration-seconds must be > 0")
+    if args.min_samples_per_scenario <= 0:
+        raise SystemExit("min-samples-per-scenario must be > 0")
 
     base_url = trim_slash(args.base_url)
     fixture = resolve_fixture(args)
@@ -620,6 +634,7 @@ async def main() -> int:
             "thresholds": {
                 "min_success_rate": args.min_success_rate,
                 "max_latency_p95_ms": args.max_latency_p95_ms,
+                "min_samples_per_scenario": args.min_samples_per_scenario,
                 "max_stream_degraded_rate": args.max_stream_degraded_rate,
             },
         },

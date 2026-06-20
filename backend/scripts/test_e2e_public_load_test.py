@@ -122,6 +122,7 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
             checkout_weight=0,
             min_success_rate=0.90,
             max_latency_p95_ms=1000.0,
+            min_samples_per_scenario=1,
             max_stream_degraded_rate=0.10,
         )
         summaries = {
@@ -152,6 +153,7 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
             checkout_weight=0,
             min_success_rate=0.90,
             max_latency_p95_ms=1000.0,
+            min_samples_per_scenario=1,
             max_stream_degraded_rate=0.10,
         )
         summaries = {
@@ -169,6 +171,34 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(
             check_thresholds(args, summaries),
             ["stream degraded_fallback_rate 0.250 > 0.100"],
+        )
+
+    def test_check_thresholds_requires_minimum_samples_per_enabled_scenario(self) -> None:
+        args = argparse.Namespace(
+            browse_weight=0,
+            chat_weight=0,
+            stream_weight=1,
+            checkout_weight=0,
+            min_success_rate=0.90,
+            max_latency_p95_ms=1000.0,
+            min_samples_per_scenario=5,
+            max_stream_degraded_rate=0.10,
+        )
+        summaries = {
+            "browse": {"total": 0, "success_rate": 0.0, "latency_p95_ms": 0.0},
+            "chat": {"total": 0, "success_rate": 0.0, "latency_p95_ms": 0.0},
+            "stream": {
+                "total": 2,
+                "success_rate": 0.50,
+                "latency_p95_ms": 2000.0,
+                "degraded_fallback_rate": 0.50,
+            },
+            "checkout": {"total": 0, "success_rate": 0.0, "latency_p95_ms": 0.0},
+        }
+
+        self.assertEqual(
+            check_thresholds(args, summaries),
+            ["stream sample_count 2 < 5"],
         )
 
     def test_write_json_report_creates_parent_directory(self) -> None:
