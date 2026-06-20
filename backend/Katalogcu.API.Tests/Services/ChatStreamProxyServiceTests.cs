@@ -122,18 +122,133 @@ public class ChatStreamProxyServiceTests
         Assert.Contains("7", StubHandler.LastRequestBody);
     }
 
+    [Fact]
+    public async Task ProxyAskStreamAsync_ReturnsFallbackContractWhenUpstreamFails()
+    {
+        var proxy = new ChatStreamProxyService(
+            new StubHttpClientFactory("upstream unavailable", HttpStatusCode.ServiceUnavailable),
+            NullLogger<ChatStreamProxyService>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Response.Body = new MemoryStream();
+
+        await proxy.ProxyAskStreamAsync(
+            httpContext.Response,
+            text: "vida",
+            history: "[]",
+            catalogIds: Array.Empty<string>(),
+            image: null,
+            userPlan: null,
+            aiLimitPerMonth: null,
+            aiUsedThisMonth: null,
+            cancellationToken: CancellationToken.None);
+
+        var events = await ReadStreamEventsAsync(httpContext.Response.Body);
+
+        AssertFallbackContract(events, "upstream_non_success");
+    }
+
+    [Fact]
+    public async Task ProxyAskStreamAsync_ReturnsFallbackContractWhenUpstreamConnectionFails()
+    {
+        var proxy = new ChatStreamProxyService(
+            new StubHttpClientFactory(new HttpRequestException("connection refused")),
+            NullLogger<ChatStreamProxyService>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Response.Body = new MemoryStream();
+
+        await proxy.ProxyAskStreamAsync(
+            httpContext.Response,
+            text: "vida",
+            history: "[]",
+            catalogIds: Array.Empty<string>(),
+            image: null,
+            userPlan: null,
+            aiLimitPerMonth: null,
+            aiUsedThisMonth: null,
+            cancellationToken: CancellationToken.None);
+
+        var events = await ReadStreamEventsAsync(httpContext.Response.Body);
+
+        AssertFallbackContract(events, "upstream_connection_failure");
+    }
+
+    private static async Task<List<ChatStreamEventContract.ChatStreamEvent>> ReadStreamEventsAsync(Stream responseBody)
+    {
+        responseBody.Position = 0;
+        using var reader = new StreamReader(responseBody);
+        var body = await reader.ReadToEndAsync();
+
+        var events = new List<ChatStreamEventContract.ChatStreamEvent>();
+        var dataLines = body
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => line.StartsWith("data:", StringComparison.Ordinal));
+
+        foreach (var line in dataLines)
+        {
+            Assert.True(ChatStreamEventContract.TryExtractDataPayload(line, out var payload));
+            Assert.True(
+                ChatStreamEventContract.TryParseDataPayload(payload, out var streamEvent, out var error),
+                error);
+            Assert.NotNull(streamEvent);
+            events.Add(streamEvent);
+        }
+
+        return events;
+    }
+
+    private static void AssertFallbackContract(
+        IReadOnlyList<ChatStreamEventContract.ChatStreamEvent> events,
+        string expectedReason)
+    {
+        Assert.Collection(
+            events,
+            streamEvent =>
+            {
+                Assert.Equal("sources", streamEvent.Type);
+                Assert.True(streamEvent.Fallback.Used);
+                Assert.Equal(expectedReason, streamEvent.Fallback.Reason);
+            },
+            streamEvent =>
+            {
+                Assert.Equal("token", streamEvent.Type);
+                Assert.False(string.IsNullOrWhiteSpace(streamEvent.Token));
+                Assert.True(streamEvent.Fallback.Used);
+                Assert.Equal(expectedReason, streamEvent.Fallback.Reason);
+            },
+            streamEvent =>
+            {
+                Assert.Equal("done", streamEvent.Type);
+                Assert.Equal(ChatStreamEventContract.CompletionStatus, streamEvent.Completion?.Status);
+                Assert.True(streamEvent.Fallback.Used);
+                Assert.Equal(expectedReason, streamEvent.Fallback.Reason);
+            });
+    }
+
     private sealed class StubHttpClientFactory : IHttpClientFactory
     {
         private readonly string _responseBody;
+        private readonly HttpStatusCode _statusCode;
+        private readonly Exception? _exception;
 
-        public StubHttpClientFactory(string responseBody)
+        public StubHttpClientFactory(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK)
         {
             _responseBody = responseBody;
+            _statusCode = statusCode;
+            _exception = null;
+        }
+
+        public StubHttpClientFactory(Exception exception)
+        {
+            _responseBody = string.Empty;
+            _statusCode = HttpStatusCode.OK;
+            _exception = exception;
         }
 
         public HttpClient CreateClient(string name)
         {
-            return new HttpClient(new StubHandler(_responseBody))
+            return new HttpClient(new StubHandler(_responseBody, _statusCode, _exception))
             {
                 BaseAddress = new Uri("http://localhost/")
             };
@@ -143,13 +258,17 @@ public class ChatStreamProxyServiceTests
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly string _responseBody;
+        private readonly HttpStatusCode _statusCode;
+        private readonly Exception? _exception;
 
         public static string? LastRequestPath { get; private set; }
         public static string LastRequestBody { get; private set; } = string.Empty;
 
-        public StubHandler(string responseBody)
+        public StubHandler(string responseBody, HttpStatusCode statusCode, Exception? exception)
         {
             _responseBody = responseBody;
+            _statusCode = statusCode;
+            _exception = exception;
             LastRequestPath = null;
             LastRequestBody = string.Empty;
         }
@@ -161,7 +280,12 @@ public class ChatStreamProxyServiceTests
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            if (_exception is not null)
+            {
+                throw _exception;
+            }
+
+            return new HttpResponseMessage(_statusCode)
             {
                 Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(_responseBody)))
             };
