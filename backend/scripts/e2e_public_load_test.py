@@ -601,6 +601,128 @@ def write_json_report(path: str, report: dict[str, Any]) -> None:
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def compare_throughput_baseline(
+    current: dict[str, Any],
+    baseline: dict[str, Any],
+    max_regression_rate: float,
+) -> tuple[dict[str, Any], list[str]]:
+    profile_fields = (
+        "duration_seconds",
+        "concurrency",
+        "timeout_seconds",
+        "weights",
+        "chat_queries",
+    )
+    current_config = current.get("config", {})
+    baseline_config = baseline.get("config", {})
+    profile_mismatches = [
+        field
+        for field in profile_fields
+        if current_config.get(field) != baseline_config.get(field)
+    ]
+    if current.get("schema_version") != baseline.get("schema_version"):
+        profile_mismatches.insert(0, "schema_version")
+    if profile_mismatches:
+        fields = ", ".join(profile_mismatches)
+        failure = f"baseline profile mismatch: {fields}"
+        return {
+            "status": "profile_mismatch",
+            "max_regression_rate": max_regression_rate,
+            "profile_mismatches": profile_mismatches,
+            "metrics": {},
+        }, [failure]
+
+    metrics: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
+    candidates = [("overall", current.get("overall", {}), baseline.get("overall", {}))]
+    for name, weight in current_config.get("weights", {}).items():
+        if weight > 0:
+            candidates.append(
+                (
+                    name,
+                    current.get("scenarios", {}).get(name, {}),
+                    baseline.get("scenarios", {}).get(name, {}),
+                )
+            )
+
+    for name, current_summary, baseline_summary in candidates:
+        current_rps = float(current_summary.get("successful_throughput_rps", 0.0))
+        baseline_rps = float(baseline_summary.get("successful_throughput_rps", 0.0))
+        if baseline_rps <= 0:
+            failure = f"baseline {name} successful_throughput_rps must be > 0"
+            failures.append(failure)
+            metrics[name] = {
+                "baseline_rps": baseline_rps,
+                "current_rps": current_rps,
+                "regression_rate": None,
+                "passed": False,
+            }
+            continue
+        regression_rate = 1.0 - (current_rps / baseline_rps)
+        passed = regression_rate <= max_regression_rate
+        metrics[name] = {
+            "baseline_rps": baseline_rps,
+            "current_rps": current_rps,
+            "regression_rate": regression_rate,
+            "passed": passed,
+        }
+        if not passed:
+            failures.append(
+                f"{name} successful_throughput_rps regression "
+                f"{regression_rate:.1%} > {max_regression_rate:.1%}"
+            )
+
+    return {
+        "status": "failed" if failures else "passed",
+        "max_regression_rate": max_regression_rate,
+        "profile_mismatches": [],
+        "metrics": metrics,
+    }, failures
+
+
+def evaluate_throughput_baseline(
+    report: dict[str, Any],
+    baseline_path: str,
+    max_regression_rate: float,
+) -> tuple[dict[str, Any], list[str]]:
+    path = Path(baseline_path)
+    if not path.exists():
+        return {
+            "status": "skipped",
+            "reason": "baseline_not_found",
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, []
+    try:
+        baseline = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "invalid",
+            "reason": str(exc),
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, [f"baseline could not be read: {exc}"]
+    if not isinstance(baseline, dict):
+        reason = "baseline root must be a JSON object"
+        return {
+            "status": "invalid",
+            "reason": reason,
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, [reason]
+
+    comparison, failures = compare_throughput_baseline(
+        report,
+        baseline,
+        max_regression_rate,
+    )
+    comparison["path"] = baseline_path
+    return comparison, failures
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Katalogcu end-to-end public flow load test")
     parser.add_argument("--base-url", default="http://localhost:5159", help="API base URL")
@@ -644,6 +766,17 @@ async def main() -> int:
     parser.add_argument("--checkout-weight", type=int, default=1, help="Checkout scenario weight")
     parser.add_argument("--chat-query", action="append", dest="chat_queries", default=[], help="Custom chat query")
     parser.add_argument("--output-json", default="", help="Optional JSON report output path")
+    parser.add_argument(
+        "--baseline-json",
+        default="backend/load-baselines/public-e2e-load-baseline.json",
+        help="Optional approved throughput baseline report",
+    )
+    parser.add_argument(
+        "--max-throughput-regression-rate",
+        type=float,
+        default=0.20,
+        help="Maximum successful RPS regression against the approved baseline",
+    )
     parser.add_argument("--bootstrap-admin-email", default="", help="Bootstrap admin email when token missing")
     parser.add_argument("--bootstrap-admin-password", default="LoadAdm1nP@ss!", help="Bootstrap admin password")
     parser.add_argument("--bootstrap-admin-name", default="Load Admin", help="Bootstrap admin full name")
@@ -668,6 +801,8 @@ async def main() -> int:
         raise SystemExit("latency thresholds must be > 0")
     if args.max_stream_first_token_p95_ms <= 0:
         raise SystemExit("max-stream-first-token-p95-ms must be > 0")
+    if not 0 <= args.max_throughput_regression_rate < 1:
+        raise SystemExit("max-throughput-regression-rate must be >= 0 and < 1")
 
     base_url = trim_slash(args.base_url)
     fixture = resolve_fixture(args)
@@ -735,12 +870,19 @@ async def main() -> int:
         "scenarios": scenario_summaries,
     }
 
+    baseline_comparison, baseline_failures = evaluate_throughput_baseline(
+        report,
+        args.baseline_json,
+        args.max_throughput_regression_rate,
+    )
+    report["baseline_comparison"] = baseline_comparison
+
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if args.output_json:
         write_json_report(args.output_json, report)
 
-    failures = check_thresholds(args, scenario_summaries)
+    failures = check_thresholds(args, scenario_summaries) + baseline_failures
     if failures:
         print("Threshold failures:")
         for failure in failures:

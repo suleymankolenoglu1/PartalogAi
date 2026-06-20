@@ -90,6 +90,7 @@ Public AI/chat ve e-ticaret modulleri acilmadan once kontrollu yuk kaniti icin m
 - SSE akisi icin ilk bos olmayan tokenin p95 suresi ayrica olculur ve varsayilan `5 sn` esigini asarsa workflow fail olur.
 - SSE upstream hata fallback orani varsayilan `%5` esigini asarsa workflow fail olur; normal arama fallbackleri bu esige dahil edilmez.
 - Workflow artifact'i toplam ve senaryo bazli RPS, basarili RPS ve gercek kosu suresini saklar. Ilk staging kosusu ayni sure, concurrency, agirliklar ve sorgu setiyle sonraki kosular icin performans baseline'i olarak etiketlenir.
+- Onaylanan artifact `backend/load-baselines/public-e2e-load-baseline.json` yoluna alindiginda sonraki kosular basarili RPS degerlerini otomatik karsilastirir. Varsayilan `%20` gerileme toleransi `PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE` Actions variable'i ile degistirilebilir.
 - Checkout senaryosu sadece siparis olusturma yan etkisi kabul edildiginde manuel olarak acilir.
 
 Yerel catalog-only staging provasi:

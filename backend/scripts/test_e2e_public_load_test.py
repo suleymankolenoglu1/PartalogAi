@@ -14,6 +14,8 @@ from e2e_public_load_test import (
     Fixture,
     ScenarioOutcome,
     check_thresholds,
+    compare_throughput_baseline,
+    evaluate_throughput_baseline,
     extract_fallback_reasons,
     percentile,
     run_chat_stream,
@@ -50,6 +52,26 @@ class FakeStreamClient:
 
 class PublicLoadTestHelpersTests(unittest.TestCase):
     fixture = Fixture("public-token", "", "catalog-id", "", "", 1.0)
+
+    @staticmethod
+    def load_report(successful_rps: float, concurrency: int = 4) -> dict:
+        weights = {"browse": 4, "chat": 3, "stream": 2, "checkout": 0}
+        shares = {"browse": 0.5, "chat": 0.3, "stream": 0.2, "checkout": 0.0}
+        return {
+            "schema_version": 1,
+            "config": {
+                "duration_seconds": 30,
+                "concurrency": concurrency,
+                "timeout_seconds": 30.0,
+                "weights": weights,
+                "chat_queries": ["conta", "160000"],
+            },
+            "overall": {"successful_throughput_rps": successful_rps},
+            "scenarios": {
+                name: {"successful_throughput_rps": successful_rps * share}
+                for name, share in shares.items()
+            },
+        }
 
     def test_percentile_interpolates_rank(self) -> None:
         self.assertEqual(percentile([], 0.95), 0.0)
@@ -367,6 +389,67 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
                 "stream first_token_sample_count 4 < 5",
             ],
         )
+
+    def test_compare_throughput_baseline_accepts_regression_within_limit(self) -> None:
+        comparison, failures = compare_throughput_baseline(
+            self.load_report(8.5),
+            self.load_report(10.0),
+            0.20,
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(comparison["status"], "passed")
+        self.assertAlmostEqual(comparison["metrics"]["overall"]["regression_rate"], 0.15)
+
+    def test_compare_throughput_baseline_rejects_large_regression(self) -> None:
+        comparison, failures = compare_throughput_baseline(
+            self.load_report(7.0),
+            self.load_report(10.0),
+            0.20,
+        )
+
+        self.assertEqual(comparison["status"], "failed")
+        self.assertIn(
+            "overall successful_throughput_rps regression 30.0% > 20.0%",
+            failures,
+        )
+        self.assertFalse(comparison["metrics"]["stream"]["passed"])
+
+    def test_compare_throughput_baseline_rejects_profile_mismatch(self) -> None:
+        comparison, failures = compare_throughput_baseline(
+            self.load_report(10.0, concurrency=8),
+            self.load_report(10.0, concurrency=4),
+            0.20,
+        )
+
+        self.assertEqual(comparison["status"], "profile_mismatch")
+        self.assertEqual(comparison["profile_mismatches"], ["concurrency"])
+        self.assertEqual(failures, ["baseline profile mismatch: concurrency"])
+
+    def test_evaluate_throughput_baseline_skips_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            comparison, failures = evaluate_throughput_baseline(
+                self.load_report(10.0),
+                str(Path(tmp) / "missing.json"),
+                0.20,
+            )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(comparison["status"], "skipped")
+        self.assertEqual(comparison["reason"], "baseline_not_found")
+
+    def test_evaluate_throughput_baseline_rejects_invalid_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_path = Path(tmp) / "baseline.json"
+            baseline_path.write_text("[]", encoding="utf-8")
+            comparison, failures = evaluate_throughput_baseline(
+                self.load_report(10.0),
+                str(baseline_path),
+                0.20,
+            )
+
+        self.assertEqual(comparison["status"], "invalid")
+        self.assertEqual(failures, ["baseline root must be a JSON object"])
 
     def test_write_json_report_creates_parent_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
