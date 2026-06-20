@@ -142,8 +142,17 @@ def baseline_review_markdown(payload: dict[str, Any]) -> str:
     config = payload.get("config", {})
     overall = payload.get("overall", {})
     metadata = payload.get("baseline_metadata", {})
+    thresholds = config.get("thresholds", {})
     lines = [
         "# Public E2E Load Baseline Candidate",
+        "",
+        "## Review Decision",
+        "",
+        "- [ ] Candidate came from the intended staging environment.",
+        "- [ ] Overall and enabled-scenario successful throughput look stable.",
+        "- [ ] p95 latency is comfortably below the configured thresholds.",
+        "- [ ] Stream degraded fallback and first-token latency are acceptable.",
+        "- [ ] No bottleneck scenario blocks the intended rollout profile.",
         "",
         "## Source",
         "",
@@ -159,6 +168,7 @@ def baseline_review_markdown(payload: dict[str, Any]) -> str:
         f"- Timeout: `{config.get('timeout_seconds', '-')}s`",
         f"- Chat queries: `{', '.join(str(q) for q in config.get('chat_queries', [])) or '-'}`",
         f"- Weights: `{json.dumps(config.get('weights', {}), ensure_ascii=False, sort_keys=True)}`",
+        f"- Thresholds: `{json.dumps(thresholds, ensure_ascii=False, sort_keys=True)}`",
         "",
         "## Overall",
         "",

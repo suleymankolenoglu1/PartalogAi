@@ -94,8 +94,11 @@ class BaselinePromotionTests(unittest.TestCase):
         markdown = baseline_review_markdown(payload)
 
         self.assertIn("# Public E2E Load Baseline Candidate", markdown)
+        self.assertIn("## Review Decision", markdown)
+        self.assertIn("- [ ] Candidate came from the intended staging environment.", markdown)
         self.assertIn("- Recommended concurrency: `8`", markdown)
         self.assertIn("- Bottleneck scenario: `stream`", markdown)
+        self.assertIn('"min_success_rate": 0.9', markdown)
         self.assertIn("- Successful throughput: `12.40 req/s`", markdown)
         self.assertIn("| stream | 2.40 | - | - | - | - |", markdown)
 

@@ -15,6 +15,7 @@ To promote a baseline from staging:
 3. Download `public-e2e-saturation-<run number>` and review
    `public-e2e-load-baseline.candidate.md` plus
    `public-e2e-load-baseline.candidate.json`.
+   Complete the review checklist in the markdown artifact before promotion.
 4. If the candidate is acceptable, add it as
    `backend/load-baselines/public-e2e-load-baseline.json` in a dedicated PR.
    The `Public Load Baseline Gate` workflow validates the committed baseline
