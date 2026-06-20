@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from promote_public_load_baseline import (  # noqa: E402
     baseline_payload,
+    baseline_review_markdown,
     select_report_from_saturation,
     validate_promotable_report,
     write_json,
@@ -78,6 +79,25 @@ class BaselinePromotionTests(unittest.TestCase):
         self.assertNotIn("elapsed_seconds", payload["config"])
         self.assertNotIn("base_url", payload["config"])
         self.assertEqual(payload["baseline_metadata"]["source"], "report")
+
+    def test_writes_human_review_markdown(self) -> None:
+        payload = baseline_payload(
+            report(),
+            {
+                "source": "saturation",
+                "recommended_concurrency": 8,
+                "saturation_status": "saturated",
+                "bottleneck_scenario": "stream",
+            },
+        )
+
+        markdown = baseline_review_markdown(payload)
+
+        self.assertIn("# Public E2E Load Baseline Candidate", markdown)
+        self.assertIn("- Recommended concurrency: `8`", markdown)
+        self.assertIn("- Bottleneck scenario: `stream`", markdown)
+        self.assertIn("- Successful throughput: `12.40 req/s`", markdown)
+        self.assertIn("| stream | 2.40 | - | - | - | - |", markdown)
 
     def test_selects_recommended_concurrency_from_saturation_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
