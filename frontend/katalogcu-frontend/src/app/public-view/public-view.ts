@@ -6,6 +6,7 @@ import { CatalogService, Catalog, CatalogPageItem, PublicFolderSummary, PublicSt
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
 import { environment } from '../../environments/environment';
+import { Subscription } from 'rxjs';
 import {
   initialPublicViewStreamState,
   reducePublicViewStreamState,
@@ -90,6 +91,8 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   savingFeedbackCode: string | null = null;
   savedFeedbackKeys = new Set<string>();
   private pendingAutoScroll = false;
+  private activeStreamSubscription: Subscription | null = null;
+  private activeStreamingMessage: ChatMessage | null = null;
 
   // --- Veri Havuzu ---
   allCatalogs: Catalog[] = [];
@@ -181,6 +184,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.cancelActiveStream(false);
   }
 
   loadStorefront() {
@@ -377,6 +381,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     if (!this.canUseAiChat) return;
     if (!this.searchText && !this.selectedImage) return;
 
+    this.cancelActiveStream(true);
     this.aiState.isActive = true;
     this.aiState.isLoading = true;
     this.aiState.response = null;
@@ -398,9 +403,10 @@ export class PublicViewComponent implements OnInit, OnDestroy {
       isStreaming: true,
     };
     this.messages.push(streamingMsg);
+    this.activeStreamingMessage = streamingMsg;
     this.scrollMessagesToBottom();
 
-    this.aiService.sendMessageStream(
+    this.activeStreamSubscription = this.aiService.sendMessageStream(
       this.searchText,
       this.selectedImage,
       this.chatHistory,
@@ -475,6 +481,8 @@ export class PublicViewComponent implements OnInit, OnDestroy {
           this.chatFeedbackMessage = null;
           this.chatFeedbackError = null;
           this.updateLatestAssistantMessage();
+          this.activeStreamSubscription = null;
+          this.activeStreamingMessage = null;
         }
       },
       error: (err) => {
@@ -488,8 +496,43 @@ export class PublicViewComponent implements OnInit, OnDestroy {
         streamingMsg.isStreaming = false;
         this.messages = [...this.messages];
         this.scrollMessagesToBottom();
-      }
+        this.activeStreamSubscription = null;
+        this.activeStreamingMessage = null;
+      },
+      complete: () => {
+        if (this.streamState.phase === 'connecting' || this.streamState.phase === 'streaming') {
+          this.streamState = reducePublicViewStreamState(this.streamState, {
+            type: 'fail',
+            message: 'Baglanti hatasi, lutfen tekrar deneyin.',
+          });
+          this.aiState.isLoading = false;
+          streamingMsg.text = this.streamState.replySuggestion;
+          streamingMsg.isStreaming = false;
+          this.messages = [...this.messages];
+        }
+        this.activeStreamSubscription = null;
+        this.activeStreamingMessage = null;
+      },
     });
+  }
+
+  private cancelActiveStream(updateMessage: boolean): void {
+    const hadActiveStream = !!this.activeStreamSubscription && !this.activeStreamSubscription.closed;
+    this.activeStreamSubscription?.unsubscribe();
+    this.activeStreamSubscription = null;
+
+    if (hadActiveStream) {
+      this.streamState = reducePublicViewStreamState(this.streamState, { type: 'cancel' });
+      this.aiState.isLoading = false;
+    }
+    if (updateMessage && hadActiveStream && this.activeStreamingMessage?.isStreaming) {
+      this.activeStreamingMessage.isStreaming = false;
+      if (!this.activeStreamingMessage.text.trim()) {
+        this.activeStreamingMessage.text = 'Istek iptal edildi.';
+      }
+      this.messages = [...this.messages];
+    }
+    this.activeStreamingMessage = null;
   }
 
   private updateLatestAssistantMessage() {

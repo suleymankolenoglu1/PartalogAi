@@ -1,4 +1,10 @@
-export type PublicViewStreamPhase = 'idle' | 'connecting' | 'streaming' | 'completed' | 'error';
+export type PublicViewStreamPhase =
+  | 'idle'
+  | 'connecting'
+  | 'streaming'
+  | 'completed'
+  | 'cancelled'
+  | 'error';
 
 export interface PublicViewStreamState {
   phase: PublicViewStreamPhase;
@@ -12,6 +18,7 @@ export type PublicViewStreamAction =
   | { type: 'sourcesReceived'; products: any[] }
   | { type: 'tokenReceived'; token: string }
   | { type: 'complete' }
+  | { type: 'cancel' }
   | { type: 'fail'; message: string }
   | { type: 'restore'; replySuggestion: string; products: any[] }
   | { type: 'reset' };
@@ -37,6 +44,7 @@ export function reducePublicViewStreamState(
       };
 
     case 'sourcesReceived':
+      if (state.phase !== 'connecting') return state;
       return {
         ...state,
         phase: 'streaming',
@@ -45,6 +53,7 @@ export function reducePublicViewStreamState(
       };
 
     case 'tokenReceived':
+      if (state.phase !== 'streaming') return state;
       return {
         ...state,
         phase: 'streaming',
@@ -53,13 +62,23 @@ export function reducePublicViewStreamState(
       };
 
     case 'complete':
+      if (state.phase !== 'streaming') return state;
       return {
         ...state,
         phase: 'completed',
         errorMessage: null,
       };
 
+    case 'cancel':
+      if (state.phase !== 'connecting' && state.phase !== 'streaming') return state;
+      return {
+        ...state,
+        phase: 'cancelled',
+        errorMessage: null,
+      };
+
     case 'fail':
+      if (state.phase !== 'connecting' && state.phase !== 'streaming') return state;
       return {
         ...state,
         phase: 'error',

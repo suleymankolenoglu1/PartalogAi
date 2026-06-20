@@ -19,7 +19,7 @@ on:
 jobs:
   preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -48,6 +48,18 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend/katalogcu-frontend
         run: npm ci
+
+      - name: Frontend spec compile
+        working-directory: frontend/katalogcu-frontend
+        run: npm run test:compile
+
+      - name: Frontend browser tests
+        working-directory: frontend/katalogcu-frontend
+        run: npm run test:ci
+
+      - name: Frontend production build
+        working-directory: frontend/katalogcu-frontend
+        run: npm run build
 
       - name: Prepare catalog-only appsettings
         run: |

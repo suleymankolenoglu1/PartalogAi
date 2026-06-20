@@ -1,0 +1,210 @@
+name: Public E2E Saturation Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Duration of each concurrency step"
+        required: true
+        default: "60"
+      concurrency_levels:
+        description: "JSON array of sequential concurrency levels"
+        required: true
+        default: "[4,8,16]"
+      min_throughput_gain_rate:
+        description: "Gain below this rate marks saturation"
+        required: true
+        default: "0.10"
+      max_throughput_drop_rate:
+        description: "Drop above this rate fails the workflow"
+        required: true
+        default: "0.10"
+
+jobs:
+  saturation-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PARTALOG_BASE_URL: ${{ secrets.PARTALOG_BASE_URL }}
+      PARTALOG_PUBLIC_TOKEN: ${{ secrets.PARTALOG_PUBLIC_TOKEN }}
+      CONCURRENCY_LEVELS: ${{ inputs.concurrency_levels }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          [ -n "${PARTALOG_BASE_URL:-}" ] || (echo "Missing secret: PARTALOG_BASE_URL" && exit 1)
+          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || (echo "Missing secret: PARTALOG_PUBLIC_TOKEN" && exit 1)
+
+      - name: Install load smoke dependencies
+        run: python -m pip install httpx
+
+      - name: Run sequential saturation steps
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          for concurrency in json.loads(os.environ["CONCURRENCY_LEVELS"]):
+              print(f"Running saturation step concurrency={concurrency}", flush=True)
+              command = [
+                  "python",
+                  "backend/scripts/e2e_public_load_test.py",
+                  "--base-url",
+                  os.environ["PARTALOG_BASE_URL"],
+                  "--public-token",
+                  os.environ["PARTALOG_PUBLIC_TOKEN"],
+                  "--duration-seconds",
+                  "${{ inputs.duration_seconds }}",
+                  "--concurrency",
+                  str(concurrency),
+                  "--max-browse-latency-p95-ms",
+                  "5000",
+                  "--max-chat-latency-p95-ms",
+                  "15000",
+                  "--max-stream-latency-p95-ms",
+                  "15000",
+                  "--max-checkout-latency-p95-ms",
+                  "10000",
+                  "--min-samples-per-scenario",
+                  "5",
+                  "--max-stream-degraded-rate",
+                  "0.05",
+                  "--max-stream-first-token-p95-ms",
+                  "5000",
+                  "--min-success-rate",
+                  "0.90",
+                  "--browse-weight",
+                  "4",
+                  "--chat-weight",
+                  "3",
+                  "--stream-weight",
+                  "2",
+                  "--checkout-weight",
+                  "0",
+                  "--baseline-json",
+                  "",
+                  "--output-json",
+                  f"backend/reports/public-e2e-saturation-{concurrency}.json",
+              ]
+              completed = subprocess.run(command, check=False)
+              print(
+                  f"Saturation step concurrency={concurrency} exit={completed.returncode}",
+                  flush=True,
+              )
+          PY
+
+      - name: Analyze saturation curve
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          command = [
+              "python",
+              "backend/scripts/analyze_public_load_saturation.py",
+              "--reports-dir",
+              "backend/reports",
+              "--min-throughput-gain-rate",
+              "${{ inputs.min_throughput_gain_rate }}",
+              "--max-throughput-drop-rate",
+              "${{ inputs.max_throughput_drop_rate }}",
+              "--output-json",
+              "backend/reports/public-e2e-saturation-summary.json",
+          ]
+          for concurrency in json.loads(os.environ["CONCURRENCY_LEVELS"]):
+              command.extend(["--expected-concurrency", str(concurrency)])
+          raise SystemExit(subprocess.run(command, check=False).returncode)
+          PY
+
+      - name: Append saturation summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          path = Path("backend/reports/public-e2e-saturation-summary.json")
+          print("# Public E2E Saturation Smoke")
+          print("")
+          if not path.exists():
+              print("Saturation summary was not generated.")
+              raise SystemExit(0)
+          summary = json.loads(path.read_text(encoding="utf-8"))
+          print(f"- Status: `{summary['status']}`")
+          print(f"- Recommended concurrency: `{summary['recommended_concurrency']}`")
+          print(f"- First saturation concurrency: `{summary['first_saturation_concurrency'] or '-'}`")
+          print(f"- Bottleneck scenario: `{summary.get('bottleneck_scenario') or '-'}`")
+          print("")
+          print("| concurrency | successful rps | success | p95 ms | error distribution |")
+          print("|---:|---:|---:|---:|---|")
+          for point in summary["points"]:
+              error_counts = point.get("error_kind_counts") or {}
+              error_labels = {
+                  "rate_limited": "429",
+                  "server_error": "5xx",
+                  "timeout": "timeout",
+                  "connection": "connection",
+                  "upstream_error": "upstream",
+                  "client_error": "4xx",
+                  "other": "other",
+              }
+              error_text = ", ".join(
+                  f"{error_labels.get(kind, kind)}={count}"
+                  for kind, count in sorted(error_counts.items())
+                  if count
+              ) or "-"
+              print(
+                  f"| {point['concurrency']} | {point['successful_throughput_rps']:.2f} | "
+                  f"{point['success_rate']:.2%} | {point['latency_p95_ms']:.1f} | "
+                  f"{error_text} |"
+              )
+          print("")
+          print("| step | throughput gain | efficiency | classification |")
+          print("|---|---:|---:|---|")
+          for transition in summary["transitions"]:
+              step = f"{transition['from_concurrency']} -> {transition['to_concurrency']}"
+              print(
+                  f"| {step} | {transition['throughput_gain_rate']:.2%} | "
+                  f"{transition['scaling_efficiency']:.2%} | {transition['classification']} |"
+              )
+          print("")
+          print("| scenario | status | recommended concurrency | first saturation | max successful rps | curve |")
+          print("|---|---|---:|---:|---:|---|")
+          for name, curve in summary.get("scenario_curves", {}).items():
+              max_observed = curve.get("max_observed") or {}
+              transition_text = "; ".join(
+                  f"{item['from_concurrency']}->{item['to_concurrency']} "
+                  f"{item['throughput_gain_rate']:.1%} {item['classification']}"
+                  for item in curve["transitions"]
+              ) or "-"
+              print(
+                  f"| {name} | {curve['status']} | {curve['recommended_concurrency']} | "
+                  f"{curve['first_saturation_concurrency'] or '-'} | "
+                  f"{max_observed.get('successful_throughput_rps', 0.0):.2f} | "
+                  f"{transition_text} |"
+              )
+          if summary["failures"]:
+              print("")
+              print("## Failures")
+              for failure in summary["failures"]:
+                  print(f"- {failure}")
+          PY
+
+      - name: Upload saturation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-e2e-saturation-${{ github.run_number }}
+          path: backend/reports/public-e2e-saturation-*.json
+          if-no-files-found: warn

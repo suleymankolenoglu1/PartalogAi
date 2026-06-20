@@ -7,68 +7,61 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.chat_eval import (  # noqa: E402
+    best_rank,
+    classify_quality_issues,
     evaluate_thresholds,
-    expand_combined_identifier_variants,
-    extract_fallback_reasons_from_response,
-    precision_at_k,
+    extract_codes_from_response,
+    load_cases,
     summarize,
+    validate_cases,
 )
 
 
 class ChatEvalMetricsTests(unittest.TestCase):
-    def test_expand_combined_identifier_variants_splits_model_suffixes(self) -> None:
+    def test_best_rank_returns_first_expected_code_position(self) -> None:
         self.assertEqual(
-            expand_combined_identifier_variants("MF-7900-E22/E23"),
-            ["MF-7900-E22", "MF-7900-E23"],
+            best_rank(["ABC-001", "160000", "120016"], ["120016", "160000"]),
+            2,
         )
+        self.assertIsNone(best_rank(["ABC-001"], ["160000"]))
 
-    def test_precision_at_k_uses_fixed_k_denominator(self) -> None:
-        codes = ["160000", "120016", "XYZ"]
-        expected = ["160000", "120016", "005075"]
-
-        self.assertEqual(precision_at_k(codes, expected, 1), 1.0)
-        self.assertAlmostEqual(precision_at_k(codes, expected, 3), 2.0 / 3.0)
-        self.assertAlmostEqual(precision_at_k(codes, expected, 5), 2.0 / 5.0)
-
-    def test_extract_fallback_reasons_collects_unique_reasons(self) -> None:
+    def test_extract_codes_from_response_collects_and_deduplicates_sources(self) -> None:
         response = {
             "products": [
-                {"code": "160000", "fallback": True, "fallback_reason": "brand_removed"},
-                {"code": "120016", "fallback": True, "fallbackReason": "brand_removed"},
+                {"code": "160000"},
+                {"Code": "120016"},
             ],
             "compareGroups": [
                 {
                     "results": [
-                        {"code": "005075", "fallback": True, "fallback_reason": "all_filters_removed"}
+                        {"code": "160000"},
+                        {"Code": "005075"},
                     ]
                 }
             ],
         }
 
-        self.assertEqual(
-            extract_fallback_reasons_from_response(response),
-            ["brand_removed", "all_filters_removed"],
-        )
+        self.assertEqual(extract_codes_from_response(response), ["160000", "120016", "005075"])
 
-    def test_summarize_tracks_precision_and_fallback_trigger_rate(self) -> None:
+    def test_summarize_tracks_retrieval_and_no_code_rates(self) -> None:
         summary = summarize(
             [
                 {
                     "ok": True,
+                    "status": 200,
+                    "error": None,
+                    "logical_error": False,
                     "latency_ms": 100.0,
                     "source_count": 2,
                     "reply_len": 40,
+                    "rank": 1,
                     "expected_codes": ["160000", "120016"],
                     "expect_no_codes": False,
+                    "no_code_ok": None,
                     "hit_at_1": True,
                     "hit_at_3": True,
                     "hit_at_5": True,
-                    "precision_at_1": 1.0,
-                    "precision_at_3": 2.0 / 3.0,
-                    "precision_at_5": 2.0 / 5.0,
                     "mrr": 1.0,
-                    "fallback_triggered": True,
-                    "fallback_reasons": ["brand_removed"],
                     "required_ok": True,
                     "forbidden_ok": True,
                     "mentioned_codes": ["160000"],
@@ -76,21 +69,20 @@ class ChatEvalMetricsTests(unittest.TestCase):
                 },
                 {
                     "ok": True,
+                    "status": 200,
+                    "error": None,
+                    "logical_error": False,
                     "latency_ms": 200.0,
                     "source_count": 0,
                     "reply_len": 20,
+                    "rank": None,
                     "expected_codes": [],
                     "expect_no_codes": True,
                     "no_code_ok": True,
                     "hit_at_1": False,
                     "hit_at_3": False,
                     "hit_at_5": False,
-                    "precision_at_1": 0.0,
-                    "precision_at_3": 0.0,
-                    "precision_at_5": 0.0,
                     "mrr": 0.0,
-                    "fallback_triggered": False,
-                    "fallback_reasons": [],
                     "required_ok": True,
                     "forbidden_ok": True,
                     "mentioned_codes": [],
@@ -100,9 +92,174 @@ class ChatEvalMetricsTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["expected_case_count"], 1)
-        self.assertAlmostEqual(summary["precision_at_3"], 2.0 / 3.0)
-        self.assertAlmostEqual(summary["fallback_trigger_rate"], 0.5)
-        self.assertEqual(summary["fallback_reason_counts"], {"brand_removed": 1})
+        self.assertAlmostEqual(summary["hit_at_1"], 1.0)
+        self.assertAlmostEqual(summary["no_code_pass_rate"], 1.0)
+        self.assertEqual(summary["quality_issue_case_count"], 0)
+        self.assertEqual(summary["quality_issue_counts"], {})
+
+    def test_summarize_counts_quality_issue_reasons(self) -> None:
+        summary = summarize(
+            [
+                {
+                    "ok": True,
+                    "status": 200,
+                    "error": None,
+                    "logical_error": False,
+                    "latency_ms": 100.0,
+                    "source_count": 2,
+                    "reply_len": 40,
+                    "rank": 2,
+                    "expected_codes": ["160000"],
+                    "expect_no_codes": False,
+                    "no_code_ok": None,
+                    "hit_at_1": False,
+                    "hit_at_3": True,
+                    "hit_at_5": True,
+                    "mrr": 0.5,
+                    "required_ok": False,
+                    "forbidden_ok": True,
+                    "mentioned_codes": ["160000"],
+                    "hallucinated_codes": [],
+                },
+                {
+                    "ok": False,
+                    "status": 200,
+                    "error": None,
+                    "logical_error": True,
+                    "latency_ms": 100.0,
+                    "source_count": 0,
+                    "reply_len": 20,
+                    "rank": None,
+                    "expected_codes": ["120016"],
+                    "expect_no_codes": False,
+                    "no_code_ok": None,
+                    "hit_at_1": False,
+                    "hit_at_3": False,
+                    "hit_at_5": False,
+                    "mrr": 0.0,
+                    "required_ok": True,
+                    "forbidden_ok": False,
+                    "mentioned_codes": ["999999"],
+                    "hallucinated_codes": ["999999"],
+                },
+            ]
+        )
+
+        self.assertEqual(summary["quality_issue_case_count"], 2)
+        self.assertEqual(
+            summary["quality_issue_counts"],
+            {
+                "expected_code_not_rank1": 1,
+                "required_term_missing": 1,
+                "logical_error": 1,
+                "expected_code_missing": 1,
+                "forbidden_term_present": 1,
+                "hallucinated_code": 1,
+            },
+        )
+
+    def test_failed_expected_case_stays_in_retrieval_metric_denominator(self) -> None:
+        base = {
+            "status": 200,
+            "error": None,
+            "logical_error": False,
+            "latency_ms": 100.0,
+            "source_count": 1,
+            "reply_len": 20,
+            "expect_no_codes": False,
+            "no_code_ok": None,
+            "required_ok": True,
+            "forbidden_ok": True,
+            "mentioned_codes": [],
+            "hallucinated_codes": [],
+        }
+        summary = summarize(
+            [
+                {
+                    **base,
+                    "ok": True,
+                    "rank": 1,
+                    "expected_codes": ["160000"],
+                    "hit_at_1": True,
+                    "hit_at_3": True,
+                    "hit_at_5": True,
+                    "mrr": 1.0,
+                },
+                {
+                    **base,
+                    "ok": False,
+                    "status": 503,
+                    "error": "service unavailable",
+                    "rank": None,
+                    "expected_codes": ["120016"],
+                    "hit_at_1": False,
+                    "hit_at_3": False,
+                    "hit_at_5": False,
+                    "mrr": 0.0,
+                },
+            ]
+        )
+
+        self.assertEqual(summary["expected_case_count"], 2)
+        self.assertEqual(summary["hit_at_1"], 0.5)
+        self.assertEqual(summary["hit_at_3"], 0.5)
+        self.assertEqual(summary["hit_at_5"], 0.5)
+        self.assertEqual(summary["mrr"], 0.5)
+
+    def test_failed_no_code_case_does_not_count_as_passed(self) -> None:
+        base = {
+            "error": None,
+            "logical_error": False,
+            "latency_ms": 100.0,
+            "source_count": 0,
+            "reply_len": 20,
+            "rank": None,
+            "expected_codes": [],
+            "expect_no_codes": True,
+            "no_code_ok": True,
+            "hit_at_1": False,
+            "hit_at_3": False,
+            "hit_at_5": False,
+            "mrr": 0.0,
+            "required_ok": True,
+            "forbidden_ok": True,
+            "mentioned_codes": [],
+            "hallucinated_codes": [],
+        }
+        summary = summarize(
+            [
+                {**base, "ok": True, "status": 200},
+                {**base, "ok": False, "status": 503, "error": "service unavailable"},
+            ]
+        )
+
+        self.assertEqual(summary["no_code_case_count"], 2)
+        self.assertEqual(summary["no_code_pass_rate"], 0.5)
+
+    def test_classify_quality_issues_names_contract_failures(self) -> None:
+        self.assertEqual(
+            classify_quality_issues(
+                {
+                    "ok": False,
+                    "status": 503,
+                    "error": "service unavailable",
+                    "logical_error": False,
+                    "expected_codes": [],
+                    "expect_no_codes": True,
+                    "no_code_ok": False,
+                    "required_ok": False,
+                    "forbidden_ok": False,
+                    "hallucinated_codes": ["999999"],
+                }
+            ),
+            [
+                "http_error",
+                "unexpected_code_returned",
+                "required_term_missing",
+                "forbidden_term_present",
+                "hallucinated_code",
+            ],
+        )
 
     def test_thresholds_can_gate_required_and_forbidden_term_pass_rates(self) -> None:
         class Args:
@@ -137,6 +294,79 @@ class ChatEvalMetricsTests(unittest.TestCase):
             [
                 "required_term_pass_rate 0.750 < min_required_term_pass_rate 1.000",
                 "forbidden_term_pass_rate 0.500 < min_forbidden_term_pass_rate 1.000",
+            ],
+        )
+
+    def test_thresholds_can_gate_hit_at_3_hit_at_5_and_mrr(self) -> None:
+        class Args:
+            min_success_rate = None
+            min_hit_at_1 = None
+            min_hit_at_3 = 0.90
+            min_hit_at_5 = 0.95
+            min_mrr = 0.85
+            max_latency_p95_ms = None
+            max_hallucination_rate = None
+            min_no_code_pass_rate = None
+            min_required_term_pass_rate = None
+            min_forbidden_term_pass_rate = None
+
+        failures = evaluate_thresholds(
+            {
+                "success_rate": 1.0,
+                "hit_at_1": 0.80,
+                "hit_at_3": 0.85,
+                "hit_at_5": 0.90,
+                "mrr": 0.82,
+                "latency_ms_p95": 1.0,
+                "hallucination_rate": 0.0,
+                "no_code_case_count": 1,
+                "no_code_pass_rate": 1.0,
+                "required_term_pass_rate": 1.0,
+                "forbidden_term_pass_rate": 1.0,
+            },
+            Args(),
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "hit_at_3 0.850 < min_hit_at_3 0.900",
+                "hit_at_5 0.900 < min_hit_at_5 0.950",
+                "mrr 0.820 < min_mrr 0.850",
+            ],
+        )
+
+    def test_validate_cases_accepts_relevance_corpus_contract(self) -> None:
+        cases_path = Path(__file__).resolve().parents[1] / "eval" / "queries.relevance.jsonl"
+        cases = load_cases(str(cases_path))
+
+        failures = validate_cases(cases)
+
+        self.assertEqual(len(cases), 25)
+        self.assertEqual(failures, [])
+
+    def test_validate_cases_rejects_ambiguous_expectations(self) -> None:
+        failures = validate_cases(
+            [
+                {
+                    "id": "BAD1",
+                    "text": "160000 kodlu parça",
+                    "expected_codes": ["160000"],
+                    "expect_no_codes": True,
+                },
+                {
+                    "id": "BAD1",
+                    "text": "ikinci case",
+                },
+            ]
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "BAD1: expected_codes and expect_no_codes cannot both be set",
+                "BAD1: duplicate id",
+                "BAD1: expected_codes or expect_no_codes is required",
             ],
         )
 

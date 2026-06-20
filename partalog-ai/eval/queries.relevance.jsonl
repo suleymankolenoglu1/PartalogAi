@@ -17,3 +17,13 @@
 {"id":"R13","text":"yamaot vdia","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000","120016","005075"],"required_terms":["vida"]}
 {"id":"R14","text":"999999 kodlu parça var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
 {"id":"R15","text":"telefon şarj kablosu arıyorum","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"R16","text":"110048 kodlu parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110048"],"required_terms":["110048"]}
+{"id":"R17","text":"yag haznesi contasi","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500005","3500004"],"required_terms":["conta"]}
+{"id":"R18","text":"model plakasi","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["4109410"],"required_terms":["plaka"]}
+{"id":"R19","text":"percin","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["000726"],"required_terms":["perçin"]}
+{"id":"R20","text":"vida % m3 _ 0.5x3","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["vida"]}
+{"id":"R21","text":"3 5 8 yamato vg2500 8f vida m3 0.5x3","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["vida"]}
+{"id":"R22","text":"110048 kodlu parça, 110045 değil","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["110048"],"required_terms":["110048"],"forbidden_terms":["110045"]}
+{"id":"R23","text":"123 456 anlamsız parça","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expect_no_codes":true}
+{"id":"R24","text":"M3*0.5X3 VIDA","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["160000"],"required_terms":["vida"]}
+{"id":"R25","text":"yağ-deposu_conta","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["3500005","3500004"],"required_terms":["conta"]}

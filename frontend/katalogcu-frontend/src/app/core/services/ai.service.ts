@@ -106,6 +106,9 @@ export class AiService {
     publicToken?: string
   ): Observable<AiStreamEvent> {
     return new Observable(observer => {
+      const abortController = new AbortController();
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      let stopped = false;
       const formData = new FormData();
       if (text) formData.append('text', text);
       if (image) formData.append('image', image);
@@ -116,42 +119,68 @@ export class AiService {
       const token = localStorage.getItem('auth_token') ?? '';
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(`${environment.apiUrl}/chat/ask-stream`, {
-        method: 'POST',
-        body: formData,
-        headers
-      }).then(response => {
-        if (!response.body) { observer.error(new Error('SSE bağlantısı kurulamadı.')); return; }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+      const emitLine = (rawLine: string): boolean => {
+        const event = parseAiStreamSseLine(rawLine);
+        if (!event) return false;
 
-        const read = () => {
-          reader.read().then(({ done, value }) => {
+        observer.next(event);
+        if (event.type === 'done') {
+          observer.complete();
+          return true;
+        }
+        return false;
+      };
+
+      const readStream = async () => {
+        try {
+          const response = await fetch(`${environment.apiUrl}/chat/ask-stream`, {
+            method: 'POST',
+            body: formData,
+            headers,
+            signal: abortController.signal,
+          });
+          if (!response.ok) {
+            throw new Error(`SSE istegi basarisiz: ${response.status}`);
+          }
+          if (!response.body) {
+            throw new Error('SSE baglantisi kurulamadi.');
+          }
+
+          reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (!stopped) {
+            const { done, value } = await reader.read();
             if (done) {
-              if (buffer.trim().length > 0) {
-                const event = parseAiStreamSseLine(buffer.trim());
-                if (event) {
-                  observer.next(event);
-                }
+              buffer += decoder.decode();
+              if (buffer.trim().length > 0 && emitLine(buffer.trim())) return;
+              if (!stopped) {
+                observer.error(new Error('SSE akisi tamamlanmadan kesildi.'));
               }
-              observer.complete();
               return;
             }
+
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() ?? '';
             for (const rawLine of lines) {
-              const event = parseAiStreamSseLine(rawLine);
-              if (event) {
-                observer.next(event);
-              }
+              if (emitLine(rawLine)) return;
             }
-            read();
-          }).catch(err => observer.error(err));
-        };
-        read();
-      }).catch(err => observer.error(err));
+          }
+        } catch (error) {
+          const aborted = error instanceof DOMException && error.name === 'AbortError';
+          if (!stopped && !aborted) observer.error(error);
+        }
+      };
+
+      void readStream();
+
+      return () => {
+        stopped = true;
+        abortController.abort();
+        if (reader) void reader.cancel().catch(() => undefined);
+      };
     });
   }
 }

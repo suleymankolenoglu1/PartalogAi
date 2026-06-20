@@ -80,6 +80,22 @@ Staging veya canli API ayaga kalkinca:
 ./backend/scripts/postdeploy_catalog_only_check.sh --api-url https://api-domain.example
 ```
 
+Public AI/chat ve e-ticaret modulleri acilmadan once kontrollu yuk kaniti icin manuel workflow calistirilir:
+
+- GitHub Actions: `Public E2E Load Smoke`
+- Gerekli secretlar: `PARTALOG_BASE_URL`, `PARTALOG_PUBLIC_TOKEN`
+- Varsayilan akista browse/chat/SSE test edilir, checkout/siparis senaryosu `checkout_weight=0` ile kapali kalir.
+- Her etkin senaryonun esiklerle degerlendirilebilmesi icin varsayilan olarak en az `5` tamamlanmis istek uretmesi gerekir.
+- Varsayilan p95 gecikme butceleri browse icin `5 sn`, chat ve SSE icin `15 sn`, checkout icin `10 sn` olarak ayri ayri uygulanir.
+- SSE akisi icin ilk bos olmayan tokenin p95 suresi ayrica olculur ve varsayilan `5 sn` esigini asarsa workflow fail olur.
+- SSE upstream hata fallback orani varsayilan `%5` esigini asarsa workflow fail olur; normal arama fallbackleri bu esige dahil edilmez.
+- Workflow artifact'i toplam ve senaryo bazli RPS, basarili RPS ve gercek kosu suresini saklar. Ilk staging kosusu ayni sure, concurrency, agirliklar ve sorgu setiyle sonraki kosular icin performans baseline'i olarak etiketlenir.
+- Onaylanan artifact `backend/load-baselines/public-e2e-load-baseline.json` yoluna alindiginda sonraki kosular basarili RPS degerlerini otomatik karsilastirir. Varsayilan `%20` gerileme toleransi `PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE` Actions variable'i ile degistirilebilir.
+- `Public E2E Saturation Smoke` workflow'u varsayilan `4/8/16` concurrency kademelerini sirayla calistirir. Throughput artisi `%10` altinda kalirsa doygunluk raporlanir; onceki kademeye gore `%10`dan fazla duserse workflow fail olur.
+- Saturation ozeti her kademede `429`, `5xx`, timeout, baglanti, upstream ve diger hata sayilarini ayri gostererek darbogaz nedenini gorunur kilar.
+- Browse, chat ve SSE throughput egrileri ayri analiz edilir; ilk doygunluga ulasan akis darbogaz senaryosu olarak raporlanir.
+- Checkout senaryosu sadece siparis olusturma yan etkisi kabul edildiginde manuel olarak acilir.
+
 Yerel catalog-only staging provasi:
 
 ```bash

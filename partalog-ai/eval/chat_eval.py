@@ -5,6 +5,7 @@ import os
 import re
 import statistics
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,6 +42,62 @@ def load_cases(path: str) -> List[Dict[str, Any]]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid JSONL at line {idx}: {exc}") from exc
     return cases
+
+
+def validate_cases(cases: List[Dict[str, Any]]) -> List[str]:
+    failures: List[str] = []
+    seen_ids: set[str] = set()
+
+    for idx, case in enumerate(cases, start=1):
+        label = f"line-{idx}"
+        if not isinstance(case, dict):
+            failures.append(f"{label}: case must be a JSON object")
+            continue
+
+        label = str(case.get("id") or label).strip()
+        case_id = str(case.get("id") or "").strip()
+        if not case_id:
+            failures.append(f"{label}: id is required")
+        elif case_id in seen_ids:
+            failures.append(f"{label}: duplicate id")
+        else:
+            seen_ids.add(case_id)
+
+        text = str(case.get("text") or case.get("message") or "").strip()
+        if not text:
+            failures.append(f"{label}: text or message is required")
+
+        catalog_ids = case.get("catalog_ids")
+        if catalog_ids is not None and not isinstance(catalog_ids, list):
+            failures.append(f"{label}: catalog_ids must be a list when present")
+
+        expected_codes = case.get("expected_codes") or []
+        if expected_codes and not isinstance(expected_codes, list):
+            failures.append(f"{label}: expected_codes must be a list")
+            expected_codes = []
+        for code in expected_codes:
+            if not str(code).strip():
+                failures.append(f"{label}: expected_codes contains an empty value")
+
+        expect_no_codes = case.get("expect_no_codes", False)
+        if not isinstance(expect_no_codes, bool):
+            failures.append(f"{label}: expect_no_codes must be a boolean")
+
+        if expected_codes and expect_no_codes:
+            failures.append(f"{label}: expected_codes and expect_no_codes cannot both be set")
+        if not expected_codes and not expect_no_codes:
+            failures.append(f"{label}: expected_codes or expect_no_codes is required")
+
+        for key in ("required_terms", "forbidden_terms"):
+            terms = case.get(key) or []
+            if terms and not isinstance(terms, list):
+                failures.append(f"{label}: {key} must be a list")
+                continue
+            for term in terms:
+                if not str(term).strip():
+                    failures.append(f"{label}: {key} contains an empty value")
+
+    return failures
 
 
 def resolve_case_placeholders(cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -189,6 +246,41 @@ def check_required_forbidden(
     return req_ok, forb_ok
 
 
+def classify_quality_issues(result: Dict[str, Any]) -> List[str]:
+    issues: List[str] = []
+
+    if not result.get("ok"):
+        if result.get("logical_error"):
+            issues.append("logical_error")
+        elif result.get("status") and result.get("status") != 200:
+            issues.append("http_error")
+        elif result.get("error"):
+            issues.append("request_error")
+        else:
+            issues.append("case_error")
+
+    if result.get("expected_codes"):
+        rank = result.get("rank")
+        if rank is None:
+            issues.append("expected_code_missing")
+        elif rank > 1:
+            issues.append("expected_code_not_rank1")
+
+    if result.get("expect_no_codes") and result.get("no_code_ok") is False:
+        issues.append("unexpected_code_returned")
+
+    if result.get("required_ok") is False:
+        issues.append("required_term_missing")
+
+    if result.get("forbidden_ok") is False:
+        issues.append("forbidden_term_present")
+
+    if result.get("hallucinated_codes"):
+        issues.append("hallucinated_code")
+
+    return issues
+
+
 def _is_identifier_covered(token: str, allowed_identifiers: List[str]) -> bool:
     t = token.strip().upper()
     if not t:
@@ -325,16 +417,20 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     source_counts = [r["source_count"] for r in ok_results]
     reply_lens = [r["reply_len"] for r in ok_results]
 
-    expected_cases = [r for r in ok_results if r["expected_codes"]]
-    no_code_cases = [r for r in ok_results if r.get("expect_no_codes")]
+    expected_cases = [r for r in results if r["expected_codes"]]
+    no_code_cases = [r for r in results if r.get("expect_no_codes")]
 
     hallucination_cases = [r for r in ok_results if r["mentioned_codes"]]
     hallucination_hits = [r for r in hallucination_cases if r["hallucinated_codes"]]
+    quality_issues = [(r, classify_quality_issues(r)) for r in results]
+    quality_issue_counts = Counter(issue for _, issues in quality_issues for issue in issues)
 
     return {
         "total": total,
         "ok": len(ok_results),
         "errors": len(error_results),
+        "quality_issue_case_count": sum(1 for _, issues in quality_issues if issues),
+        "quality_issue_counts": dict(quality_issue_counts),
         "success_rate": (len(ok_results) / total) if total else 0.0,
         "latency_ms_avg": statistics.mean(latencies) if latencies else 0.0,
         "latency_ms_p95": percentile(latencies, 0.95) if latencies else 0.0,
@@ -346,7 +442,10 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "hit_at_5": (sum(1 for r in expected_cases if r["hit_at_5"]) / len(expected_cases)) if expected_cases else 0.0,
         "mrr": (sum(r["mrr"] for r in expected_cases) / len(expected_cases)) if expected_cases else 0.0,
         "no_code_case_count": len(no_code_cases),
-        "no_code_pass_rate": (sum(1 for r in no_code_cases if r.get("no_code_ok")) / len(no_code_cases)) if no_code_cases else 0.0,
+        "no_code_pass_rate": (
+            sum(1 for r in no_code_cases if r["ok"] and r.get("no_code_ok"))
+            / len(no_code_cases)
+        ) if no_code_cases else 0.0,
         "required_term_pass_rate": (sum(1 for r in ok_results if r["required_ok"]) / len(ok_results)) if ok_results else 0.0,
         "forbidden_term_pass_rate": (sum(1 for r in ok_results if r["forbidden_ok"]) / len(ok_results)) if ok_results else 0.0,
         "hallucination_rate": (len(hallucination_hits) / len(hallucination_cases)) if hallucination_cases else 0.0,
@@ -369,6 +468,12 @@ def print_summary(summary: Dict[str, Any]) -> None:
     print(f"Required-term pass: {summary['required_term_pass_rate']:.2%}")
     print(f"Forbidden-term pass: {summary['forbidden_term_pass_rate']:.2%}")
     print(f"Hallucination rate: {summary['hallucination_rate']:.2%}")
+    print(f"Quality issue cases: {summary['quality_issue_case_count']}")
+    if summary["quality_issue_counts"]:
+        issue_text = ", ".join(
+            f"{key}={value}" for key, value in sorted(summary["quality_issue_counts"].items())
+        )
+        print(f"Quality issues: {issue_text}")
 
 
 def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, Any]]) -> None:
@@ -386,11 +491,17 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
     lines.append(f"- MRR: `{summary['mrr']:.3f}`")
     lines.append(f"- No-code pass rate: `{summary['no_code_pass_rate']:.2%}` (cases={summary['no_code_case_count']})")
     lines.append(f"- Hallucination rate: `{summary['hallucination_rate']:.2%}`")
+    lines.append(f"- Quality issue cases: `{summary['quality_issue_case_count']}`")
+    if summary["quality_issue_counts"]:
+        issue_text = ", ".join(
+            f"`{key}`: `{value}`" for key, value in sorted(summary["quality_issue_counts"].items())
+        )
+        lines.append(f"- Quality issues: {issue_text}")
     lines.append("")
     lines.append("## Cases")
     lines.append("")
-    lines.append("| id | ok | status | latency_ms | rank | source_count | no_code_ok | error |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---|")
+    lines.append("| id | ok | status | latency_ms | rank | source_count | no_code_ok | issues | error |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---|---|")
     for r in results:
         no_code_ok = r.get("no_code_ok")
         if no_code_ok is True:
@@ -399,6 +510,7 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
             no_code_cell = "N"
         else:
             no_code_cell = "-"
+        issues = ", ".join(classify_quality_issues(r)) or "-"
         lines.append(
             f"| {r.get('id') or '-'} | "
             f"{'Y' if r['ok'] else 'N'} | "
@@ -407,6 +519,7 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
             f"{r['rank'] if r['rank'] is not None else '-'} | "
             f"{r['source_count']} | "
             f"{no_code_cell} | "
+            f"{issues} | "
             f"{(r['error'] or '').replace('|', '/')} |"
         )
     Path(path).write_text("\n".join(lines), encoding="utf-8")
@@ -422,6 +535,22 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
 
     if args.min_hit_at_1 is not None and summary["hit_at_1"] < args.min_hit_at_1:
         failures.append(f"hit_at_1 {summary['hit_at_1']:.3f} < min_hit_at_1 {args.min_hit_at_1:.3f}")
+
+    min_hit_at_3 = getattr(args, "min_hit_at_3", None)
+    if min_hit_at_3 is not None and summary["hit_at_3"] < min_hit_at_3:
+        failures.append(
+            f"hit_at_3 {summary['hit_at_3']:.3f} < min_hit_at_3 {min_hit_at_3:.3f}"
+        )
+
+    min_hit_at_5 = getattr(args, "min_hit_at_5", None)
+    if min_hit_at_5 is not None and summary["hit_at_5"] < min_hit_at_5:
+        failures.append(
+            f"hit_at_5 {summary['hit_at_5']:.3f} < min_hit_at_5 {min_hit_at_5:.3f}"
+        )
+
+    min_mrr = getattr(args, "min_mrr", None)
+    if min_mrr is not None and summary["mrr"] < min_mrr:
+        failures.append(f"mrr {summary['mrr']:.3f} < min_mrr {min_mrr:.3f}")
 
     if args.max_latency_p95_ms is not None and summary["latency_ms_p95"] > args.max_latency_p95_ms:
         failures.append(
@@ -443,6 +572,20 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
                 f"min_no_code_pass_rate {args.min_no_code_pass_rate:.3f}"
             )
 
+    min_required = getattr(args, "min_required_term_pass_rate", None)
+    if min_required is not None and summary["required_term_pass_rate"] < min_required:
+        failures.append(
+            f"required_term_pass_rate {summary['required_term_pass_rate']:.3f} < "
+            f"min_required_term_pass_rate {min_required:.3f}"
+        )
+
+    min_forbidden = getattr(args, "min_forbidden_term_pass_rate", None)
+    if min_forbidden is not None and summary["forbidden_term_pass_rate"] < min_forbidden:
+        failures.append(
+            f"forbidden_term_pass_rate {summary['forbidden_term_pass_rate']:.3f} < "
+            f"min_forbidden_term_pass_rate {min_forbidden:.3f}"
+        )
+
     return failures
 
 
@@ -455,17 +598,36 @@ async def main() -> int:
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
     parser.add_argument("--fail-on-error", action="store_true")
+    parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--min-success-rate", type=float, default=None)
     parser.add_argument("--min-hit-at-1", type=float, default=None)
+    parser.add_argument("--min-hit-at-3", type=float, default=None)
+    parser.add_argument("--min-hit-at-5", type=float, default=None)
+    parser.add_argument("--min-mrr", type=float, default=None)
     parser.add_argument("--max-latency-p95-ms", type=float, default=None)
     parser.add_argument("--max-hallucination-rate", type=float, default=None)
     parser.add_argument("--min-no-code-pass-rate", type=float, default=None)
+    parser.add_argument("--min-required-term-pass-rate", type=float, default=None)
+    parser.add_argument("--min-forbidden-term-pass-rate", type=float, default=None)
     args = parser.parse_args()
 
-    cases = resolve_case_placeholders(load_cases(args.cases))
+    cases = load_cases(args.cases)
     if not cases:
         print("No cases found.")
         return 1
+
+    validation_failures = validate_cases(cases)
+    if validation_failures:
+        print("--- Case validation failed ---")
+        for failure in validation_failures:
+            print(f"- {failure}")
+        return 4
+
+    if args.validate_only:
+        print(f"Case validation passed: {len(cases)} cases")
+        return 0
+
+    cases = resolve_case_placeholders(cases)
 
     timeout = aiohttp.ClientTimeout(total=args.timeout_seconds)
     connector = aiohttp.TCPConnector(limit=10)

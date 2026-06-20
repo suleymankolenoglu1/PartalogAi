@@ -43,6 +43,17 @@ DEFAULT_CHAT_QUERIES = [
     "Bu makine için uygun conta kodunu söyler misin?",
 ]
 
+STREAM_FAILURE_REASONS = {
+    "ai_capacity_limited",
+    "ai_timeout",
+    "ai_upstream_error",
+    "ai_exception",
+    "upstream_connection_failure",
+    "upstream_non_success",
+    "upstream_timeout",
+    "upstream_unexpected_error",
+}
+
 
 @dataclass
 class Fixture:
@@ -60,6 +71,10 @@ class ScenarioOutcome:
     status_code: int
     latency_ms: float
     error: str | None = None
+    event_count: int = 0
+    fallback_reasons: tuple[str, ...] = ()
+    first_token_latency_ms: float | None = None
+    error_kind: str | None = None
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -174,6 +189,47 @@ def build_chat_form(fixture: Fixture, query: str) -> list[tuple[str, tuple[None,
     ]
 
 
+def extract_fallback_reasons(event: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    fallback = event.get("fallback")
+    if isinstance(fallback, dict):
+        reason = fallback.get("reason")
+        if fallback.get("used") and reason:
+            reasons.append(str(reason))
+
+    reason = event.get("reason")
+    if reason and str(reason) in STREAM_FAILURE_REASONS:
+        reasons.append(str(reason))
+
+    return reasons
+
+
+def classify_failure(
+    status_code: int,
+    error: Exception,
+    fallback_reasons: tuple[str, ...] = (),
+) -> str:
+    if isinstance(error, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(error, httpx.TransportError):
+        return "connection"
+    if status_code == 429:
+        return "rate_limited"
+    if 500 <= status_code <= 599:
+        return "server_error"
+    if 400 <= status_code <= 499:
+        return "client_error"
+
+    reasons = set(fallback_reasons)
+    if reasons.intersection({"ai_timeout", "upstream_timeout"}):
+        return "timeout"
+    if "upstream_connection_failure" in reasons:
+        return "connection"
+    if reasons.intersection(STREAM_FAILURE_REASONS):
+        return "upstream_error"
+    return "other"
+
+
 async def run_catalog_browse(
     client: httpx.AsyncClient,
     base_url: str,
@@ -181,12 +237,14 @@ async def run_catalog_browse(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    status_code = 0
     try:
         catalogs = await client.get(
             f"{base_url}/api/catalogs/public-by-token",
             params={"token": fixture.public_token},
             headers=headers,
         )
+        status_code = catalogs.status_code
         if catalogs.status_code != 200:
             raise RuntimeError(f"catalogs status={catalogs.status_code}")
         catalog_list = catalogs.json()
@@ -198,12 +256,14 @@ async def run_catalog_browse(
             params={"token": fixture.public_token},
             headers=headers,
         )
+        status_code = products.status_code
         if products.status_code == 403:
             storefront = await client.get(
                 f"{base_url}/api/catalogs/public-storefront",
                 params={"token": fixture.public_token},
                 headers=headers,
             )
+            status_code = storefront.status_code
             if storefront.status_code != 200:
                 raise RuntimeError(f"storefront status={storefront.status_code}")
         else:
@@ -215,7 +275,13 @@ async def run_catalog_browse(
 
         return ScenarioOutcome(True, 200, (time.perf_counter() - started) * 1000.0)
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            error_kind=classify_failure(status_code, exc),
+        )
 
 
 async def run_chat_ask(
@@ -226,8 +292,10 @@ async def run_chat_ask(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    status_code = 0
     try:
         response = await client.post(f"{base_url}/api/chat/ask", files=build_chat_form(fixture, query), headers=headers)
+        status_code = response.status_code
         if response.status_code != 200:
             raise RuntimeError(f"chat ask status={response.status_code}")
         body = response.json()
@@ -236,7 +304,13 @@ async def run_chat_ask(
             raise RuntimeError("replySuggestion missing")
         return ScenarioOutcome(True, response.status_code, (time.perf_counter() - started) * 1000.0)
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            error_kind=classify_failure(status_code, exc),
+        )
 
 
 async def run_chat_stream(
@@ -247,6 +321,10 @@ async def run_chat_stream(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    event_count = 0
+    fallback_reasons: list[str] = []
+    first_token_latency_ms: float | None = None
+    status_code = 0
     try:
         got_event = False
         got_done = False
@@ -257,6 +335,7 @@ async def run_chat_stream(
             files=build_chat_form(fixture, query),
             headers=headers,
         ) as response:
+            status_code = response.status_code
             if response.status_code != 200:
                 raise RuntimeError(f"chat stream status={response.status_code}")
             async for line in response.aiter_lines():
@@ -266,13 +345,20 @@ async def run_chat_stream(
                 if not payload:
                     continue
                 got_event = True
+                event_count += 1
                 try:
                     data = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
                 reason = str(data.get("reason") or "")
-                event_type = str(data.get("type") or "")
-                if reason in {"ai_capacity_limited", "ai_timeout", "ai_upstream_error", "ai_exception"}:
+                fallback_reasons.extend(extract_fallback_reasons(data))
+                if (
+                    first_token_latency_ms is None
+                    and data.get("type") == "token"
+                    and str(data.get("token") or "")
+                ):
+                    first_token_latency_ms = (time.perf_counter() - started) * 1000.0
+                if reason in STREAM_FAILURE_REASONS:
                     stream_error = reason
                 if data.get("type") == "done" or "completion" in data:
                     got_done = True
@@ -280,11 +366,29 @@ async def run_chat_stream(
                 raise RuntimeError("no SSE data received")
             if stream_error:
                 raise RuntimeError(f"chat stream reason={stream_error}")
+            if first_token_latency_ms is None:
+                raise RuntimeError("stream completed without token event")
             if not got_done:
                 raise RuntimeError("stream completed without done event")
-        return ScenarioOutcome(True, 200, (time.perf_counter() - started) * 1000.0)
+        return ScenarioOutcome(
+            True,
+            200,
+            (time.perf_counter() - started) * 1000.0,
+            event_count=event_count,
+            fallback_reasons=tuple(fallback_reasons),
+            first_token_latency_ms=first_token_latency_ms,
+        )
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            event_count=event_count,
+            fallback_reasons=tuple(fallback_reasons),
+            first_token_latency_ms=first_token_latency_ms,
+            error_kind=classify_failure(status_code, exc, tuple(fallback_reasons)),
+        )
 
 
 async def run_checkout(
@@ -295,6 +399,7 @@ async def run_checkout(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    status_code = 0
     try:
         if not fixture.product_id:
             raise RuntimeError("checkout scenario disabled: no public product available")
@@ -317,6 +422,7 @@ async def run_checkout(
             json_body=register_payload,
             headers=headers,
         )
+        status_code = register.status_code
         if register.status_code not in (200, 409):
             raise RuntimeError(f"register status={register.status_code}")
 
@@ -335,6 +441,7 @@ async def run_checkout(
                 },
                 headers=headers,
             )
+            status_code = login.status_code
             if login.status_code != 200:
                 raise RuntimeError(f"login status={login.status_code}")
             login_body = login.json()
@@ -370,6 +477,7 @@ async def run_checkout(
                 ],
             },
         )
+        status_code = order.status_code
         if order.status_code != 200:
             raise RuntimeError(f"order status={order.status_code}")
         order_body = order.json()
@@ -377,22 +485,67 @@ async def run_checkout(
             raise RuntimeError("orderId missing")
         return ScenarioOutcome(True, 200, (time.perf_counter() - started) * 1000.0)
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            error_kind=classify_failure(status_code, exc),
+        )
 
 
-def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
+def summarize_scenario(
+    outcomes: list[ScenarioOutcome],
+    elapsed_seconds: float = 0.0,
+) -> dict[str, Any]:
     latencies = [item.latency_ms for item in outcomes]
     total = len(outcomes)
     ok = sum(1 for item in outcomes if item.ok)
     statuses = Counter(item.status_code for item in outcomes)
     errors = Counter(item.error or "" for item in outcomes if item.error)
+    error_kinds = Counter(
+        item.error_kind or "other"
+        for item in outcomes
+        if not item.ok
+    )
+    fallback_reasons = Counter(reason for item in outcomes for reason in set(item.fallback_reasons))
+    fallback_case_count = sum(1 for item in outcomes if item.fallback_reasons)
+    degraded_fallback_case_count = sum(
+        1
+        for item in outcomes
+        if any(reason in STREAM_FAILURE_REASONS for reason in item.fallback_reasons)
+    )
+    event_counts = [item.event_count for item in outcomes]
+    first_token_latencies = [
+        item.first_token_latency_ms
+        for item in outcomes
+        if item.first_token_latency_ms is not None
+    ]
     return {
         "total": total,
+        "ok_count": ok,
+        "failed_count": total - ok,
         "success_rate": ok / total if total else 0.0,
         "error_rate": (total - ok) / total if total else 0.0,
+        "throughput_rps": total / elapsed_seconds if elapsed_seconds > 0 else 0.0,
+        "successful_throughput_rps": ok / elapsed_seconds if elapsed_seconds > 0 else 0.0,
         "latency_avg_ms": statistics.mean(latencies) if latencies else 0.0,
         "latency_p95_ms": percentile(latencies, 0.95) if latencies else 0.0,
+        "event_count_avg": statistics.mean(event_counts) if event_counts else 0.0,
+        "first_token_sample_count": len(first_token_latencies),
+        "first_token_latency_avg_ms": (
+            statistics.mean(first_token_latencies) if first_token_latencies else 0.0
+        ),
+        "first_token_latency_p95_ms": (
+            percentile(first_token_latencies, 0.95) if first_token_latencies else 0.0
+        ),
         "status_counts": dict(statuses),
+        "error_kind_counts": dict(error_kinds),
+        "fallback_case_count": fallback_case_count,
+        "fallback_rate": fallback_case_count / total if total else 0.0,
+        "degraded_fallback_case_count": degraded_fallback_case_count,
+        "degraded_fallback_rate": degraded_fallback_case_count / total if total else 0.0,
+        "fallback_reason_counts": dict(fallback_reasons),
         "top_errors": errors.most_common(5),
     }
 
@@ -433,8 +586,18 @@ async def worker(
         results[scenario].append(outcome)
 
 
+def scenario_latency_limits(args: argparse.Namespace) -> dict[str, float]:
+    limits: dict[str, float] = {}
+    for name in ("browse", "chat", "stream", "checkout"):
+        override = getattr(args, f"max_{name}_latency_p95_ms", None)
+        limits[name] = override if override is not None else args.max_latency_p95_ms
+    return limits
+
+
 def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dict[str, Any]]) -> list[str]:
     failures: list[str] = []
+    min_samples_per_scenario = getattr(args, "min_samples_per_scenario", 1)
+    latency_limits = scenario_latency_limits(args)
     configured_weights = {
         "browse": args.browse_weight,
         "chat": args.chat_weight,
@@ -447,15 +610,189 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
         if summary["total"] == 0:
             failures.append(f"{name} did not run")
             continue
+        if summary["total"] < min_samples_per_scenario:
+            failures.append(
+                f"{name} sample_count {summary['total']} < {min_samples_per_scenario}"
+            )
+            continue
         if summary["success_rate"] < args.min_success_rate:
             failures.append(
                 f"{name} success_rate {summary['success_rate']:.3f} < {args.min_success_rate:.3f}"
             )
-        if summary["latency_p95_ms"] > args.max_latency_p95_ms:
+        latency_limit = latency_limits[name]
+        if summary["latency_p95_ms"] > latency_limit:
             failures.append(
-                f"{name} latency_p95_ms {summary['latency_p95_ms']:.1f} > {args.max_latency_p95_ms:.1f}"
+                f"{name} latency_p95_ms {summary['latency_p95_ms']:.1f} > {latency_limit:.1f}"
+            )
+
+    stream_summary = scenario_summaries.get("stream")
+    max_stream_degraded_rate = getattr(args, "max_stream_degraded_rate", None)
+    if (
+        args.stream_weight > 0
+        and stream_summary
+        and stream_summary["total"] >= min_samples_per_scenario
+        and max_stream_degraded_rate is not None
+        and stream_summary.get("degraded_fallback_rate", 0.0) > max_stream_degraded_rate
+    ):
+        failures.append(
+            f"stream degraded_fallback_rate {stream_summary['degraded_fallback_rate']:.3f} "
+            f"> {max_stream_degraded_rate:.3f}"
+        )
+    max_stream_first_token_p95_ms = getattr(args, "max_stream_first_token_p95_ms", None)
+    if (
+        args.stream_weight > 0
+        and stream_summary
+        and stream_summary["total"] >= min_samples_per_scenario
+        and max_stream_first_token_p95_ms is not None
+    ):
+        first_token_sample_count = stream_summary.get("first_token_sample_count", 0)
+        if first_token_sample_count < min_samples_per_scenario:
+            failures.append(
+                f"stream first_token_sample_count {first_token_sample_count} "
+                f"< {min_samples_per_scenario}"
+            )
+        elif stream_summary.get("first_token_latency_p95_ms", 0.0) > max_stream_first_token_p95_ms:
+            failures.append(
+                f"stream first_token_latency_p95_ms {stream_summary['first_token_latency_p95_ms']:.1f} "
+                f"> {max_stream_first_token_p95_ms:.1f}"
             )
     return failures
+
+
+def write_json_report(path: str, report: dict[str, Any]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def compare_throughput_baseline(
+    current: dict[str, Any],
+    baseline: dict[str, Any],
+    max_regression_rate: float,
+) -> tuple[dict[str, Any], list[str]]:
+    profile_fields = (
+        "duration_seconds",
+        "concurrency",
+        "timeout_seconds",
+        "weights",
+        "chat_queries",
+    )
+    current_config = current.get("config", {})
+    baseline_config = baseline.get("config", {})
+    profile_mismatches = [
+        field
+        for field in profile_fields
+        if current_config.get(field) != baseline_config.get(field)
+    ]
+    if current.get("schema_version") != baseline.get("schema_version"):
+        profile_mismatches.insert(0, "schema_version")
+    if profile_mismatches:
+        fields = ", ".join(profile_mismatches)
+        failure = f"baseline profile mismatch: {fields}"
+        return {
+            "status": "profile_mismatch",
+            "max_regression_rate": max_regression_rate,
+            "profile_mismatches": profile_mismatches,
+            "metrics": {},
+        }, [failure]
+
+    metrics: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
+    candidates = [("overall", current.get("overall", {}), baseline.get("overall", {}))]
+    for name, weight in current_config.get("weights", {}).items():
+        if weight > 0:
+            candidates.append(
+                (
+                    name,
+                    current.get("scenarios", {}).get(name, {}),
+                    baseline.get("scenarios", {}).get(name, {}),
+                )
+            )
+
+    for name, current_summary, baseline_summary in candidates:
+        current_rps = float(current_summary.get("successful_throughput_rps", 0.0))
+        baseline_rps = float(baseline_summary.get("successful_throughput_rps", 0.0))
+        if baseline_rps <= 0:
+            failure = f"baseline {name} successful_throughput_rps must be > 0"
+            failures.append(failure)
+            metrics[name] = {
+                "baseline_rps": baseline_rps,
+                "current_rps": current_rps,
+                "regression_rate": None,
+                "passed": False,
+            }
+            continue
+        regression_rate = 1.0 - (current_rps / baseline_rps)
+        passed = regression_rate <= max_regression_rate
+        metrics[name] = {
+            "baseline_rps": baseline_rps,
+            "current_rps": current_rps,
+            "regression_rate": regression_rate,
+            "passed": passed,
+        }
+        if not passed:
+            failures.append(
+                f"{name} successful_throughput_rps regression "
+                f"{regression_rate:.1%} > {max_regression_rate:.1%}"
+            )
+
+    return {
+        "status": "failed" if failures else "passed",
+        "max_regression_rate": max_regression_rate,
+        "profile_mismatches": [],
+        "metrics": metrics,
+    }, failures
+
+
+def evaluate_throughput_baseline(
+    report: dict[str, Any],
+    baseline_path: str,
+    max_regression_rate: float,
+) -> tuple[dict[str, Any], list[str]]:
+    if not baseline_path:
+        return {
+            "status": "skipped",
+            "reason": "baseline_disabled",
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, []
+    path = Path(baseline_path)
+    if not path.exists():
+        return {
+            "status": "skipped",
+            "reason": "baseline_not_found",
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, []
+    try:
+        baseline = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "invalid",
+            "reason": str(exc),
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, [f"baseline could not be read: {exc}"]
+    if not isinstance(baseline, dict):
+        reason = "baseline root must be a JSON object"
+        return {
+            "status": "invalid",
+            "reason": reason,
+            "path": baseline_path,
+            "max_regression_rate": max_regression_rate,
+            "metrics": {},
+        }, [reason]
+
+    comparison, failures = compare_throughput_baseline(
+        report,
+        baseline,
+        max_regression_rate,
+    )
+    comparison["path"] = baseline_path
+    return comparison, failures
 
 
 async def main() -> int:
@@ -470,12 +807,48 @@ async def main() -> int:
     parser.add_argument("--concurrency", type=int, default=8, help="Number of concurrent workers")
     parser.add_argument("--min-success-rate", type=float, default=0.90, help="Per-scenario minimum success rate")
     parser.add_argument("--max-latency-p95-ms", type=float, default=8000.0, help="Per-scenario max p95 latency")
+    for scenario in ("browse", "chat", "stream", "checkout"):
+        parser.add_argument(
+            f"--max-{scenario}-latency-p95-ms",
+            type=float,
+            default=None,
+            help=f"Optional {scenario} p95 latency override",
+        )
+    parser.add_argument(
+        "--min-samples-per-scenario",
+        type=int,
+        default=5,
+        help="Minimum completed requests required for each enabled scenario",
+    )
+    parser.add_argument(
+        "--max-stream-degraded-rate",
+        type=float,
+        default=0.05,
+        help="Maximum share of stream requests using an upstream failure fallback",
+    )
+    parser.add_argument(
+        "--max-stream-first-token-p95-ms",
+        type=float,
+        default=5000.0,
+        help="Maximum p95 time to the first non-empty SSE token",
+    )
     parser.add_argument("--browse-weight", type=int, default=4, help="Browse scenario weight")
     parser.add_argument("--chat-weight", type=int, default=3, help="Non-stream chat scenario weight")
     parser.add_argument("--stream-weight", type=int, default=2, help="SSE chat scenario weight")
     parser.add_argument("--checkout-weight", type=int, default=1, help="Checkout scenario weight")
     parser.add_argument("--chat-query", action="append", dest="chat_queries", default=[], help="Custom chat query")
     parser.add_argument("--output-json", default="", help="Optional JSON report output path")
+    parser.add_argument(
+        "--baseline-json",
+        default="backend/load-baselines/public-e2e-load-baseline.json",
+        help="Optional approved throughput baseline report",
+    )
+    parser.add_argument(
+        "--max-throughput-regression-rate",
+        type=float,
+        default=0.20,
+        help="Maximum successful RPS regression against the approved baseline",
+    )
     parser.add_argument("--bootstrap-admin-email", default="", help="Bootstrap admin email when token missing")
     parser.add_argument("--bootstrap-admin-password", default="LoadAdm1nP@ss!", help="Bootstrap admin password")
     parser.add_argument("--bootstrap-admin-name", default="Load Admin", help="Bootstrap admin full name")
@@ -486,6 +859,22 @@ async def main() -> int:
         raise SystemExit("concurrency must be > 0")
     if args.duration_seconds <= 0:
         raise SystemExit("duration-seconds must be > 0")
+    if args.min_samples_per_scenario <= 0:
+        raise SystemExit("min-samples-per-scenario must be > 0")
+    if args.max_latency_p95_ms <= 0 or any(
+        limit is not None and limit <= 0
+        for limit in (
+            args.max_browse_latency_p95_ms,
+            args.max_chat_latency_p95_ms,
+            args.max_stream_latency_p95_ms,
+            args.max_checkout_latency_p95_ms,
+        )
+    ):
+        raise SystemExit("latency thresholds must be > 0")
+    if args.max_stream_first_token_p95_ms <= 0:
+        raise SystemExit("max-stream-first-token-p95-ms must be > 0")
+    if not 0 <= args.max_throughput_regression_rate < 1:
+        raise SystemExit("max-throughput-regression-rate must be >= 0 and < 1")
 
     base_url = trim_slash(args.base_url)
     fixture = resolve_fixture(args)
@@ -510,38 +899,64 @@ async def main() -> int:
         f"catalogId={fixture.catalog_id} productId={fixture.product_id or 'none'}"
     )
 
-    end_time = time.monotonic() + args.duration_seconds
+    load_started = time.monotonic()
+    end_time = load_started + args.duration_seconds
     async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
         await asyncio.gather(*[
             worker(worker_id, client, base_url, fixture, queries, end_time, sequence, results, weights)
             for worker_id in range(args.concurrency)
         ])
+    elapsed_seconds = time.monotonic() - load_started
 
     scenario_summaries = {
-        name: summarize_scenario(results.get(name, []))
+        name: summarize_scenario(results.get(name, []), elapsed_seconds)
         for name in ("browse", "chat", "stream", "checkout")
     }
-    overall = summarize_scenario([item for items in results.values() for item in items])
+    overall = summarize_scenario(
+        [item for items in results.values() for item in items],
+        elapsed_seconds,
+    )
 
     report = {
+        "schema_version": 1,
         "config": {
             "base_url": base_url,
             "duration_seconds": args.duration_seconds,
+            "elapsed_seconds": elapsed_seconds,
             "concurrency": args.concurrency,
+            "timeout_seconds": args.timeout_seconds,
             "catalog_id": fixture.catalog_id,
             "product_id": fixture.product_id,
+            "chat_queries": queries,
             "weights": {name: weight for name, weight in weights},
+            "thresholds": {
+                "min_success_rate": args.min_success_rate,
+                "max_latency_p95_ms": args.max_latency_p95_ms,
+                "max_latency_p95_ms_by_scenario": scenario_latency_limits(args),
+                "min_samples_per_scenario": args.min_samples_per_scenario,
+                "max_stream_degraded_rate": args.max_stream_degraded_rate,
+                "max_stream_first_token_p95_ms": args.max_stream_first_token_p95_ms,
+            },
         },
         "overall": overall,
         "scenarios": scenario_summaries,
     }
 
+    baseline_comparison, baseline_failures = evaluate_throughput_baseline(
+        report,
+        args.baseline_json,
+        args.max_throughput_regression_rate,
+    )
+    report["baseline_comparison"] = baseline_comparison
+    failures = check_thresholds(args, scenario_summaries) + baseline_failures
+    report["status"] = "failed" if failures else "passed"
+    report["threshold_failures"] = failures
+
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if args.output_json:
-        Path(args.output_json).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_report(args.output_json, report)
 
-    failures = check_thresholds(args, scenario_summaries)
     if failures:
         print("Threshold failures:")
         for failure in failures:

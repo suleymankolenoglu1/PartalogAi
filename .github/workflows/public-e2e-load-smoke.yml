@@ -1,0 +1,165 @@
+name: Public E2E Load Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Load smoke duration in seconds"
+        required: true
+        default: "30"
+      concurrency:
+        description: "Concurrent workers"
+        required: true
+        default: "4"
+      max_browse_latency_p95_ms:
+        description: "Browse p95 latency threshold"
+        required: true
+        default: "5000"
+      max_chat_latency_p95_ms:
+        description: "Non-stream chat p95 latency threshold"
+        required: true
+        default: "15000"
+      max_stream_latency_p95_ms:
+        description: "SSE stream completion p95 latency threshold"
+        required: true
+        default: "15000"
+      max_checkout_latency_p95_ms:
+        description: "Checkout p95 latency threshold"
+        required: true
+        default: "10000"
+      min_samples_per_scenario:
+        description: "Minimum completed requests required per enabled scenario"
+        required: true
+        default: "5"
+      max_stream_degraded_rate:
+        description: "Maximum upstream failure fallback rate for SSE requests"
+        required: true
+        default: "0.05"
+      max_stream_first_token_p95_ms:
+        description: "SSE first non-empty token p95 latency threshold"
+        required: true
+        default: "5000"
+      checkout_weight:
+        description: "Checkout/order scenario weight; keep 0 unless side effects are acceptable"
+        required: true
+        default: "0"
+
+jobs:
+  public-load-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PARTALOG_BASE_URL: ${{ secrets.PARTALOG_BASE_URL }}
+      PARTALOG_PUBLIC_TOKEN: ${{ secrets.PARTALOG_PUBLIC_TOKEN }}
+      PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE: ${{ vars.PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE || '0.20' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          [ -n "${PARTALOG_BASE_URL:-}" ] || (echo "Missing secret: PARTALOG_BASE_URL" && exit 1)
+          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || (echo "Missing secret: PARTALOG_PUBLIC_TOKEN" && exit 1)
+
+      - name: Install load smoke dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install httpx
+
+      - name: Run public e2e load smoke
+        run: |
+          python backend/scripts/e2e_public_load_test.py \
+            --base-url "$PARTALOG_BASE_URL" \
+            --public-token "$PARTALOG_PUBLIC_TOKEN" \
+            --duration-seconds "${{ inputs.duration_seconds }}" \
+            --concurrency "${{ inputs.concurrency }}" \
+            --max-browse-latency-p95-ms "${{ inputs.max_browse_latency_p95_ms }}" \
+            --max-chat-latency-p95-ms "${{ inputs.max_chat_latency_p95_ms }}" \
+            --max-stream-latency-p95-ms "${{ inputs.max_stream_latency_p95_ms }}" \
+            --max-checkout-latency-p95-ms "${{ inputs.max_checkout_latency_p95_ms }}" \
+            --min-samples-per-scenario "${{ inputs.min_samples_per_scenario }}" \
+            --max-stream-degraded-rate "${{ inputs.max_stream_degraded_rate }}" \
+            --max-stream-first-token-p95-ms "${{ inputs.max_stream_first_token_p95_ms }}" \
+            --max-throughput-regression-rate "$PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE" \
+            --min-success-rate 0.90 \
+            --browse-weight 4 \
+            --chat-weight 3 \
+            --stream-weight 2 \
+            --checkout-weight "${{ inputs.checkout_weight }}" \
+            --output-json backend/reports/public-e2e-load-smoke.json
+
+      - name: Append load summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report_path = Path("backend/reports/public-e2e-load-smoke.json")
+          if not report_path.exists():
+              print("# Public E2E Load Smoke")
+              print("")
+              print("Report was not generated.")
+              raise SystemExit(0)
+
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          print("# Public E2E Load Smoke")
+          print("")
+          print(f"- Requested duration: `{report['config']['duration_seconds']}s`")
+          print(f"- Actual duration: `{report['config']['elapsed_seconds']:.2f}s`")
+          print(f"- Concurrency: `{report['config']['concurrency']}`")
+          print(f"- Overall success: `{report['overall']['success_rate']:.2%}`")
+          print(f"- Overall throughput: `{report['overall']['throughput_rps']:.2f} req/s`")
+          print(f"- Successful throughput: `{report['overall']['successful_throughput_rps']:.2f} req/s`")
+          print(f"- Overall p95 latency: `{report['overall']['latency_p95_ms']:.1f} ms`")
+          print(f"- SSE first token p95: `{report['scenarios']['stream'].get('first_token_latency_p95_ms', 0.0):.1f} ms`")
+          comparison = report.get("baseline_comparison") or {}
+          print(f"- Baseline comparison: `{comparison.get('status', 'unknown')}`")
+          print("")
+          print("| scenario | total | rps | ok rps | success | p95 ms | limit ms | avg events | degraded | fallback reasons | errors |")
+          print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
+          latency_limits = report["config"]["thresholds"]["max_latency_p95_ms_by_scenario"]
+          for name, summary in report["scenarios"].items():
+              fallback_reasons = summary.get("fallback_reason_counts") or {}
+              fallback_text = ", ".join(
+                  f"{reason}: {count}" for reason, count in sorted(fallback_reasons.items())
+              ) or "-"
+              print(
+                  f"| {name} | {summary['total']} | "
+                  f"{summary['throughput_rps']:.2f} | "
+                  f"{summary['successful_throughput_rps']:.2f} | "
+                  f"{summary['success_rate']:.2%} | "
+                  f"{summary['latency_p95_ms']:.1f} | "
+                  f"{latency_limits[name]:.1f} | "
+                  f"{summary.get('event_count_avg', 0.0):.1f} | "
+                  f"{summary.get('degraded_fallback_rate', 0.0):.2%} | "
+                  f"{fallback_text} | "
+                  f"{summary['error_rate']:.2%} |"
+              )
+          if comparison.get("metrics"):
+              print("")
+              print("| baseline metric | baseline rps | current rps | regression | result |")
+              print("|---|---:|---:|---:|---|")
+              for name, metric in comparison["metrics"].items():
+                  regression = metric.get("regression_rate")
+                  regression_text = f"{regression:.2%}" if regression is not None else "-"
+                  result = "pass" if metric.get("passed") else "fail"
+                  print(
+                      f"| {name} | {metric['baseline_rps']:.2f} | "
+                      f"{metric['current_rps']:.2f} | {regression_text} | {result} |"
+                  )
+          PY
+
+      - name: Upload load report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-e2e-load-smoke-${{ github.run_number }}
+          path: backend/reports/public-e2e-load-smoke.json
