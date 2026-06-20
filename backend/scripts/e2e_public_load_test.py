@@ -493,9 +493,18 @@ async def worker(
         results[scenario].append(outcome)
 
 
+def scenario_latency_limits(args: argparse.Namespace) -> dict[str, float]:
+    limits: dict[str, float] = {}
+    for name in ("browse", "chat", "stream", "checkout"):
+        override = getattr(args, f"max_{name}_latency_p95_ms", None)
+        limits[name] = override if override is not None else args.max_latency_p95_ms
+    return limits
+
+
 def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dict[str, Any]]) -> list[str]:
     failures: list[str] = []
     min_samples_per_scenario = getattr(args, "min_samples_per_scenario", 1)
+    latency_limits = scenario_latency_limits(args)
     configured_weights = {
         "browse": args.browse_weight,
         "chat": args.chat_weight,
@@ -517,9 +526,10 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
             failures.append(
                 f"{name} success_rate {summary['success_rate']:.3f} < {args.min_success_rate:.3f}"
             )
-        if summary["latency_p95_ms"] > args.max_latency_p95_ms:
+        latency_limit = latency_limits[name]
+        if summary["latency_p95_ms"] > latency_limit:
             failures.append(
-                f"{name} latency_p95_ms {summary['latency_p95_ms']:.1f} > {args.max_latency_p95_ms:.1f}"
+                f"{name} latency_p95_ms {summary['latency_p95_ms']:.1f} > {latency_limit:.1f}"
             )
 
     stream_summary = scenario_summaries.get("stream")
@@ -556,6 +566,13 @@ async def main() -> int:
     parser.add_argument("--concurrency", type=int, default=8, help="Number of concurrent workers")
     parser.add_argument("--min-success-rate", type=float, default=0.90, help="Per-scenario minimum success rate")
     parser.add_argument("--max-latency-p95-ms", type=float, default=8000.0, help="Per-scenario max p95 latency")
+    for scenario in ("browse", "chat", "stream", "checkout"):
+        parser.add_argument(
+            f"--max-{scenario}-latency-p95-ms",
+            type=float,
+            default=None,
+            help=f"Optional {scenario} p95 latency override",
+        )
     parser.add_argument(
         "--min-samples-per-scenario",
         type=int,
@@ -586,6 +603,16 @@ async def main() -> int:
         raise SystemExit("duration-seconds must be > 0")
     if args.min_samples_per_scenario <= 0:
         raise SystemExit("min-samples-per-scenario must be > 0")
+    if args.max_latency_p95_ms <= 0 or any(
+        limit is not None and limit <= 0
+        for limit in (
+            args.max_browse_latency_p95_ms,
+            args.max_chat_latency_p95_ms,
+            args.max_stream_latency_p95_ms,
+            args.max_checkout_latency_p95_ms,
+        )
+    ):
+        raise SystemExit("latency thresholds must be > 0")
 
     base_url = trim_slash(args.base_url)
     fixture = resolve_fixture(args)
@@ -634,6 +661,7 @@ async def main() -> int:
             "thresholds": {
                 "min_success_rate": args.min_success_rate,
                 "max_latency_p95_ms": args.max_latency_p95_ms,
+                "max_latency_p95_ms_by_scenario": scenario_latency_limits(args),
                 "min_samples_per_scenario": args.min_samples_per_scenario,
                 "max_stream_degraded_rate": args.max_stream_degraded_rate,
             },

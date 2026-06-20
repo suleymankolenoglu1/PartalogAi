@@ -14,6 +14,7 @@ from e2e_public_load_test import (
     check_thresholds,
     extract_fallback_reasons,
     percentile,
+    scenario_latency_limits,
     summarize_scenario,
     write_json_report,
 )
@@ -199,6 +200,35 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(
             check_thresholds(args, summaries),
             ["stream sample_count 2 < 5"],
+        )
+
+    def test_check_thresholds_uses_scenario_latency_overrides(self) -> None:
+        args = argparse.Namespace(
+            browse_weight=1,
+            chat_weight=1,
+            stream_weight=0,
+            checkout_weight=0,
+            min_success_rate=0.90,
+            max_latency_p95_ms=1000.0,
+            max_browse_latency_p95_ms=200.0,
+            max_chat_latency_p95_ms=2000.0,
+            min_samples_per_scenario=1,
+            max_stream_degraded_rate=0.10,
+        )
+        summaries = {
+            "browse": {"total": 5, "success_rate": 1.0, "latency_p95_ms": 250.0},
+            "chat": {"total": 5, "success_rate": 1.0, "latency_p95_ms": 1500.0},
+            "stream": {"total": 0, "success_rate": 0.0, "latency_p95_ms": 0.0},
+            "checkout": {"total": 0, "success_rate": 0.0, "latency_p95_ms": 0.0},
+        }
+
+        self.assertEqual(
+            check_thresholds(args, summaries),
+            ["browse latency_p95_ms 250.0 > 200.0"],
+        )
+        self.assertEqual(
+            scenario_latency_limits(args),
+            {"browse": 200.0, "chat": 2000.0, "stream": 1000.0, "checkout": 1000.0},
         )
 
     def test_write_json_report_creates_parent_directory(self) -> None:

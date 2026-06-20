@@ -11,8 +11,20 @@ on:
         description: "Concurrent workers"
         required: true
         default: "4"
-      max_latency_p95_ms:
-        description: "Per-scenario p95 latency threshold"
+      max_browse_latency_p95_ms:
+        description: "Browse p95 latency threshold"
+        required: true
+        default: "5000"
+      max_chat_latency_p95_ms:
+        description: "Non-stream chat p95 latency threshold"
+        required: true
+        default: "15000"
+      max_stream_latency_p95_ms:
+        description: "SSE stream completion p95 latency threshold"
+        required: true
+        default: "15000"
+      max_checkout_latency_p95_ms:
+        description: "Checkout p95 latency threshold"
         required: true
         default: "10000"
       min_samples_per_scenario:
@@ -63,7 +75,10 @@ jobs:
             --public-token "$PARTALOG_PUBLIC_TOKEN" \
             --duration-seconds "${{ inputs.duration_seconds }}" \
             --concurrency "${{ inputs.concurrency }}" \
-            --max-latency-p95-ms "${{ inputs.max_latency_p95_ms }}" \
+            --max-browse-latency-p95-ms "${{ inputs.max_browse_latency_p95_ms }}" \
+            --max-chat-latency-p95-ms "${{ inputs.max_chat_latency_p95_ms }}" \
+            --max-stream-latency-p95-ms "${{ inputs.max_stream_latency_p95_ms }}" \
+            --max-checkout-latency-p95-ms "${{ inputs.max_checkout_latency_p95_ms }}" \
             --min-samples-per-scenario "${{ inputs.min_samples_per_scenario }}" \
             --max-stream-degraded-rate "${{ inputs.max_stream_degraded_rate }}" \
             --min-success-rate 0.90 \
@@ -95,8 +110,9 @@ jobs:
           print(f"- Overall success: `{report['overall']['success_rate']:.2%}`")
           print(f"- Overall p95 latency: `{report['overall']['latency_p95_ms']:.1f} ms`")
           print("")
-          print("| scenario | total | success | p95 ms | avg events | degraded | fallback reasons | errors |")
-          print("|---|---:|---:|---:|---:|---:|---|---:|")
+          print("| scenario | total | success | p95 ms | limit ms | avg events | degraded | fallback reasons | errors |")
+          print("|---|---:|---:|---:|---:|---:|---:|---|---:|")
+          latency_limits = report["config"]["thresholds"]["max_latency_p95_ms_by_scenario"]
           for name, summary in report["scenarios"].items():
               fallback_reasons = summary.get("fallback_reason_counts") or {}
               fallback_text = ", ".join(
@@ -106,6 +122,7 @@ jobs:
                   f"| {name} | {summary['total']} | "
                   f"{summary['success_rate']:.2%} | "
                   f"{summary['latency_p95_ms']:.1f} | "
+                  f"{latency_limits[name]:.1f} | "
                   f"{summary.get('event_count_avg', 0.0):.1f} | "
                   f"{summary.get('degraded_fallback_rate', 0.0):.2%} | "
                   f"{fallback_text} | "

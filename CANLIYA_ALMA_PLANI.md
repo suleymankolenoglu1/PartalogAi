@@ -86,6 +86,7 @@ Public AI/chat ve e-ticaret modulleri acilmadan once kontrollu yuk kaniti icin m
 - Gerekli secretlar: `PARTALOG_BASE_URL`, `PARTALOG_PUBLIC_TOKEN`
 - Varsayilan akista browse/chat/SSE test edilir, checkout/siparis senaryosu `checkout_weight=0` ile kapali kalir.
 - Her etkin senaryonun esiklerle degerlendirilebilmesi icin varsayilan olarak en az `5` tamamlanmis istek uretmesi gerekir.
+- Varsayilan p95 gecikme butceleri browse icin `5 sn`, chat ve SSE icin `15 sn`, checkout icin `10 sn` olarak ayri ayri uygulanir.
 - SSE upstream hata fallback orani varsayilan `%5` esigini asarsa workflow fail olur; normal arama fallbackleri bu esige dahil edilmez.
 - Checkout senaryosu sadece siparis olusturma yan etkisi kabul edildiginde manuel olarak acilir.
 
