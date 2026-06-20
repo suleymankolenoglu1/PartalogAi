@@ -22,6 +22,9 @@ The workflow only generates a candidate when `PARTALOG_BASE_URL` contains the
 configured `baseline_base_url_marker`. Keep the default `staging` marker unless
 the staging URL uses a different, explicit environment label.
 
+`concurrency_levels` must be a sorted JSON integer array with at least two
+unique positive values, for example `[4,8,16]`.
+
 You can also regenerate the candidate locally from downloaded reports:
 
 ```bash
