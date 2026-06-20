@@ -22,6 +22,10 @@
     ]
   },
   "private": true,
+  "engines": {
+    "node": ">=22 <24",
+    "npm": ">=10 <12"
+  },
   "dependencies": {
     "@angular/common": "20.3.25",
     "@angular/compiler": "20.3.25",
