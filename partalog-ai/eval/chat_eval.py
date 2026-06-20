@@ -18,6 +18,14 @@ GENERIC_ERROR_PATTERNS = (
     "ai servisine şu an ulaşılamıyor",
     "hata",
 )
+CATEGORY_THRESHOLD_SPECS = (
+    ("min_category_success_rate", "success_rate", "case_count"),
+    ("min_category_hit_at_1", "hit_at_1", "expected_case_count"),
+    ("min_category_hit_at_3", "hit_at_3", "expected_case_count"),
+    ("min_category_hit_at_5", "hit_at_5", "expected_case_count"),
+    ("min_category_mrr", "mrr", "expected_case_count"),
+    ("min_category_no_code_pass_rate", "no_code_pass_rate", "no_code_case_count"),
+)
 
 
 def parse_category_threshold(value: str) -> Tuple[str, float]:
@@ -121,6 +129,43 @@ def validate_cases(cases: List[Dict[str, Any]]) -> List[str]:
             for term in terms:
                 if not str(term).strip():
                     failures.append(f"{label}: {key} contains an empty value")
+
+    return failures
+
+
+def validate_category_threshold_cases(
+    cases: List[Dict[str, Any]], args: argparse.Namespace
+) -> List[str]:
+    failures: List[str] = []
+    category_counts: Dict[str, Dict[str, int]] = {}
+
+    for case in cases:
+        category = str(case.get("category") or "uncategorized").strip() or "uncategorized"
+        counts = category_counts.setdefault(
+            category,
+            {
+                "case_count": 0,
+                "expected_case_count": 0,
+                "no_code_case_count": 0,
+            },
+        )
+        counts["case_count"] += 1
+        if case.get("expected_codes"):
+            counts["expected_case_count"] += 1
+        if case.get("expect_no_codes"):
+            counts["no_code_case_count"] += 1
+
+    for arg_name, _metric_name, required_count_name in CATEGORY_THRESHOLD_SPECS:
+        for category, _threshold in getattr(args, arg_name, None) or []:
+            counts = category_counts.get(category)
+            if counts is None:
+                failures.append(f"{arg_name} set for unknown category '{category}'")
+                continue
+
+            if counts[required_count_name] == 0:
+                failures.append(
+                    f"{arg_name} set for category '{category}' but no eligible cases exist"
+                )
 
     return failures
 
@@ -689,16 +734,8 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
             f"min_forbidden_term_pass_rate {min_forbidden:.3f}"
         )
 
-    category_thresholds = [
-        ("min_category_success_rate", "success_rate", "case_count"),
-        ("min_category_hit_at_1", "hit_at_1", "expected_case_count"),
-        ("min_category_hit_at_3", "hit_at_3", "expected_case_count"),
-        ("min_category_hit_at_5", "hit_at_5", "expected_case_count"),
-        ("min_category_mrr", "mrr", "expected_case_count"),
-        ("min_category_no_code_pass_rate", "no_code_pass_rate", "no_code_case_count"),
-    ]
     category_metrics = summary.get("category_metrics", {})
-    for arg_name, metric_name, required_count_name in category_thresholds:
+    for arg_name, metric_name, required_count_name in CATEGORY_THRESHOLD_SPECS:
         for category, threshold in getattr(args, arg_name, None) or []:
             metrics = category_metrics.get(category)
             if metrics is None:
@@ -793,6 +830,13 @@ async def main() -> int:
     if validation_failures:
         print("--- Case validation failed ---")
         for failure in validation_failures:
+            print(f"- {failure}")
+        return 4
+
+    threshold_contract_failures = validate_category_threshold_cases(cases, args)
+    if threshold_contract_failures:
+        print("--- Category threshold validation failed ---")
+        for failure in threshold_contract_failures:
             print(f"- {failure}")
         return 4
 

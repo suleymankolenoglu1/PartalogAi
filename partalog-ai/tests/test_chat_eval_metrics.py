@@ -17,6 +17,7 @@ from eval.chat_eval import (  # noqa: E402
     parse_category_threshold,
     summarize,
     validate_cases,
+    validate_category_threshold_cases,
 )
 
 
@@ -495,6 +496,35 @@ class ChatEvalMetricsTests(unittest.TestCase):
             parse_category_threshold("=0.8")
         with self.assertRaises(argparse.ArgumentTypeError):
             parse_category_threshold("exact_code=1.1")
+
+    def test_category_threshold_contract_validates_case_coverage(self) -> None:
+        class Args:
+            min_category_success_rate = [("exact_code", 1.0)]
+            min_category_hit_at_1 = [("missing", 0.8)]
+            min_category_hit_at_3 = []
+            min_category_hit_at_5 = []
+            min_category_mrr = []
+            min_category_no_code_pass_rate = [("exact_code", 1.0)]
+
+        failures = validate_category_threshold_cases(
+            [
+                {
+                    "id": "EXACT",
+                    "category": "exact_code",
+                    "text": "160000",
+                    "expected_codes": ["160000"],
+                }
+            ],
+            Args(),
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "min_category_hit_at_1 set for unknown category 'missing'",
+                "min_category_no_code_pass_rate set for category 'exact_code' but no eligible cases exist",
+            ],
+        )
 
     def test_validate_cases_accepts_relevance_corpus_contract(self) -> None:
         cases_path = Path(__file__).resolve().parents[1] / "eval" / "queries.relevance.jsonl"
