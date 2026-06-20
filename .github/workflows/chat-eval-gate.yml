@@ -81,7 +81,9 @@ jobs:
             --min-mrr 0.85 \
             --max-latency-p95-ms 8000 \
             --max-hallucination-rate 0.05 \
-            --min-no-code-pass-rate 0.9
+            --min-no-code-pass-rate 0.9 \
+            --min-category-hit-at-1 exact_code=0.80 \
+            --min-category-no-code-pass-rate negative=1.0
 
       - name: Upload eval report
         if: always()

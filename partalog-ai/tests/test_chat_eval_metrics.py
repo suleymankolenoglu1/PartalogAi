@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import sys
 import unittest
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,6 +14,7 @@ from eval.chat_eval import (  # noqa: E402
     evaluate_thresholds,
     extract_codes_from_response,
     load_cases,
+    parse_category_threshold,
     summarize,
     validate_cases,
 )
@@ -236,6 +239,73 @@ class ChatEvalMetricsTests(unittest.TestCase):
         self.assertEqual(summary["no_code_case_count"], 2)
         self.assertEqual(summary["no_code_pass_rate"], 0.5)
 
+    def test_summarize_reports_retrieval_metrics_by_category(self) -> None:
+        base = {
+            "error": None,
+            "logical_error": False,
+            "latency_ms": 100.0,
+            "source_count": 1,
+            "reply_len": 20,
+            "expect_no_codes": False,
+            "no_code_ok": None,
+            "required_ok": True,
+            "forbidden_ok": True,
+            "mentioned_codes": [],
+            "hallucinated_codes": [],
+        }
+        summary = summarize(
+            [
+                {
+                    **base,
+                    "ok": True,
+                    "status": 200,
+                    "rank": 1,
+                    "expected_codes": ["160000"],
+                    "hit_at_1": True,
+                    "hit_at_3": True,
+                    "hit_at_5": True,
+                    "mrr": 1.0,
+                    "case": {"category": "specification"},
+                },
+                {
+                    **base,
+                    "ok": False,
+                    "status": 503,
+                    "error": "service unavailable",
+                    "rank": None,
+                    "expected_codes": ["120016"],
+                    "hit_at_1": False,
+                    "hit_at_3": False,
+                    "hit_at_5": False,
+                    "mrr": 0.0,
+                    "case": {"category": "specification"},
+                },
+                {
+                    **base,
+                    "ok": True,
+                    "status": 200,
+                    "source_count": 0,
+                    "expected_codes": [],
+                    "expect_no_codes": True,
+                    "no_code_ok": True,
+                    "rank": None,
+                    "hit_at_1": False,
+                    "hit_at_3": False,
+                    "hit_at_5": False,
+                    "mrr": 0.0,
+                    "case": {"category": "negative"},
+                },
+            ]
+        )
+
+        specification = summary["category_metrics"]["specification"]
+        self.assertEqual(specification["case_count"], 2)
+        self.assertEqual(specification["success_rate"], 0.5)
+        self.assertEqual(specification["hit_at_1"], 0.5)
+        self.assertEqual(specification["mrr"], 0.5)
+        self.assertEqual(specification["quality_issue_case_count"], 1)
+        self.assertEqual(summary["category_metrics"]["negative"]["no_code_pass_rate"], 1.0)
+
     def test_classify_quality_issues_names_contract_failures(self) -> None:
         self.assertEqual(
             classify_quality_issues(
@@ -336,6 +406,96 @@ class ChatEvalMetricsTests(unittest.TestCase):
             ],
         )
 
+    def test_thresholds_can_gate_category_metrics(self) -> None:
+        class Args:
+            min_success_rate = None
+            min_hit_at_1 = None
+            min_hit_at_3 = None
+            min_hit_at_5 = None
+            min_mrr = None
+            max_latency_p95_ms = None
+            max_hallucination_rate = None
+            min_no_code_pass_rate = None
+            min_required_term_pass_rate = None
+            min_forbidden_term_pass_rate = None
+            min_category_success_rate = []
+            min_category_hit_at_1 = [("exact_code", 1.0)]
+            min_category_hit_at_3 = []
+            min_category_hit_at_5 = []
+            min_category_mrr = [("model_typo", 0.75)]
+            min_category_no_code_pass_rate = [("negative", 1.0)]
+
+        failures = evaluate_thresholds(
+            {
+                "success_rate": 1.0,
+                "hit_at_1": 0.80,
+                "hit_at_3": 0.90,
+                "hit_at_5": 1.0,
+                "mrr": 0.85,
+                "latency_ms_p95": 1.0,
+                "hallucination_rate": 0.0,
+                "no_code_case_count": 3,
+                "no_code_pass_rate": 0.67,
+                "required_term_pass_rate": 1.0,
+                "forbidden_term_pass_rate": 1.0,
+                "category_metrics": {
+                    "exact_code": {
+                        "case_count": 5,
+                        "success_rate": 1.0,
+                        "expected_case_count": 5,
+                        "hit_at_1": 0.8,
+                        "hit_at_3": 1.0,
+                        "hit_at_5": 1.0,
+                        "mrr": 0.9,
+                        "no_code_case_count": 0,
+                        "no_code_pass_rate": 0.0,
+                    },
+                    "model_typo": {
+                        "case_count": 3,
+                        "success_rate": 1.0,
+                        "expected_case_count": 3,
+                        "hit_at_1": 0.33,
+                        "hit_at_3": 0.67,
+                        "hit_at_5": 1.0,
+                        "mrr": 0.61,
+                        "no_code_case_count": 0,
+                        "no_code_pass_rate": 0.0,
+                    },
+                    "negative": {
+                        "case_count": 3,
+                        "success_rate": 1.0,
+                        "expected_case_count": 0,
+                        "hit_at_1": 0.0,
+                        "hit_at_3": 0.0,
+                        "hit_at_5": 0.0,
+                        "mrr": 0.0,
+                        "no_code_case_count": 3,
+                        "no_code_pass_rate": 0.67,
+                    },
+                },
+            },
+            Args(),
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "exact_code.hit_at_1 0.800 < min_category_hit_at_1 1.000",
+                "model_typo.mrr 0.610 < min_category_mrr 0.750",
+                "negative.no_code_pass_rate 0.670 < min_category_no_code_pass_rate 1.000",
+            ],
+        )
+
+    def test_parse_category_threshold_validates_format(self) -> None:
+        self.assertEqual(parse_category_threshold("exact_code=0.8"), ("exact_code", 0.8))
+
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_category_threshold("exact_code")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_category_threshold("=0.8")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_category_threshold("exact_code=1.1")
+
     def test_validate_cases_accepts_relevance_corpus_contract(self) -> None:
         cases_path = Path(__file__).resolve().parents[1] / "eval" / "queries.relevance.jsonl"
         cases = load_cases(str(cases_path))
@@ -343,7 +503,36 @@ class ChatEvalMetricsTests(unittest.TestCase):
         failures = validate_cases(cases)
 
         self.assertEqual(len(cases), 25)
+        self.assertEqual(
+            Counter(case["category"] for case in cases),
+            Counter(
+                {
+                    "specification": 6,
+                    "lexical": 8,
+                    "exact_code": 5,
+                    "model_typo": 3,
+                    "negative": 3,
+                }
+            ),
+        )
         self.assertEqual(failures, [])
+
+    def test_validate_cases_rejects_empty_category(self) -> None:
+        failures = validate_cases(
+            [
+                {
+                    "id": "BAD-CATEGORY",
+                    "category": " ",
+                    "text": "160000 kodlu parca",
+                    "expected_codes": ["160000"],
+                }
+            ]
+        )
+
+        self.assertEqual(
+            failures,
+            ["BAD-CATEGORY: category must be a non-empty string when present"],
+        )
 
     def test_validate_cases_rejects_ambiguous_expectations(self) -> None:
         failures = validate_cases(

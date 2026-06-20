@@ -12,6 +12,7 @@ Bu klasör chatbot kalitesini ölçmek için hızlı bir eval aracı içerir.
 - `Forbidden-term pass rate`
 - `Hallucination rate` (cevapta geçen kod benzeri token'lar, dönen ürün/model/isim-açıklama içindeki identifier setinde yoksa)
 - `Quality issue counts` (`logical_error`, `expected_code_missing`, `expected_code_not_rank1`, `required_term_missing`, `forbidden_term_present`, `hallucinated_code` gibi kırılım nedenleri)
+- `Category metrics` (kategori bazinda success, `Hit@1/3/5`, `MRR`, no-code ve quality issue sayisi)
 
 ## Case formatı (JSONL)
 
@@ -20,6 +21,7 @@ Her satır bir case:
 ```json
 {
   "id": "Q1",
+  "category": "specification",
   "text": "yamato vida arıyorum",
   "public_token": "<PUBLIC_TOKEN>",
   "catalog_ids": [],
@@ -98,8 +100,14 @@ python eval/chat_eval.py \
   --max-hallucination-rate 0.05 \
   --min-no-code-pass-rate 0.9 \
   --min-required-term-pass-rate 0.95 \
-  --min-forbidden-term-pass-rate 1.0
+  --min-forbidden-term-pass-rate 1.0 \
+  --min-category-hit-at-1 exact_code=0.80 \
+  --min-category-no-code-pass-rate negative=1.0
 ```
+
+Kategori bazlı eşikler `CATEGORY=RATE` formatındadır ve tekrar edilebilir. Örneğin `exact_code`
+kategorisinin `Hit@1` metriğini, `negative` kategorisinin no-code başarısını veya `model_typo`
+kategorisinin `MRR` değerini ayrı ayrı gate edebilirsin.
 
 ## GitHub Actions (CI Gate)
 

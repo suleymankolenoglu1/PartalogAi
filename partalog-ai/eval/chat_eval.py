@@ -20,6 +20,27 @@ GENERIC_ERROR_PATTERNS = (
 )
 
 
+def parse_category_threshold(value: str) -> Tuple[str, float]:
+    raw = value.strip()
+    if "=" not in raw:
+        raise argparse.ArgumentTypeError("expected CATEGORY=RATE")
+
+    category, threshold_text = raw.split("=", 1)
+    category = category.strip()
+    if not category:
+        raise argparse.ArgumentTypeError("category name cannot be empty")
+
+    try:
+        threshold = float(threshold_text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("threshold must be numeric") from exc
+
+    if threshold < 0.0 or threshold > 1.0:
+        raise argparse.ArgumentTypeError("threshold must be between 0 and 1")
+
+    return category, threshold
+
+
 def load_cases(path: str) -> List[Dict[str, Any]]:
     p = Path(path)
     if not p.exists():
@@ -66,6 +87,10 @@ def validate_cases(cases: List[Dict[str, Any]]) -> List[str]:
         text = str(case.get("text") or case.get("message") or "").strip()
         if not text:
             failures.append(f"{label}: text or message is required")
+
+        category = case.get("category")
+        if category is not None and (not isinstance(category, str) or not category.strip()):
+            failures.append(f"{label}: category must be a non-empty string when present")
 
         catalog_ids = case.get("catalog_ids")
         if catalog_ids is not None and not isinstance(catalog_ids, list):
@@ -408,6 +433,57 @@ async def run_case(
     }
 
 
+def summarize_category_metrics(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for result in results:
+        case = result.get("case") or {}
+        category = str(case.get("category") or "uncategorized").strip() or "uncategorized"
+        grouped.setdefault(category, []).append(result)
+
+    metrics: Dict[str, Dict[str, Any]] = {}
+    for category, category_results in sorted(grouped.items()):
+        expected_cases = [r for r in category_results if r["expected_codes"]]
+        no_code_cases = [r for r in category_results if r.get("expect_no_codes")]
+        metrics[category] = {
+            "case_count": len(category_results),
+            "success_rate": (
+                sum(1 for r in category_results if r["ok"]) / len(category_results)
+            ),
+            "expected_case_count": len(expected_cases),
+            "hit_at_1": (
+                sum(1 for r in expected_cases if r["hit_at_1"]) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "hit_at_3": (
+                sum(1 for r in expected_cases if r["hit_at_3"]) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "hit_at_5": (
+                sum(1 for r in expected_cases if r["hit_at_5"]) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "mrr": (
+                sum(r["mrr"] for r in expected_cases) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "no_code_case_count": len(no_code_cases),
+            "no_code_pass_rate": (
+                sum(1 for r in no_code_cases if r["ok"] and r.get("no_code_ok"))
+                / len(no_code_cases)
+                if no_code_cases
+                else 0.0
+            ),
+            "quality_issue_case_count": sum(
+                1 for r in category_results if classify_quality_issues(r)
+            ),
+        }
+    return metrics
+
+
 def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     total = len(results)
     ok_results = [r for r in results if r["ok"]]
@@ -431,6 +507,7 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "errors": len(error_results),
         "quality_issue_case_count": sum(1 for _, issues in quality_issues if issues),
         "quality_issue_counts": dict(quality_issue_counts),
+        "category_metrics": summarize_category_metrics(results),
         "success_rate": (len(ok_results) / total) if total else 0.0,
         "latency_ms_avg": statistics.mean(latencies) if latencies else 0.0,
         "latency_ms_p95": percentile(latencies, 0.95) if latencies else 0.0,
@@ -474,6 +551,14 @@ def print_summary(summary: Dict[str, Any]) -> None:
             f"{key}={value}" for key, value in sorted(summary["quality_issue_counts"].items())
         )
         print(f"Quality issues: {issue_text}")
+    if summary["category_metrics"]:
+        print("Category metrics:")
+        for category, metrics in summary["category_metrics"].items():
+            print(
+                f"  {category}: cases={metrics['case_count']} "
+                f"success={metrics['success_rate']:.2%} hit@1={metrics['hit_at_1']:.2%} "
+                f"hit@3={metrics['hit_at_3']:.2%} mrr={metrics['mrr']:.3f}"
+            )
 
 
 def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, Any]]) -> None:
@@ -497,6 +582,24 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
             f"`{key}`: `{value}`" for key, value in sorted(summary["quality_issue_counts"].items())
         )
         lines.append(f"- Quality issues: {issue_text}")
+    if summary["category_metrics"]:
+        lines.append("")
+        lines.append("## Category Metrics")
+        lines.append("")
+        lines.append("| category | cases | success | Hit@1 | Hit@3 | Hit@5 | MRR | no-code | issues |")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for category, metrics in summary["category_metrics"].items():
+            no_code = (
+                f"{metrics['no_code_pass_rate']:.2%}"
+                if metrics["no_code_case_count"]
+                else "-"
+            )
+            lines.append(
+                f"| {category} | {metrics['case_count']} | {metrics['success_rate']:.2%} | "
+                f"{metrics['hit_at_1']:.2%} | {metrics['hit_at_3']:.2%} | "
+                f"{metrics['hit_at_5']:.2%} | {metrics['mrr']:.3f} | {no_code} | "
+                f"{metrics['quality_issue_case_count']} |"
+            )
     lines.append("")
     lines.append("## Cases")
     lines.append("")
@@ -586,6 +689,34 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
             f"min_forbidden_term_pass_rate {min_forbidden:.3f}"
         )
 
+    category_thresholds = [
+        ("min_category_success_rate", "success_rate", "case_count"),
+        ("min_category_hit_at_1", "hit_at_1", "expected_case_count"),
+        ("min_category_hit_at_3", "hit_at_3", "expected_case_count"),
+        ("min_category_hit_at_5", "hit_at_5", "expected_case_count"),
+        ("min_category_mrr", "mrr", "expected_case_count"),
+        ("min_category_no_code_pass_rate", "no_code_pass_rate", "no_code_case_count"),
+    ]
+    category_metrics = summary.get("category_metrics", {})
+    for arg_name, metric_name, required_count_name in category_thresholds:
+        for category, threshold in getattr(args, arg_name, None) or []:
+            metrics = category_metrics.get(category)
+            if metrics is None:
+                failures.append(f"{arg_name} set for unknown category '{category}'")
+                continue
+
+            if metrics[required_count_name] == 0:
+                failures.append(
+                    f"{arg_name} set for category '{category}' but no eligible cases exist"
+                )
+                continue
+
+            actual = metrics[metric_name]
+            if actual < threshold:
+                failures.append(
+                    f"{category}.{metric_name} {actual:.3f} < {arg_name} {threshold:.3f}"
+                )
+
     return failures
 
 
@@ -609,6 +740,48 @@ async def main() -> int:
     parser.add_argument("--min-no-code-pass-rate", type=float, default=None)
     parser.add_argument("--min-required-term-pass-rate", type=float, default=None)
     parser.add_argument("--min-forbidden-term-pass-rate", type=float, default=None)
+    parser.add_argument(
+        "--min-category-success-rate",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-hit-at-1",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-hit-at-3",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-hit-at-5",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-mrr",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-no-code-pass-rate",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
     args = parser.parse_args()
 
     cases = load_cases(args.cases)
