@@ -11,6 +11,7 @@ Bu klasör chatbot kalitesini ölçmek için hızlı bir eval aracı içerir.
 - `Required-term pass rate`
 - `Forbidden-term pass rate`
 - `Hallucination rate` (cevapta geçen kod benzeri token'lar, dönen ürün/model/isim-açıklama içindeki identifier setinde yoksa)
+- `Quality issue counts` (`logical_error`, `expected_code_missing`, `expected_code_not_rank1`, `required_term_missing`, `forbidden_term_present`, `hallucinated_code` gibi kırılım nedenleri)
 
 ## Case formatı (JSONL)
 

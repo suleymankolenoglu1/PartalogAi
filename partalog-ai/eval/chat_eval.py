@@ -5,6 +5,7 @@ import os
 import re
 import statistics
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -245,6 +246,41 @@ def check_required_forbidden(
     return req_ok, forb_ok
 
 
+def classify_quality_issues(result: Dict[str, Any]) -> List[str]:
+    issues: List[str] = []
+
+    if not result.get("ok"):
+        if result.get("logical_error"):
+            issues.append("logical_error")
+        elif result.get("status") and result.get("status") != 200:
+            issues.append("http_error")
+        elif result.get("error"):
+            issues.append("request_error")
+        else:
+            issues.append("case_error")
+
+    if result.get("expected_codes"):
+        rank = result.get("rank")
+        if rank is None:
+            issues.append("expected_code_missing")
+        elif rank > 1:
+            issues.append("expected_code_not_rank1")
+
+    if result.get("expect_no_codes") and result.get("no_code_ok") is False:
+        issues.append("unexpected_code_returned")
+
+    if result.get("required_ok") is False:
+        issues.append("required_term_missing")
+
+    if result.get("forbidden_ok") is False:
+        issues.append("forbidden_term_present")
+
+    if result.get("hallucinated_codes"):
+        issues.append("hallucinated_code")
+
+    return issues
+
+
 def _is_identifier_covered(token: str, allowed_identifiers: List[str]) -> bool:
     t = token.strip().upper()
     if not t:
@@ -386,11 +422,15 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     hallucination_cases = [r for r in ok_results if r["mentioned_codes"]]
     hallucination_hits = [r for r in hallucination_cases if r["hallucinated_codes"]]
+    quality_issues = [(r, classify_quality_issues(r)) for r in results]
+    quality_issue_counts = Counter(issue for _, issues in quality_issues for issue in issues)
 
     return {
         "total": total,
         "ok": len(ok_results),
         "errors": len(error_results),
+        "quality_issue_case_count": sum(1 for _, issues in quality_issues if issues),
+        "quality_issue_counts": dict(quality_issue_counts),
         "success_rate": (len(ok_results) / total) if total else 0.0,
         "latency_ms_avg": statistics.mean(latencies) if latencies else 0.0,
         "latency_ms_p95": percentile(latencies, 0.95) if latencies else 0.0,
@@ -425,6 +465,12 @@ def print_summary(summary: Dict[str, Any]) -> None:
     print(f"Required-term pass: {summary['required_term_pass_rate']:.2%}")
     print(f"Forbidden-term pass: {summary['forbidden_term_pass_rate']:.2%}")
     print(f"Hallucination rate: {summary['hallucination_rate']:.2%}")
+    print(f"Quality issue cases: {summary['quality_issue_case_count']}")
+    if summary["quality_issue_counts"]:
+        issue_text = ", ".join(
+            f"{key}={value}" for key, value in sorted(summary["quality_issue_counts"].items())
+        )
+        print(f"Quality issues: {issue_text}")
 
 
 def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, Any]]) -> None:
@@ -442,11 +488,17 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
     lines.append(f"- MRR: `{summary['mrr']:.3f}`")
     lines.append(f"- No-code pass rate: `{summary['no_code_pass_rate']:.2%}` (cases={summary['no_code_case_count']})")
     lines.append(f"- Hallucination rate: `{summary['hallucination_rate']:.2%}`")
+    lines.append(f"- Quality issue cases: `{summary['quality_issue_case_count']}`")
+    if summary["quality_issue_counts"]:
+        issue_text = ", ".join(
+            f"`{key}`: `{value}`" for key, value in sorted(summary["quality_issue_counts"].items())
+        )
+        lines.append(f"- Quality issues: {issue_text}")
     lines.append("")
     lines.append("## Cases")
     lines.append("")
-    lines.append("| id | ok | status | latency_ms | rank | source_count | no_code_ok | error |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---|")
+    lines.append("| id | ok | status | latency_ms | rank | source_count | no_code_ok | issues | error |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---|---|")
     for r in results:
         no_code_ok = r.get("no_code_ok")
         if no_code_ok is True:
@@ -455,6 +507,7 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
             no_code_cell = "N"
         else:
             no_code_cell = "-"
+        issues = ", ".join(classify_quality_issues(r)) or "-"
         lines.append(
             f"| {r.get('id') or '-'} | "
             f"{'Y' if r['ok'] else 'N'} | "
@@ -463,6 +516,7 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
             f"{r['rank'] if r['rank'] is not None else '-'} | "
             f"{r['source_count']} | "
             f"{no_code_cell} | "
+            f"{issues} | "
             f"{(r['error'] or '').replace('|', '/')} |"
         )
     Path(path).write_text("\n".join(lines), encoding="utf-8")
