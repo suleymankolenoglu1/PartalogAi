@@ -127,6 +127,13 @@ jobs:
           raise SystemExit(subprocess.run(command, check=False).returncode)
           PY
 
+      - name: Generate baseline promotion candidate
+        run: |
+          python backend/scripts/promote_public_load_baseline.py \
+            --saturation-summary-json backend/reports/public-e2e-saturation-summary.json \
+            --reports-dir backend/reports \
+            --output-json backend/reports/public-e2e-load-baseline.candidate.json
+
       - name: Append saturation summary
         if: always()
         run: |
@@ -206,5 +213,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: public-e2e-saturation-${{ github.run_number }}
-          path: backend/reports/public-e2e-saturation-*.json
+          path: |
+            backend/reports/public-e2e-saturation-*.json
+            backend/reports/public-e2e-load-baseline.candidate.json
           if-no-files-found: warn
