@@ -1,0 +1,53 @@
+name: Public Load Baseline Gate
+
+on:
+  pull_request:
+    paths:
+      - "backend/load-baselines/**"
+      - "backend/scripts/promote_public_load_baseline.py"
+      - "backend/scripts/test_promote_public_load_baseline.py"
+      - "backend/scripts/validate_public_load_baseline.py"
+      - "backend/scripts/test_validate_public_load_baseline.py"
+      - ".github/workflows/public-load-baseline-gate.yml"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "backend/load-baselines/**"
+      - "backend/scripts/promote_public_load_baseline.py"
+      - "backend/scripts/test_promote_public_load_baseline.py"
+      - "backend/scripts/validate_public_load_baseline.py"
+      - "backend/scripts/test_validate_public_load_baseline.py"
+      - ".github/workflows/public-load-baseline-gate.yml"
+  workflow_dispatch:
+
+jobs:
+  baseline-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run baseline validation tests
+        run: |
+          python -m unittest \
+            backend/scripts/test_promote_public_load_baseline.py \
+            backend/scripts/test_validate_public_load_baseline.py
+
+      - name: Validate approved baseline when present
+        run: |
+          set -euo pipefail
+          baseline="backend/load-baselines/public-e2e-load-baseline.json"
+          if [ ! -f "$baseline" ]; then
+            echo "No approved public load baseline committed yet; validation skipped."
+            exit 0
+          fi
+          python backend/scripts/validate_public_load_baseline.py --baseline-json "$baseline"
