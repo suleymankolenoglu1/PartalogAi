@@ -17,6 +17,8 @@ To promote a baseline from staging:
    `public-e2e-load-baseline.candidate.json`.
 4. If the candidate is acceptable, add it as
    `backend/load-baselines/public-e2e-load-baseline.json` in a dedicated PR.
+   The `Public Load Baseline Gate` workflow validates the committed baseline
+   shape and rejects failed, runtime-scoped, or zero-throughput baselines.
 
 The workflow only generates a candidate when `PARTALOG_BASE_URL` contains the
 configured `baseline_base_url_marker`. Keep the default `staging` marker unless
