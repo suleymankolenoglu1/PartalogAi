@@ -67,6 +67,10 @@ def validate_cases(cases: List[Dict[str, Any]]) -> List[str]:
         if not text:
             failures.append(f"{label}: text or message is required")
 
+        category = case.get("category")
+        if category is not None and (not isinstance(category, str) or not category.strip()):
+            failures.append(f"{label}: category must be a non-empty string when present")
+
         catalog_ids = case.get("catalog_ids")
         if catalog_ids is not None and not isinstance(catalog_ids, list):
             failures.append(f"{label}: catalog_ids must be a list when present")
@@ -408,6 +412,57 @@ async def run_case(
     }
 
 
+def summarize_category_metrics(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for result in results:
+        case = result.get("case") or {}
+        category = str(case.get("category") or "uncategorized").strip() or "uncategorized"
+        grouped.setdefault(category, []).append(result)
+
+    metrics: Dict[str, Dict[str, Any]] = {}
+    for category, category_results in sorted(grouped.items()):
+        expected_cases = [r for r in category_results if r["expected_codes"]]
+        no_code_cases = [r for r in category_results if r.get("expect_no_codes")]
+        metrics[category] = {
+            "case_count": len(category_results),
+            "success_rate": (
+                sum(1 for r in category_results if r["ok"]) / len(category_results)
+            ),
+            "expected_case_count": len(expected_cases),
+            "hit_at_1": (
+                sum(1 for r in expected_cases if r["hit_at_1"]) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "hit_at_3": (
+                sum(1 for r in expected_cases if r["hit_at_3"]) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "hit_at_5": (
+                sum(1 for r in expected_cases if r["hit_at_5"]) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "mrr": (
+                sum(r["mrr"] for r in expected_cases) / len(expected_cases)
+                if expected_cases
+                else 0.0
+            ),
+            "no_code_case_count": len(no_code_cases),
+            "no_code_pass_rate": (
+                sum(1 for r in no_code_cases if r["ok"] and r.get("no_code_ok"))
+                / len(no_code_cases)
+                if no_code_cases
+                else 0.0
+            ),
+            "quality_issue_case_count": sum(
+                1 for r in category_results if classify_quality_issues(r)
+            ),
+        }
+    return metrics
+
+
 def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     total = len(results)
     ok_results = [r for r in results if r["ok"]]
@@ -431,6 +486,7 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "errors": len(error_results),
         "quality_issue_case_count": sum(1 for _, issues in quality_issues if issues),
         "quality_issue_counts": dict(quality_issue_counts),
+        "category_metrics": summarize_category_metrics(results),
         "success_rate": (len(ok_results) / total) if total else 0.0,
         "latency_ms_avg": statistics.mean(latencies) if latencies else 0.0,
         "latency_ms_p95": percentile(latencies, 0.95) if latencies else 0.0,
@@ -474,6 +530,14 @@ def print_summary(summary: Dict[str, Any]) -> None:
             f"{key}={value}" for key, value in sorted(summary["quality_issue_counts"].items())
         )
         print(f"Quality issues: {issue_text}")
+    if summary["category_metrics"]:
+        print("Category metrics:")
+        for category, metrics in summary["category_metrics"].items():
+            print(
+                f"  {category}: cases={metrics['case_count']} "
+                f"success={metrics['success_rate']:.2%} hit@1={metrics['hit_at_1']:.2%} "
+                f"hit@3={metrics['hit_at_3']:.2%} mrr={metrics['mrr']:.3f}"
+            )
 
 
 def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, Any]]) -> None:
@@ -497,6 +561,24 @@ def write_markdown(path: str, summary: Dict[str, Any], results: List[Dict[str, A
             f"`{key}`: `{value}`" for key, value in sorted(summary["quality_issue_counts"].items())
         )
         lines.append(f"- Quality issues: {issue_text}")
+    if summary["category_metrics"]:
+        lines.append("")
+        lines.append("## Category Metrics")
+        lines.append("")
+        lines.append("| category | cases | success | Hit@1 | Hit@3 | Hit@5 | MRR | no-code | issues |")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for category, metrics in summary["category_metrics"].items():
+            no_code = (
+                f"{metrics['no_code_pass_rate']:.2%}"
+                if metrics["no_code_case_count"]
+                else "-"
+            )
+            lines.append(
+                f"| {category} | {metrics['case_count']} | {metrics['success_rate']:.2%} | "
+                f"{metrics['hit_at_1']:.2%} | {metrics['hit_at_3']:.2%} | "
+                f"{metrics['hit_at_5']:.2%} | {metrics['mrr']:.3f} | {no_code} | "
+                f"{metrics['quality_issue_case_count']} |"
+            )
     lines.append("")
     lines.append("## Cases")
     lines.append("")
