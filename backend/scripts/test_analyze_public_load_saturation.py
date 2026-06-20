@@ -30,6 +30,7 @@ def report(
             "successful_throughput_rps": successful_rps,
             "success_rate": 1.0,
             "latency_p95_ms": 1000.0,
+            "error_kind_counts": {},
         },
     }
 
@@ -101,6 +102,10 @@ class SaturationAnalysisTests(unittest.TestCase):
     def test_carries_load_gate_failures_into_summary(self) -> None:
         failed_report = report(8, 18.0, status="failed")
         failed_report["threshold_failures"] = ["stream success_rate 0.800 < 0.900"]
+        failed_report["overall"]["error_kind_counts"] = {
+            "rate_limited": 2,
+            "timeout": 1,
+        }
 
         summary, failures = analyze_saturation(
             [report(4, 10.0), failed_report],
@@ -113,6 +118,10 @@ class SaturationAnalysisTests(unittest.TestCase):
         self.assertIn(
             "concurrency 8 load gates failed: stream success_rate 0.800 < 0.900",
             failures,
+        )
+        self.assertEqual(
+            summary["points"][1]["error_kind_counts"],
+            {"rate_limited": 2, "timeout": 1},
         )
 
 

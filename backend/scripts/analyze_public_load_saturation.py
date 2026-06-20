@@ -75,6 +75,7 @@ def analyze_saturation(
                 "successful_throughput_rps": successful_rps,
                 "success_rate": float(overall.get("success_rate", 0.0)),
                 "latency_p95_ms": float(overall.get("latency_p95_ms", 0.0)),
+                "error_kind_counts": dict(overall.get("error_kind_counts", {})),
             }
         )
 

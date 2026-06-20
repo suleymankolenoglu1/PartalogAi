@@ -74,6 +74,7 @@ class ScenarioOutcome:
     event_count: int = 0
     fallback_reasons: tuple[str, ...] = ()
     first_token_latency_ms: float | None = None
+    error_kind: str | None = None
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -203,6 +204,32 @@ def extract_fallback_reasons(event: dict[str, Any]) -> list[str]:
     return reasons
 
 
+def classify_failure(
+    status_code: int,
+    error: Exception,
+    fallback_reasons: tuple[str, ...] = (),
+) -> str:
+    if isinstance(error, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(error, httpx.TransportError):
+        return "connection"
+    if status_code == 429:
+        return "rate_limited"
+    if 500 <= status_code <= 599:
+        return "server_error"
+    if 400 <= status_code <= 499:
+        return "client_error"
+
+    reasons = set(fallback_reasons)
+    if reasons.intersection({"ai_timeout", "upstream_timeout"}):
+        return "timeout"
+    if "upstream_connection_failure" in reasons:
+        return "connection"
+    if reasons.intersection(STREAM_FAILURE_REASONS):
+        return "upstream_error"
+    return "other"
+
+
 async def run_catalog_browse(
     client: httpx.AsyncClient,
     base_url: str,
@@ -210,12 +237,14 @@ async def run_catalog_browse(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    status_code = 0
     try:
         catalogs = await client.get(
             f"{base_url}/api/catalogs/public-by-token",
             params={"token": fixture.public_token},
             headers=headers,
         )
+        status_code = catalogs.status_code
         if catalogs.status_code != 200:
             raise RuntimeError(f"catalogs status={catalogs.status_code}")
         catalog_list = catalogs.json()
@@ -227,12 +256,14 @@ async def run_catalog_browse(
             params={"token": fixture.public_token},
             headers=headers,
         )
+        status_code = products.status_code
         if products.status_code == 403:
             storefront = await client.get(
                 f"{base_url}/api/catalogs/public-storefront",
                 params={"token": fixture.public_token},
                 headers=headers,
             )
+            status_code = storefront.status_code
             if storefront.status_code != 200:
                 raise RuntimeError(f"storefront status={storefront.status_code}")
         else:
@@ -244,7 +275,13 @@ async def run_catalog_browse(
 
         return ScenarioOutcome(True, 200, (time.perf_counter() - started) * 1000.0)
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            error_kind=classify_failure(status_code, exc),
+        )
 
 
 async def run_chat_ask(
@@ -255,8 +292,10 @@ async def run_chat_ask(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    status_code = 0
     try:
         response = await client.post(f"{base_url}/api/chat/ask", files=build_chat_form(fixture, query), headers=headers)
+        status_code = response.status_code
         if response.status_code != 200:
             raise RuntimeError(f"chat ask status={response.status_code}")
         body = response.json()
@@ -265,7 +304,13 @@ async def run_chat_ask(
             raise RuntimeError("replySuggestion missing")
         return ScenarioOutcome(True, response.status_code, (time.perf_counter() - started) * 1000.0)
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            error_kind=classify_failure(status_code, exc),
+        )
 
 
 async def run_chat_stream(
@@ -279,6 +324,7 @@ async def run_chat_stream(
     event_count = 0
     fallback_reasons: list[str] = []
     first_token_latency_ms: float | None = None
+    status_code = 0
     try:
         got_event = False
         got_done = False
@@ -289,6 +335,7 @@ async def run_chat_stream(
             files=build_chat_form(fixture, query),
             headers=headers,
         ) as response:
+            status_code = response.status_code
             if response.status_code != 200:
                 raise RuntimeError(f"chat stream status={response.status_code}")
             async for line in response.aiter_lines():
@@ -334,12 +381,13 @@ async def run_chat_stream(
     except Exception as exc:
         return ScenarioOutcome(
             False,
-            0,
+            status_code,
             (time.perf_counter() - started) * 1000.0,
             str(exc),
             event_count=event_count,
             fallback_reasons=tuple(fallback_reasons),
             first_token_latency_ms=first_token_latency_ms,
+            error_kind=classify_failure(status_code, exc, tuple(fallback_reasons)),
         )
 
 
@@ -351,6 +399,7 @@ async def run_checkout(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    status_code = 0
     try:
         if not fixture.product_id:
             raise RuntimeError("checkout scenario disabled: no public product available")
@@ -373,6 +422,7 @@ async def run_checkout(
             json_body=register_payload,
             headers=headers,
         )
+        status_code = register.status_code
         if register.status_code not in (200, 409):
             raise RuntimeError(f"register status={register.status_code}")
 
@@ -391,6 +441,7 @@ async def run_checkout(
                 },
                 headers=headers,
             )
+            status_code = login.status_code
             if login.status_code != 200:
                 raise RuntimeError(f"login status={login.status_code}")
             login_body = login.json()
@@ -426,6 +477,7 @@ async def run_checkout(
                 ],
             },
         )
+        status_code = order.status_code
         if order.status_code != 200:
             raise RuntimeError(f"order status={order.status_code}")
         order_body = order.json()
@@ -433,7 +485,13 @@ async def run_checkout(
             raise RuntimeError("orderId missing")
         return ScenarioOutcome(True, 200, (time.perf_counter() - started) * 1000.0)
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            status_code,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            error_kind=classify_failure(status_code, exc),
+        )
 
 
 def summarize_scenario(
@@ -445,6 +503,11 @@ def summarize_scenario(
     ok = sum(1 for item in outcomes if item.ok)
     statuses = Counter(item.status_code for item in outcomes)
     errors = Counter(item.error or "" for item in outcomes if item.error)
+    error_kinds = Counter(
+        item.error_kind or "other"
+        for item in outcomes
+        if not item.ok
+    )
     fallback_reasons = Counter(reason for item in outcomes for reason in set(item.fallback_reasons))
     fallback_case_count = sum(1 for item in outcomes if item.fallback_reasons)
     degraded_fallback_case_count = sum(
@@ -477,6 +540,7 @@ def summarize_scenario(
             percentile(first_token_latencies, 0.95) if first_token_latencies else 0.0
         ),
         "status_counts": dict(statuses),
+        "error_kind_counts": dict(error_kinds),
         "fallback_case_count": fallback_case_count,
         "fallback_rate": fallback_case_count / total if total else 0.0,
         "degraded_fallback_case_count": degraded_fallback_case_count,

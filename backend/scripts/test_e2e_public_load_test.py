@@ -8,12 +8,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from e2e_public_load_test import (
     Fixture,
     ScenarioOutcome,
     check_thresholds,
+    classify_failure,
     compare_throughput_baseline,
     evaluate_throughput_baseline,
     extract_fallback_reasons,
@@ -26,10 +29,9 @@ from e2e_public_load_test import (
 
 
 class FakeStreamResponse:
-    status_code = 200
-
-    def __init__(self, lines: list[str]):
+    def __init__(self, lines: list[str], status_code: int = 200):
         self.lines = lines
+        self.status_code = status_code
 
     async def __aenter__(self) -> FakeStreamResponse:
         return self
@@ -43,8 +45,8 @@ class FakeStreamResponse:
 
 
 class FakeStreamClient:
-    def __init__(self, lines: list[str]):
-        self.response = FakeStreamResponse(lines)
+    def __init__(self, lines: list[str], status_code: int = 200):
+        self.response = FakeStreamResponse(lines, status_code)
 
     def stream(self, *_args: object, **_kwargs: object) -> FakeStreamResponse:
         return self.response
@@ -102,6 +104,7 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(summary["degraded_fallback_rate"], 0.0)
         self.assertEqual(summary["fallback_reason_counts"], {})
         self.assertEqual(summary["status_counts"], {200: 2, 0: 1})
+        self.assertEqual(summary["error_kind_counts"], {"other": 1})
         self.assertEqual(summary["top_errors"], [("stream completed without done event", 1)])
         self.assertAlmostEqual(summary["latency_p95_ms"], 470.0)
 
@@ -117,6 +120,7 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
                     event_count=2,
                     fallback_reasons=("upstream_timeout", "upstream_timeout"),
                     first_token_latency_ms=300.0,
+                    error_kind="timeout",
                 ),
                 ScenarioOutcome(
                     False,
@@ -125,6 +129,7 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
                     "chat stream reason=upstream_timeout",
                     event_count=2,
                     fallback_reasons=("upstream_timeout", "upstream_non_success"),
+                    error_kind="upstream_error",
                 ),
             ]
         )
@@ -142,6 +147,30 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(
             summary["fallback_reason_counts"],
             {"upstream_timeout": 2, "upstream_non_success": 1},
+        )
+        self.assertEqual(
+            summary["error_kind_counts"],
+            {"timeout": 1, "upstream_error": 1},
+        )
+
+    def test_classify_failure_uses_status_exception_and_stream_reason(self) -> None:
+        self.assertEqual(classify_failure(429, RuntimeError("rate limited")), "rate_limited")
+        self.assertEqual(classify_failure(503, RuntimeError("unavailable")), "server_error")
+        self.assertEqual(classify_failure(400, RuntimeError("bad request")), "client_error")
+        self.assertEqual(classify_failure(0, httpx.ReadTimeout("slow")), "timeout")
+        self.assertEqual(classify_failure(409, httpx.ReadTimeout("slow")), "timeout")
+        self.assertEqual(classify_failure(0, httpx.ConnectError("offline")), "connection")
+        self.assertEqual(
+            classify_failure(200, RuntimeError("fallback"), ("upstream_non_success",)),
+            "upstream_error",
+        )
+        self.assertEqual(
+            classify_failure(200, RuntimeError("fallback"), ("upstream_timeout",)),
+            "timeout",
+        )
+        self.assertEqual(
+            classify_failure(200, RuntimeError("fallback"), ("upstream_connection_failure",)),
+            "connection",
         )
 
     def test_run_chat_stream_records_first_non_empty_token(self) -> None:
@@ -178,6 +207,21 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.error, "stream completed without token event")
         self.assertIsNone(outcome.first_token_latency_ms)
+
+    def test_run_chat_stream_preserves_rate_limit_status(self) -> None:
+        outcome = asyncio.run(
+            run_chat_stream(
+                FakeStreamClient([], status_code=429),
+                "https://example.test",
+                self.fixture,
+                "soru",
+                {},
+            )  # type: ignore[arg-type]
+        )
+
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.status_code, 429)
+        self.assertEqual(outcome.error_kind, "rate_limited")
 
     def test_summarize_scenario_does_not_mark_search_fallback_as_degraded(self) -> None:
         summary = summarize_scenario(

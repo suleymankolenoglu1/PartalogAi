@@ -145,12 +145,28 @@ jobs:
           print(f"- Recommended concurrency: `{summary['recommended_concurrency']}`")
           print(f"- First saturation concurrency: `{summary['first_saturation_concurrency'] or '-'}`")
           print("")
-          print("| concurrency | successful rps | success | p95 ms |")
-          print("|---:|---:|---:|---:|")
+          print("| concurrency | successful rps | success | p95 ms | error distribution |")
+          print("|---:|---:|---:|---:|---|")
           for point in summary["points"]:
+              error_counts = point.get("error_kind_counts") or {}
+              error_labels = {
+                  "rate_limited": "429",
+                  "server_error": "5xx",
+                  "timeout": "timeout",
+                  "connection": "connection",
+                  "upstream_error": "upstream",
+                  "client_error": "4xx",
+                  "other": "other",
+              }
+              error_text = ", ".join(
+                  f"{error_labels.get(kind, kind)}={count}"
+                  for kind, count in sorted(error_counts.items())
+                  if count
+              ) or "-"
               print(
                   f"| {point['concurrency']} | {point['successful_throughput_rps']:.2f} | "
-                  f"{point['success_rate']:.2%} | {point['latency_p95_ms']:.1f} |"
+                  f"{point['success_rate']:.2%} | {point['latency_p95_ms']:.1f} | "
+                  f"{error_text} |"
               )
           print("")
           print("| step | throughput gain | efficiency | classification |")
