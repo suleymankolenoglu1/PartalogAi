@@ -8,7 +8,8 @@ against an approved baseline when this file exists:
 To promote a baseline from staging:
 
 1. Run `Public E2E Saturation Smoke` against staging with the intended duration,
-   concurrency levels, scenario weights, and chat queries.
+   concurrency levels, scenario weights, chat queries, and
+   `baseline_base_url_marker=staging`.
 2. Confirm that success, latency, degraded-stream, first-token, and saturation
    analysis gates pass.
 3. Download `public-e2e-saturation-<run number>` and review
@@ -16,6 +17,13 @@ To promote a baseline from staging:
    `public-e2e-load-baseline.candidate.json`.
 4. If the candidate is acceptable, add it as
    `backend/load-baselines/public-e2e-load-baseline.json` in a dedicated PR.
+
+The workflow only generates a candidate when `PARTALOG_BASE_URL` contains the
+configured `baseline_base_url_marker`. Keep the default `staging` marker unless
+the staging URL uses a different, explicit environment label.
+
+`concurrency_levels` must be a sorted JSON integer array with at least two
+unique positive values, for example `[4,8,16]`.
 
 You can also regenerate the candidate locally from downloaded reports:
 
