@@ -34,13 +34,29 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Validate required secret
+      - name: Check remote smoke config
+        id: smoke-config
         run: |
           set -euo pipefail
-          [ -n "${PARTALOG_BASE_URL:-}" ] || (echo "Missing secret: PARTALOG_BASE_URL" && exit 1)
-          [ -n "${PARTALOG_PUBLIC_TOKEN:-}" ] || (echo "Missing secret: PARTALOG_PUBLIC_TOKEN" && exit 1)
+          if [ -z "${PARTALOG_BASE_URL:-}" ]; then
+            echo "Missing secret: PARTALOG_BASE_URL"
+            echo "run_smoke=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${PARTALOG_PUBLIC_TOKEN:-}" ]; then
+            echo "Missing secret: PARTALOG_PUBLIC_TOKEN"
+            echo "run_smoke=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run_smoke=true" >> "$GITHUB_OUTPUT"
+
+      - name: Skip remote smoke without secrets
+        if: steps.smoke-config.outputs.run_smoke != 'true'
+        run: |
+          echo "Remote regression smoke skipped because PARTALOG_BASE_URL/PARTALOG_PUBLIC_TOKEN are not configured for this PR."
 
       - name: Run regression smoke (remote)
+        if: steps.smoke-config.outputs.run_smoke == 'true'
         run: |
           chmod +x backend/scripts/smoke_all.sh
           backend/scripts/smoke_all.sh \

@@ -144,6 +144,8 @@ echo "[1/5] Catalog-only config sanity"
 python -c '
 import json, pathlib, sys
 p = pathlib.Path("'"$BACKEND_API_DIR"'") / "appsettings.json"
+if not p.exists():
+    p = pathlib.Path("'"$BACKEND_API_DIR"'") / "appsettings.example.json"
 data = json.loads(p.read_text(encoding="utf-8"))
 pf = data.get("ProductFeatures") or {}
 expected = {"EnableAi": False, "EnableEcommerce": False, "EnableUpgradePrompts": False}
@@ -151,13 +153,13 @@ for k, v in expected.items():
     if pf.get(k) is not v:
         print(f"[FAIL] appsettings.json ProductFeatures.{k} expected {v}, got {pf.get(k)!r}")
         sys.exit(1)
-print("[OK] appsettings.json ProductFeatures catalog-only defaults are correct")
+print(f"[OK] {p.name} ProductFeatures catalog-only defaults are correct")
 '
 
 if [[ "$SKIP_BUILD" == "false" ]]; then
   require_cmd dotnet
   echo "[2/5] Backend build"
-  (cd "$BACKEND_API_DIR" && dotnet build --no-restore)
+  (cd "$ROOT_DIR" && dotnet build backend/Katalogcu.API/Katalogcu.API.csproj --no-restore /nr:false)
 else
   echo "[2/5] Backend build skipped"
 fi
@@ -166,8 +168,8 @@ if [[ "$SKIP_MIGRATION_CHECK" == "false" ]]; then
   require_cmd dotnet
   echo "[3/5] EF migration/model checks"
   if dotnet ef --version >/dev/null 2>&1; then
-    (cd "$BACKEND_API_DIR" && run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations has-pending-model-changes --no-build)
-    (cd "$BACKEND_API_DIR" && run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations list --no-build)
+    (cd "$ROOT_DIR" && run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations has-pending-model-changes --project backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj --startup-project backend/Katalogcu.API/Katalogcu.API.csproj --context AppDbContext --no-build)
+    (cd "$ROOT_DIR" && run_with_timeout "$DOTNET_EF_TIMEOUT_SECONDS" dotnet ef migrations list --project backend/Katalogcu.Infrastructure/Katalogcu.Infrastructure.csproj --startup-project backend/Katalogcu.API/Katalogcu.API.csproj --context AppDbContext --no-build)
     echo "[OK] EF migration/model checks passed"
   else
     echo "[WARN] dotnet-ef bulunamadı, design-time migration check atlandı."

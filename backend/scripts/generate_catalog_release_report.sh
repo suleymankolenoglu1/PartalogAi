@@ -8,6 +8,7 @@ PRECHECK_SCRIPT="$BACKEND_DIR/scripts/preflight_catalog_only.sh"
 POSTDEPLOY_SCRIPT="$BACKEND_DIR/scripts/postdeploy_catalog_only_check.sh"
 
 API_URL="${API_URL:-http://localhost:5159}"
+PREFLIGHT_EXTRA_ARGS="${PREFLIGHT_EXTRA_ARGS:-}"
 WITH_PREFLIGHT=false
 WITH_POSTDEPLOY=false
 OUTPUT_PATH=""
@@ -64,12 +65,15 @@ require_cmd() {
 }
 
 safe_eval_config_status() {
-  python - "$ROOT_DIR/backend/Katalogcu.API/appsettings.json" <<'PY'
+  python - "$ROOT_DIR/backend/Katalogcu.API" <<'PY'
 import json
 import pathlib
 import sys
 
-p = pathlib.Path(sys.argv[1])
+root = pathlib.Path(sys.argv[1])
+p = root / "appsettings.json"
+if not p.exists():
+    p = root / "appsettings.example.json"
 data = json.loads(p.read_text(encoding="utf-8"))
 pf = data.get("ProductFeatures") or {}
 ok = (
@@ -121,7 +125,7 @@ postdeploy_log="-"
 if [[ "$WITH_PREFLIGHT" == "true" ]]; then
   preflight_log="$REPORTS_DIR/preflight_${timestamp_compact}.log"
   preflight_result="$REPORTS_DIR/preflight_${timestamp_compact}.result"
-  run_and_capture "\"$PRECHECK_SCRIPT\" --api-url \"$API_URL\" --skip-runtime" "$preflight_log" "$preflight_result"
+  run_and_capture "\"$PRECHECK_SCRIPT\" --api-url \"$API_URL\" --skip-runtime $PREFLIGHT_EXTRA_ARGS" "$preflight_log" "$preflight_result"
   preflight_status="$(cat "$preflight_result")"
 fi
 
