@@ -51,6 +51,7 @@ public class ChatStreamProxyServiceTests
             .ToArray();
 
         Assert.Equal(3, dataLines.Length);
+        var events = new List<ChatStreamEventContract.ChatStreamEvent>();
         foreach (var line in dataLines)
         {
             Assert.True(ChatStreamEventContract.TryExtractDataPayload(line, out var payload));
@@ -58,7 +59,30 @@ public class ChatStreamProxyServiceTests
                 ChatStreamEventContract.TryParseDataPayload(payload, out var streamEvent, out var error),
                 error);
             Assert.NotNull(streamEvent);
+            events.Add(streamEvent);
         }
+
+        Assert.Collection(
+            events,
+            streamEvent =>
+            {
+                Assert.Equal("sources", streamEvent.Type);
+                Assert.False(streamEvent.Fallback.Used);
+            },
+            streamEvent =>
+            {
+                Assert.Equal("token", streamEvent.Type);
+                Assert.Equal("Yedek yanit", streamEvent.Token);
+                Assert.True(streamEvent.Fallback.Used);
+                Assert.Equal("zero_tokens", streamEvent.Fallback.Reason);
+            },
+            streamEvent =>
+            {
+                Assert.Equal("done", streamEvent.Type);
+                Assert.Equal(ChatStreamEventContract.CompletionStatus, streamEvent.Completion?.Status);
+                Assert.True(streamEvent.Fallback.Used);
+                Assert.Equal("zero_tokens", streamEvent.Fallback.Reason);
+            });
     }
 
     [Fact]
