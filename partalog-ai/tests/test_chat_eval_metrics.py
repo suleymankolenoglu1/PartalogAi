@@ -158,6 +158,84 @@ class ChatEvalMetricsTests(unittest.TestCase):
             },
         )
 
+    def test_failed_expected_case_stays_in_retrieval_metric_denominator(self) -> None:
+        base = {
+            "status": 200,
+            "error": None,
+            "logical_error": False,
+            "latency_ms": 100.0,
+            "source_count": 1,
+            "reply_len": 20,
+            "expect_no_codes": False,
+            "no_code_ok": None,
+            "required_ok": True,
+            "forbidden_ok": True,
+            "mentioned_codes": [],
+            "hallucinated_codes": [],
+        }
+        summary = summarize(
+            [
+                {
+                    **base,
+                    "ok": True,
+                    "rank": 1,
+                    "expected_codes": ["160000"],
+                    "hit_at_1": True,
+                    "hit_at_3": True,
+                    "hit_at_5": True,
+                    "mrr": 1.0,
+                },
+                {
+                    **base,
+                    "ok": False,
+                    "status": 503,
+                    "error": "service unavailable",
+                    "rank": None,
+                    "expected_codes": ["120016"],
+                    "hit_at_1": False,
+                    "hit_at_3": False,
+                    "hit_at_5": False,
+                    "mrr": 0.0,
+                },
+            ]
+        )
+
+        self.assertEqual(summary["expected_case_count"], 2)
+        self.assertEqual(summary["hit_at_1"], 0.5)
+        self.assertEqual(summary["hit_at_3"], 0.5)
+        self.assertEqual(summary["hit_at_5"], 0.5)
+        self.assertEqual(summary["mrr"], 0.5)
+
+    def test_failed_no_code_case_does_not_count_as_passed(self) -> None:
+        base = {
+            "error": None,
+            "logical_error": False,
+            "latency_ms": 100.0,
+            "source_count": 0,
+            "reply_len": 20,
+            "rank": None,
+            "expected_codes": [],
+            "expect_no_codes": True,
+            "no_code_ok": True,
+            "hit_at_1": False,
+            "hit_at_3": False,
+            "hit_at_5": False,
+            "mrr": 0.0,
+            "required_ok": True,
+            "forbidden_ok": True,
+            "mentioned_codes": [],
+            "hallucinated_codes": [],
+        }
+        summary = summarize(
+            [
+                {**base, "ok": True, "status": 200},
+                {**base, "ok": False, "status": 503, "error": "service unavailable"},
+            ]
+        )
+
+        self.assertEqual(summary["no_code_case_count"], 2)
+        self.assertEqual(summary["no_code_pass_rate"], 0.5)
+
     def test_classify_quality_issues_names_contract_failures(self) -> None:
         self.assertEqual(
             classify_quality_issues(
@@ -219,11 +297,52 @@ class ChatEvalMetricsTests(unittest.TestCase):
             ],
         )
 
+    def test_thresholds_can_gate_hit_at_3_hit_at_5_and_mrr(self) -> None:
+        class Args:
+            min_success_rate = None
+            min_hit_at_1 = None
+            min_hit_at_3 = 0.90
+            min_hit_at_5 = 0.95
+            min_mrr = 0.85
+            max_latency_p95_ms = None
+            max_hallucination_rate = None
+            min_no_code_pass_rate = None
+            min_required_term_pass_rate = None
+            min_forbidden_term_pass_rate = None
+
+        failures = evaluate_thresholds(
+            {
+                "success_rate": 1.0,
+                "hit_at_1": 0.80,
+                "hit_at_3": 0.85,
+                "hit_at_5": 0.90,
+                "mrr": 0.82,
+                "latency_ms_p95": 1.0,
+                "hallucination_rate": 0.0,
+                "no_code_case_count": 1,
+                "no_code_pass_rate": 1.0,
+                "required_term_pass_rate": 1.0,
+                "forbidden_term_pass_rate": 1.0,
+            },
+            Args(),
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "hit_at_3 0.850 < min_hit_at_3 0.900",
+                "hit_at_5 0.900 < min_hit_at_5 0.950",
+                "mrr 0.820 < min_mrr 0.850",
+            ],
+        )
+
     def test_validate_cases_accepts_relevance_corpus_contract(self) -> None:
         cases_path = Path(__file__).resolve().parents[1] / "eval" / "queries.relevance.jsonl"
+        cases = load_cases(str(cases_path))
 
-        failures = validate_cases(load_cases(str(cases_path)))
+        failures = validate_cases(cases)
 
+        self.assertEqual(len(cases), 25)
         self.assertEqual(failures, [])
 
     def test_validate_cases_rejects_ambiguous_expectations(self) -> None:

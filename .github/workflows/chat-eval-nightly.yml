@@ -43,6 +43,9 @@ jobs:
             --output-md eval/report.nightly.md \
             --min-success-rate 0.95 \
             --min-hit-at-1 0.85 \
+            --min-hit-at-3 0.90 \
+            --min-hit-at-5 0.95 \
+            --min-mrr 0.85 \
             --max-latency-p95-ms 10000 \
             --max-hallucination-rate 0.10 \
             --min-no-code-pass-rate 0.90

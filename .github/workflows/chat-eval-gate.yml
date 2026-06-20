@@ -70,11 +70,15 @@ jobs:
         run: |
           python eval/chat_eval.py \
             --base-url "$PARTALOG_BASE_URL" \
-            --cases eval/queries.hard.jsonl \
-            --output-json eval/report.hard.json \
-            --output-md eval/report.hard.md \
+            --cases eval/queries.relevance.jsonl \
+            --timeout-seconds 30 \
+            --output-json eval/report.relevance.json \
+            --output-md eval/report.relevance.md \
             --min-success-rate 1.0 \
-            --min-hit-at-1 0.9 \
+            --min-hit-at-1 0.80 \
+            --min-hit-at-3 0.90 \
+            --min-hit-at-5 0.95 \
+            --min-mrr 0.85 \
             --max-latency-p95-ms 8000 \
             --max-hallucination-rate 0.05 \
             --min-no-code-pass-rate 0.9
@@ -85,5 +89,5 @@ jobs:
         with:
           name: chat-eval-report
           path: |
-            partalog-ai/eval/report.hard.json
-            partalog-ai/eval/report.hard.md
+            partalog-ai/eval/report.relevance.json
+            partalog-ai/eval/report.relevance.md

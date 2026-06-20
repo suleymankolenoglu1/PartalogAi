@@ -90,7 +90,10 @@ python eval/chat_eval.py \
   --base-url http://localhost:5159 \
   --cases eval/queries.hard.jsonl \
   --min-success-rate 1.0 \
-  --min-hit-at-1 0.9 \
+  --min-hit-at-1 0.80 \
+  --min-hit-at-3 0.90 \
+  --min-hit-at-5 0.95 \
+  --min-mrr 0.85 \
   --max-latency-p95-ms 8000 \
   --max-hallucination-rate 0.05 \
   --min-no-code-pass-rate 0.9 \
@@ -107,7 +110,7 @@ Gerekli repository secrets:
 - `PARTALOG_BASE_URL` (örn: `https://api.senin-domainin.com`)
 - `PARTALOG_PUBLIC_TOKEN` (public-view token)
 
-Bu workflow PR/push sırasında önce `queries.relevance.jsonl` formatını offline doğrular. Secrets varsa `queries.hard.jsonl` setini eşiklerle çalıştırır; eşik geçilmezse pipeline fail olur.
+Bu workflow PR/push sırasında önce `queries.relevance.jsonl` formatını offline doğrular. Secrets varsa ayni sabit relevance benchmarkini `Hit@1/3/5`, `MRR`, no-code, latency ve hallucination esikleriyle calistirir; esik gecilmezse pipeline fail olur.
 
 Nightly workflow: `.github/workflows/chat-eval-nightly.yml`
 

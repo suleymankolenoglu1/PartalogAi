@@ -417,8 +417,8 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     source_counts = [r["source_count"] for r in ok_results]
     reply_lens = [r["reply_len"] for r in ok_results]
 
-    expected_cases = [r for r in ok_results if r["expected_codes"]]
-    no_code_cases = [r for r in ok_results if r.get("expect_no_codes")]
+    expected_cases = [r for r in results if r["expected_codes"]]
+    no_code_cases = [r for r in results if r.get("expect_no_codes")]
 
     hallucination_cases = [r for r in ok_results if r["mentioned_codes"]]
     hallucination_hits = [r for r in hallucination_cases if r["hallucinated_codes"]]
@@ -442,7 +442,10 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "hit_at_5": (sum(1 for r in expected_cases if r["hit_at_5"]) / len(expected_cases)) if expected_cases else 0.0,
         "mrr": (sum(r["mrr"] for r in expected_cases) / len(expected_cases)) if expected_cases else 0.0,
         "no_code_case_count": len(no_code_cases),
-        "no_code_pass_rate": (sum(1 for r in no_code_cases if r.get("no_code_ok")) / len(no_code_cases)) if no_code_cases else 0.0,
+        "no_code_pass_rate": (
+            sum(1 for r in no_code_cases if r["ok"] and r.get("no_code_ok"))
+            / len(no_code_cases)
+        ) if no_code_cases else 0.0,
         "required_term_pass_rate": (sum(1 for r in ok_results if r["required_ok"]) / len(ok_results)) if ok_results else 0.0,
         "forbidden_term_pass_rate": (sum(1 for r in ok_results if r["forbidden_ok"]) / len(ok_results)) if ok_results else 0.0,
         "hallucination_rate": (len(hallucination_hits) / len(hallucination_cases)) if hallucination_cases else 0.0,
@@ -533,6 +536,22 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
     if args.min_hit_at_1 is not None and summary["hit_at_1"] < args.min_hit_at_1:
         failures.append(f"hit_at_1 {summary['hit_at_1']:.3f} < min_hit_at_1 {args.min_hit_at_1:.3f}")
 
+    min_hit_at_3 = getattr(args, "min_hit_at_3", None)
+    if min_hit_at_3 is not None and summary["hit_at_3"] < min_hit_at_3:
+        failures.append(
+            f"hit_at_3 {summary['hit_at_3']:.3f} < min_hit_at_3 {min_hit_at_3:.3f}"
+        )
+
+    min_hit_at_5 = getattr(args, "min_hit_at_5", None)
+    if min_hit_at_5 is not None and summary["hit_at_5"] < min_hit_at_5:
+        failures.append(
+            f"hit_at_5 {summary['hit_at_5']:.3f} < min_hit_at_5 {min_hit_at_5:.3f}"
+        )
+
+    min_mrr = getattr(args, "min_mrr", None)
+    if min_mrr is not None and summary["mrr"] < min_mrr:
+        failures.append(f"mrr {summary['mrr']:.3f} < min_mrr {min_mrr:.3f}")
+
     if args.max_latency_p95_ms is not None and summary["latency_ms_p95"] > args.max_latency_p95_ms:
         failures.append(
             f"latency_ms_p95 {summary['latency_ms_p95']:.1f} > max_latency_p95_ms {args.max_latency_p95_ms:.1f}"
@@ -582,6 +601,9 @@ async def main() -> int:
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--min-success-rate", type=float, default=None)
     parser.add_argument("--min-hit-at-1", type=float, default=None)
+    parser.add_argument("--min-hit-at-3", type=float, default=None)
+    parser.add_argument("--min-hit-at-5", type=float, default=None)
+    parser.add_argument("--min-mrr", type=float, default=None)
     parser.add_argument("--max-latency-p95-ms", type=float, default=None)
     parser.add_argument("--max-hallucination-rate", type=float, default=None)
     parser.add_argument("--min-no-code-pass-rate", type=float, default=None)
