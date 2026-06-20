@@ -43,6 +43,17 @@ DEFAULT_CHAT_QUERIES = [
     "Bu makine için uygun conta kodunu söyler misin?",
 ]
 
+STREAM_FAILURE_REASONS = {
+    "ai_capacity_limited",
+    "ai_timeout",
+    "ai_upstream_error",
+    "ai_exception",
+    "upstream_connection_failure",
+    "upstream_non_success",
+    "upstream_timeout",
+    "upstream_unexpected_error",
+}
+
 
 @dataclass
 class Fixture:
@@ -60,6 +71,8 @@ class ScenarioOutcome:
     status_code: int
     latency_ms: float
     error: str | None = None
+    event_count: int = 0
+    fallback_reasons: tuple[str, ...] = ()
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -174,6 +187,21 @@ def build_chat_form(fixture: Fixture, query: str) -> list[tuple[str, tuple[None,
     ]
 
 
+def extract_fallback_reasons(event: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    fallback = event.get("fallback")
+    if isinstance(fallback, dict):
+        reason = fallback.get("reason")
+        if fallback.get("used") and reason:
+            reasons.append(str(reason))
+
+    reason = event.get("reason")
+    if reason and str(reason) in STREAM_FAILURE_REASONS:
+        reasons.append(str(reason))
+
+    return reasons
+
+
 async def run_catalog_browse(
     client: httpx.AsyncClient,
     base_url: str,
@@ -247,6 +275,8 @@ async def run_chat_stream(
     headers: dict[str, str],
 ) -> ScenarioOutcome:
     started = time.perf_counter()
+    event_count = 0
+    fallback_reasons: list[str] = []
     try:
         got_event = False
         got_done = False
@@ -266,13 +296,14 @@ async def run_chat_stream(
                 if not payload:
                     continue
                 got_event = True
+                event_count += 1
                 try:
                     data = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
                 reason = str(data.get("reason") or "")
-                event_type = str(data.get("type") or "")
-                if reason in {"ai_capacity_limited", "ai_timeout", "ai_upstream_error", "ai_exception"}:
+                fallback_reasons.extend(extract_fallback_reasons(data))
+                if reason in STREAM_FAILURE_REASONS:
                     stream_error = reason
                 if data.get("type") == "done" or "completion" in data:
                     got_done = True
@@ -282,9 +313,22 @@ async def run_chat_stream(
                 raise RuntimeError(f"chat stream reason={stream_error}")
             if not got_done:
                 raise RuntimeError("stream completed without done event")
-        return ScenarioOutcome(True, 200, (time.perf_counter() - started) * 1000.0)
+        return ScenarioOutcome(
+            True,
+            200,
+            (time.perf_counter() - started) * 1000.0,
+            event_count=event_count,
+            fallback_reasons=tuple(fallback_reasons),
+        )
     except Exception as exc:
-        return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
+        return ScenarioOutcome(
+            False,
+            0,
+            (time.perf_counter() - started) * 1000.0,
+            str(exc),
+            event_count=event_count,
+            fallback_reasons=tuple(fallback_reasons),
+        )
 
 
 async def run_checkout(
@@ -386,13 +430,19 @@ def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
     ok = sum(1 for item in outcomes if item.ok)
     statuses = Counter(item.status_code for item in outcomes)
     errors = Counter(item.error or "" for item in outcomes if item.error)
+    fallback_reasons = Counter(reason for item in outcomes for reason in item.fallback_reasons)
+    event_counts = [item.event_count for item in outcomes]
     return {
         "total": total,
+        "ok_count": ok,
+        "failed_count": total - ok,
         "success_rate": ok / total if total else 0.0,
         "error_rate": (total - ok) / total if total else 0.0,
         "latency_avg_ms": statistics.mean(latencies) if latencies else 0.0,
         "latency_p95_ms": percentile(latencies, 0.95) if latencies else 0.0,
+        "event_count_avg": statistics.mean(event_counts) if event_counts else 0.0,
         "status_counts": dict(statuses),
+        "fallback_reason_counts": dict(fallback_reasons),
         "top_errors": errors.most_common(5),
     }
 

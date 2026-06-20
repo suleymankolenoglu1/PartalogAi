@@ -85,13 +85,19 @@ jobs:
           print(f"- Overall success: `{report['overall']['success_rate']:.2%}`")
           print(f"- Overall p95 latency: `{report['overall']['latency_p95_ms']:.1f} ms`")
           print("")
-          print("| scenario | total | success | p95 ms | errors |")
-          print("|---|---:|---:|---:|---:|")
+          print("| scenario | total | success | p95 ms | avg events | fallback reasons | errors |")
+          print("|---|---:|---:|---:|---:|---|---:|")
           for name, summary in report["scenarios"].items():
+              fallback_reasons = summary.get("fallback_reason_counts") or {}
+              fallback_text = ", ".join(
+                  f"{reason}: {count}" for reason, count in sorted(fallback_reasons.items())
+              ) or "-"
               print(
                   f"| {name} | {summary['total']} | "
                   f"{summary['success_rate']:.2%} | "
                   f"{summary['latency_p95_ms']:.1f} | "
+                  f"{summary.get('event_count_avg', 0.0):.1f} | "
+                  f"{fallback_text} | "
                   f"{summary['error_rate']:.2%} |"
               )
           PY

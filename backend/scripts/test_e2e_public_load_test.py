@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from e2e_public_load_test import (
     ScenarioOutcome,
     check_thresholds,
+    extract_fallback_reasons,
     percentile,
     summarize_scenario,
     write_json_report,
@@ -34,11 +35,58 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["total"], 3)
+        self.assertEqual(summary["ok_count"], 2)
+        self.assertEqual(summary["failed_count"], 1)
         self.assertAlmostEqual(summary["success_rate"], 2.0 / 3.0)
         self.assertAlmostEqual(summary["error_rate"], 1.0 / 3.0)
+        self.assertEqual(summary["event_count_avg"], 0.0)
+        self.assertEqual(summary["fallback_reason_counts"], {})
         self.assertEqual(summary["status_counts"], {200: 2, 0: 1})
         self.assertEqual(summary["top_errors"], [("stream completed without done event", 1)])
         self.assertAlmostEqual(summary["latency_p95_ms"], 470.0)
+
+    def test_summarize_scenario_tracks_stream_events_and_fallbacks(self) -> None:
+        summary = summarize_scenario(
+            [
+                ScenarioOutcome(True, 200, 100.0, event_count=4),
+                ScenarioOutcome(
+                    False,
+                    0,
+                    500.0,
+                    "chat stream reason=upstream_timeout",
+                    event_count=2,
+                    fallback_reasons=("upstream_timeout",),
+                ),
+                ScenarioOutcome(
+                    False,
+                    0,
+                    600.0,
+                    "chat stream reason=upstream_timeout",
+                    event_count=2,
+                    fallback_reasons=("upstream_timeout", "upstream_non_success"),
+                ),
+            ]
+        )
+
+        self.assertEqual(summary["ok_count"], 1)
+        self.assertEqual(summary["failed_count"], 2)
+        self.assertAlmostEqual(summary["event_count_avg"], 8.0 / 3.0)
+        self.assertEqual(
+            summary["fallback_reason_counts"],
+            {"upstream_timeout": 2, "upstream_non_success": 1},
+        )
+
+    def test_extract_fallback_reasons_supports_contract_and_legacy_reasons(self) -> None:
+        self.assertEqual(
+            extract_fallback_reasons(
+                {
+                    "type": "sources",
+                    "fallback": {"used": True, "reason": "text_embedding_fallback"},
+                    "reason": "upstream_timeout",
+                }
+            ),
+            ["text_embedding_fallback", "upstream_timeout"],
+        )
 
     def test_check_thresholds_skips_disabled_scenarios(self) -> None:
         args = argparse.Namespace(
