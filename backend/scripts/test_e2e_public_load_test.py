@@ -62,7 +62,8 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
                 ScenarioOutcome(True, 200, 100.0),
                 ScenarioOutcome(True, 200, 200.0),
                 ScenarioOutcome(False, 0, 500.0, "stream completed without done event"),
-            ]
+            ],
+            elapsed_seconds=10.0,
         )
 
         self.assertEqual(summary["total"], 3)
@@ -70,6 +71,8 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(summary["failed_count"], 1)
         self.assertAlmostEqual(summary["success_rate"], 2.0 / 3.0)
         self.assertAlmostEqual(summary["error_rate"], 1.0 / 3.0)
+        self.assertEqual(summary["throughput_rps"], 0.3)
+        self.assertEqual(summary["successful_throughput_rps"], 0.2)
         self.assertEqual(summary["event_count_avg"], 0.0)
         self.assertEqual(summary["fallback_case_count"], 0)
         self.assertEqual(summary["fallback_rate"], 0.0)

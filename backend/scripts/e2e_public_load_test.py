@@ -436,7 +436,10 @@ async def run_checkout(
         return ScenarioOutcome(False, 0, (time.perf_counter() - started) * 1000.0, str(exc))
 
 
-def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
+def summarize_scenario(
+    outcomes: list[ScenarioOutcome],
+    elapsed_seconds: float = 0.0,
+) -> dict[str, Any]:
     latencies = [item.latency_ms for item in outcomes]
     total = len(outcomes)
     ok = sum(1 for item in outcomes if item.ok)
@@ -461,6 +464,8 @@ def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
         "failed_count": total - ok,
         "success_rate": ok / total if total else 0.0,
         "error_rate": (total - ok) / total if total else 0.0,
+        "throughput_rps": total / elapsed_seconds if elapsed_seconds > 0 else 0.0,
+        "successful_throughput_rps": ok / elapsed_seconds if elapsed_seconds > 0 else 0.0,
         "latency_avg_ms": statistics.mean(latencies) if latencies else 0.0,
         "latency_p95_ms": percentile(latencies, 0.95) if latencies else 0.0,
         "event_count_avg": statistics.mean(event_counts) if event_counts else 0.0,
@@ -687,26 +692,35 @@ async def main() -> int:
         f"catalogId={fixture.catalog_id} productId={fixture.product_id or 'none'}"
     )
 
-    end_time = time.monotonic() + args.duration_seconds
+    load_started = time.monotonic()
+    end_time = load_started + args.duration_seconds
     async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
         await asyncio.gather(*[
             worker(worker_id, client, base_url, fixture, queries, end_time, sequence, results, weights)
             for worker_id in range(args.concurrency)
         ])
+    elapsed_seconds = time.monotonic() - load_started
 
     scenario_summaries = {
-        name: summarize_scenario(results.get(name, []))
+        name: summarize_scenario(results.get(name, []), elapsed_seconds)
         for name in ("browse", "chat", "stream", "checkout")
     }
-    overall = summarize_scenario([item for items in results.values() for item in items])
+    overall = summarize_scenario(
+        [item for items in results.values() for item in items],
+        elapsed_seconds,
+    )
 
     report = {
+        "schema_version": 1,
         "config": {
             "base_url": base_url,
             "duration_seconds": args.duration_seconds,
+            "elapsed_seconds": elapsed_seconds,
             "concurrency": args.concurrency,
+            "timeout_seconds": args.timeout_seconds,
             "catalog_id": fixture.catalog_id,
             "product_id": fixture.product_id,
+            "chat_queries": queries,
             "weights": {name: weight for name, weight in weights},
             "thresholds": {
                 "min_success_rate": args.min_success_rate,

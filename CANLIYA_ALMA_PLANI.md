@@ -89,6 +89,7 @@ Public AI/chat ve e-ticaret modulleri acilmadan once kontrollu yuk kaniti icin m
 - Varsayilan p95 gecikme butceleri browse icin `5 sn`, chat ve SSE icin `15 sn`, checkout icin `10 sn` olarak ayri ayri uygulanir.
 - SSE akisi icin ilk bos olmayan tokenin p95 suresi ayrica olculur ve varsayilan `5 sn` esigini asarsa workflow fail olur.
 - SSE upstream hata fallback orani varsayilan `%5` esigini asarsa workflow fail olur; normal arama fallbackleri bu esige dahil edilmez.
+- Workflow artifact'i toplam ve senaryo bazli RPS, basarili RPS ve gercek kosu suresini saklar. Ilk staging kosusu ayni sure, concurrency, agirliklar ve sorgu setiyle sonraki kosular icin performans baseline'i olarak etiketlenir.
 - Checkout senaryosu sadece siparis olusturma yan etkisi kabul edildiginde manuel olarak acilir.
 
 Yerel catalog-only staging provasi:

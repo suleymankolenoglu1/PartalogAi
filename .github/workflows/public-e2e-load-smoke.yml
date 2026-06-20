@@ -110,14 +110,17 @@ jobs:
           report = json.loads(report_path.read_text(encoding="utf-8"))
           print("# Public E2E Load Smoke")
           print("")
-          print(f"- Duration: `{report['config']['duration_seconds']}s`")
+          print(f"- Requested duration: `{report['config']['duration_seconds']}s`")
+          print(f"- Actual duration: `{report['config']['elapsed_seconds']:.2f}s`")
           print(f"- Concurrency: `{report['config']['concurrency']}`")
           print(f"- Overall success: `{report['overall']['success_rate']:.2%}`")
+          print(f"- Overall throughput: `{report['overall']['throughput_rps']:.2f} req/s`")
+          print(f"- Successful throughput: `{report['overall']['successful_throughput_rps']:.2f} req/s`")
           print(f"- Overall p95 latency: `{report['overall']['latency_p95_ms']:.1f} ms`")
           print(f"- SSE first token p95: `{report['scenarios']['stream'].get('first_token_latency_p95_ms', 0.0):.1f} ms`")
           print("")
-          print("| scenario | total | success | p95 ms | limit ms | avg events | degraded | fallback reasons | errors |")
-          print("|---|---:|---:|---:|---:|---:|---:|---|---:|")
+          print("| scenario | total | rps | ok rps | success | p95 ms | limit ms | avg events | degraded | fallback reasons | errors |")
+          print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
           latency_limits = report["config"]["thresholds"]["max_latency_p95_ms_by_scenario"]
           for name, summary in report["scenarios"].items():
               fallback_reasons = summary.get("fallback_reason_counts") or {}
@@ -126,6 +129,8 @@ jobs:
               ) or "-"
               print(
                   f"| {name} | {summary['total']} | "
+                  f"{summary['throughput_rps']:.2f} | "
+                  f"{summary['successful_throughput_rps']:.2f} | "
                   f"{summary['success_rate']:.2%} | "
                   f"{summary['latency_p95_ms']:.1f} | "
                   f"{latency_limits[name]:.1f} | "
