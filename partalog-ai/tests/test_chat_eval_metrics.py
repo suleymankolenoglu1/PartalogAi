@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 import unittest
 from collections import Counter
@@ -13,6 +14,7 @@ from eval.chat_eval import (  # noqa: E402
     evaluate_thresholds,
     extract_codes_from_response,
     load_cases,
+    parse_category_threshold,
     summarize,
     validate_cases,
 )
@@ -403,6 +405,96 @@ class ChatEvalMetricsTests(unittest.TestCase):
                 "mrr 0.820 < min_mrr 0.850",
             ],
         )
+
+    def test_thresholds_can_gate_category_metrics(self) -> None:
+        class Args:
+            min_success_rate = None
+            min_hit_at_1 = None
+            min_hit_at_3 = None
+            min_hit_at_5 = None
+            min_mrr = None
+            max_latency_p95_ms = None
+            max_hallucination_rate = None
+            min_no_code_pass_rate = None
+            min_required_term_pass_rate = None
+            min_forbidden_term_pass_rate = None
+            min_category_success_rate = []
+            min_category_hit_at_1 = [("exact_code", 1.0)]
+            min_category_hit_at_3 = []
+            min_category_hit_at_5 = []
+            min_category_mrr = [("model_typo", 0.75)]
+            min_category_no_code_pass_rate = [("negative", 1.0)]
+
+        failures = evaluate_thresholds(
+            {
+                "success_rate": 1.0,
+                "hit_at_1": 0.80,
+                "hit_at_3": 0.90,
+                "hit_at_5": 1.0,
+                "mrr": 0.85,
+                "latency_ms_p95": 1.0,
+                "hallucination_rate": 0.0,
+                "no_code_case_count": 3,
+                "no_code_pass_rate": 0.67,
+                "required_term_pass_rate": 1.0,
+                "forbidden_term_pass_rate": 1.0,
+                "category_metrics": {
+                    "exact_code": {
+                        "case_count": 5,
+                        "success_rate": 1.0,
+                        "expected_case_count": 5,
+                        "hit_at_1": 0.8,
+                        "hit_at_3": 1.0,
+                        "hit_at_5": 1.0,
+                        "mrr": 0.9,
+                        "no_code_case_count": 0,
+                        "no_code_pass_rate": 0.0,
+                    },
+                    "model_typo": {
+                        "case_count": 3,
+                        "success_rate": 1.0,
+                        "expected_case_count": 3,
+                        "hit_at_1": 0.33,
+                        "hit_at_3": 0.67,
+                        "hit_at_5": 1.0,
+                        "mrr": 0.61,
+                        "no_code_case_count": 0,
+                        "no_code_pass_rate": 0.0,
+                    },
+                    "negative": {
+                        "case_count": 3,
+                        "success_rate": 1.0,
+                        "expected_case_count": 0,
+                        "hit_at_1": 0.0,
+                        "hit_at_3": 0.0,
+                        "hit_at_5": 0.0,
+                        "mrr": 0.0,
+                        "no_code_case_count": 3,
+                        "no_code_pass_rate": 0.67,
+                    },
+                },
+            },
+            Args(),
+        )
+
+        self.assertEqual(
+            failures,
+            [
+                "exact_code.hit_at_1 0.800 < min_category_hit_at_1 1.000",
+                "model_typo.mrr 0.610 < min_category_mrr 0.750",
+                "negative.no_code_pass_rate 0.670 < min_category_no_code_pass_rate 1.000",
+            ],
+        )
+
+    def test_parse_category_threshold_validates_format(self) -> None:
+        self.assertEqual(parse_category_threshold("exact_code=0.8"), ("exact_code", 0.8))
+
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_category_threshold("exact_code")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_category_threshold("=0.8")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_category_threshold("exact_code=1.1")
 
     def test_validate_cases_accepts_relevance_corpus_contract(self) -> None:
         cases_path = Path(__file__).resolve().parents[1] / "eval" / "queries.relevance.jsonl"

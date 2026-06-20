@@ -20,6 +20,27 @@ GENERIC_ERROR_PATTERNS = (
 )
 
 
+def parse_category_threshold(value: str) -> Tuple[str, float]:
+    raw = value.strip()
+    if "=" not in raw:
+        raise argparse.ArgumentTypeError("expected CATEGORY=RATE")
+
+    category, threshold_text = raw.split("=", 1)
+    category = category.strip()
+    if not category:
+        raise argparse.ArgumentTypeError("category name cannot be empty")
+
+    try:
+        threshold = float(threshold_text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("threshold must be numeric") from exc
+
+    if threshold < 0.0 or threshold > 1.0:
+        raise argparse.ArgumentTypeError("threshold must be between 0 and 1")
+
+    return category, threshold
+
+
 def load_cases(path: str) -> List[Dict[str, Any]]:
     p = Path(path)
     if not p.exists():
@@ -668,6 +689,34 @@ def evaluate_thresholds(summary: Dict[str, Any], args: argparse.Namespace) -> Li
             f"min_forbidden_term_pass_rate {min_forbidden:.3f}"
         )
 
+    category_thresholds = [
+        ("min_category_success_rate", "success_rate", "case_count"),
+        ("min_category_hit_at_1", "hit_at_1", "expected_case_count"),
+        ("min_category_hit_at_3", "hit_at_3", "expected_case_count"),
+        ("min_category_hit_at_5", "hit_at_5", "expected_case_count"),
+        ("min_category_mrr", "mrr", "expected_case_count"),
+        ("min_category_no_code_pass_rate", "no_code_pass_rate", "no_code_case_count"),
+    ]
+    category_metrics = summary.get("category_metrics", {})
+    for arg_name, metric_name, required_count_name in category_thresholds:
+        for category, threshold in getattr(args, arg_name, None) or []:
+            metrics = category_metrics.get(category)
+            if metrics is None:
+                failures.append(f"{arg_name} set for unknown category '{category}'")
+                continue
+
+            if metrics[required_count_name] == 0:
+                failures.append(
+                    f"{arg_name} set for category '{category}' but no eligible cases exist"
+                )
+                continue
+
+            actual = metrics[metric_name]
+            if actual < threshold:
+                failures.append(
+                    f"{category}.{metric_name} {actual:.3f} < {arg_name} {threshold:.3f}"
+                )
+
     return failures
 
 
@@ -691,6 +740,48 @@ async def main() -> int:
     parser.add_argument("--min-no-code-pass-rate", type=float, default=None)
     parser.add_argument("--min-required-term-pass-rate", type=float, default=None)
     parser.add_argument("--min-forbidden-term-pass-rate", type=float, default=None)
+    parser.add_argument(
+        "--min-category-success-rate",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-hit-at-1",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-hit-at-3",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-hit-at-5",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-mrr",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
+    parser.add_argument(
+        "--min-category-no-code-pass-rate",
+        action="append",
+        type=parse_category_threshold,
+        default=[],
+        metavar="CATEGORY=RATE",
+    )
     args = parser.parse_args()
 
     cases = load_cases(args.cases)

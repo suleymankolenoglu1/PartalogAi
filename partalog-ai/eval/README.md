@@ -100,8 +100,14 @@ python eval/chat_eval.py \
   --max-hallucination-rate 0.05 \
   --min-no-code-pass-rate 0.9 \
   --min-required-term-pass-rate 0.95 \
-  --min-forbidden-term-pass-rate 1.0
+  --min-forbidden-term-pass-rate 1.0 \
+  --min-category-hit-at-1 exact_code=0.80 \
+  --min-category-no-code-pass-rate negative=1.0
 ```
+
+Kategori bazlı eşikler `CATEGORY=RATE` formatındadır ve tekrar edilebilir. Örneğin `exact_code`
+kategorisinin `Hit@1` metriğini, `negative` kategorisinin no-code başarısını veya `model_typo`
+kategorisinin `MRR` değerini ayrı ayrı gate edebilirsin.
 
 ## GitHub Actions (CI Gate)
 
