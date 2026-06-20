@@ -21,6 +21,8 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,6 +57,11 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<CatalogAiProcessingOptions>(builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName));
 builder.Services.Configure<ErpGatewayOptions>(builder.Configuration.GetSection(ErpGatewayOptions.SectionName));
 builder.Services.Configure<ProductFeatureOptions>(builder.Configuration.GetSection("ProductFeatures"));
+builder.Services.Configure<FileStorageOptions>(builder.Configuration.GetSection(FileStorageOptions.SectionName));
+builder.Services.Configure<AiServiceOptions>(builder.Configuration.GetSection(AiServiceOptions.SectionName));
+builder.Services.Configure<DistributedRateLimitOptions>(builder.Configuration.GetSection(DistributedRateLimitOptions.SectionName));
+builder.Services.Configure<DataProtectionKeyRingOptions>(builder.Configuration.GetSection(DataProtectionKeyRingOptions.SectionName));
+builder.Services.Configure<AiCapacityOptions>(builder.Configuration.GetSection("AiCapacity"));
 builder.Services.AddSingleton<IProductFeaturePolicy, ProductFeaturePolicy>();
 
 var catalogAiProcessingOptions = builder.Configuration.GetSection(CatalogAiProcessingOptions.SectionName).Get<CatalogAiProcessingOptions>()
@@ -84,10 +91,31 @@ builder.Services.AddScoped<ICatalogCoverMetadataService, CatalogCoverMetadataSer
 builder.Services.AddScoped<IChatFeedbackStore, ChatFeedbackJsonlStore>();
 builder.Services.AddScoped<ICatalogAiBackgroundProcessor, CatalogAiBackgroundProcessor>();
 builder.Services.AddScoped<CatalogAiHangfireJob>();
+builder.Services.AddScoped<IExternalSiteCrawlBackgroundProcessor, ExternalSiteCrawlBackgroundProcessor>();
+builder.Services.AddScoped<ExternalSiteCrawlHangfireJob>();
 builder.Services.AddScoped<IErpGatewayService, ErpGatewayService>();
 builder.Services.AddScoped<IErpGatewayStrategy, SnapshotErpGatewayStrategy>();
 builder.Services.AddScoped<IAiUsageQuotaService, AiUsageQuotaService>();
+builder.Services.AddScoped<IAiCapacityGuard, AiCapacityGuard>();
+builder.Services.AddScoped<ICatalogPageAccessTokenService, CatalogPageAccessTokenService>();
+builder.Services.AddScoped<IPolicyThresholdActorContext, PolicyThresholdActorContext>();
+builder.Services.AddScoped<IPolicyThresholdEvaluationTokenService, PolicyThresholdEvaluationTokenService>();
+builder.Services.AddScoped<IProductionReadinessService, ProductionReadinessService>();
+builder.Services.AddSingleton<IDistributedPublicChatRateLimiter, RedisDistributedPublicChatRateLimiter>();
+builder.Services.AddSingleton<FileStoragePathResolver>();
+builder.Services.AddScoped<IFileStorageService>(sp =>
+{
+    var options = sp.GetRequiredService<IOptions<FileStorageOptions>>().Value;
+    var provider = (options.Provider ?? "Local").Trim();
+    return provider.Equals("GoogleCloudStorage", StringComparison.OrdinalIgnoreCase)
+           || provider.Equals("GCS", StringComparison.OrdinalIgnoreCase)
+        ? sp.GetRequiredService<GoogleCloudFileStorageService>()
+        : sp.GetRequiredService<LocalFileStorageService>();
+});
+builder.Services.AddScoped<LocalFileStorageService>();
+builder.Services.AddScoped<GoogleCloudFileStorageService>();
 builder.Services.AddSingleton<CatalogAiHangfireFilter>();
+builder.Services.AddDataProtection();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructureServices();
 
@@ -283,6 +311,10 @@ builder.Services.AddCors(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    var publicChatPermitLimit = builder.Configuration.GetValue<int?>("RateLimits:PublicChatPermitLimit") ?? 20;
+    var publicFeedbackPermitLimit = builder.Configuration.GetValue<int?>("RateLimits:PublicFeedbackPermitLimit") ?? 10;
+    var publicOrderPermitLimit = builder.Configuration.GetValue<int?>("RateLimits:PublicOrderPermitLimit") ?? 8;
+    var authLoginPermitLimit = builder.Configuration.GetValue<int?>("RateLimits:AuthLoginPermitLimit") ?? 6;
 
     options.OnRejected = static (context, token) =>
     {
@@ -306,7 +338,7 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: $"public-chat:{ip}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 20,
+                PermitLimit = publicChatPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
@@ -326,7 +358,7 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: $"public-feedback:{ip}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 10,
+                PermitLimit = publicFeedbackPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
@@ -346,7 +378,7 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: $"public-order:{ip}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 8,
+                PermitLimit = publicOrderPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
@@ -360,7 +392,7 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: $"auth-login:{ip}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 6,
+                PermitLimit = authLoginPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
