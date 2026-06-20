@@ -73,6 +73,7 @@ class ScenarioOutcome:
     error: str | None = None
     event_count: int = 0
     fallback_reasons: tuple[str, ...] = ()
+    first_token_latency_ms: float | None = None
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -277,6 +278,7 @@ async def run_chat_stream(
     started = time.perf_counter()
     event_count = 0
     fallback_reasons: list[str] = []
+    first_token_latency_ms: float | None = None
     try:
         got_event = False
         got_done = False
@@ -303,6 +305,12 @@ async def run_chat_stream(
                     continue
                 reason = str(data.get("reason") or "")
                 fallback_reasons.extend(extract_fallback_reasons(data))
+                if (
+                    first_token_latency_ms is None
+                    and data.get("type") == "token"
+                    and str(data.get("token") or "")
+                ):
+                    first_token_latency_ms = (time.perf_counter() - started) * 1000.0
                 if reason in STREAM_FAILURE_REASONS:
                     stream_error = reason
                 if data.get("type") == "done" or "completion" in data:
@@ -311,6 +319,8 @@ async def run_chat_stream(
                 raise RuntimeError("no SSE data received")
             if stream_error:
                 raise RuntimeError(f"chat stream reason={stream_error}")
+            if first_token_latency_ms is None:
+                raise RuntimeError("stream completed without token event")
             if not got_done:
                 raise RuntimeError("stream completed without done event")
         return ScenarioOutcome(
@@ -319,6 +329,7 @@ async def run_chat_stream(
             (time.perf_counter() - started) * 1000.0,
             event_count=event_count,
             fallback_reasons=tuple(fallback_reasons),
+            first_token_latency_ms=first_token_latency_ms,
         )
     except Exception as exc:
         return ScenarioOutcome(
@@ -328,6 +339,7 @@ async def run_chat_stream(
             str(exc),
             event_count=event_count,
             fallback_reasons=tuple(fallback_reasons),
+            first_token_latency_ms=first_token_latency_ms,
         )
 
 
@@ -438,6 +450,11 @@ def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
         if any(reason in STREAM_FAILURE_REASONS for reason in item.fallback_reasons)
     )
     event_counts = [item.event_count for item in outcomes]
+    first_token_latencies = [
+        item.first_token_latency_ms
+        for item in outcomes
+        if item.first_token_latency_ms is not None
+    ]
     return {
         "total": total,
         "ok_count": ok,
@@ -447,6 +464,13 @@ def summarize_scenario(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
         "latency_avg_ms": statistics.mean(latencies) if latencies else 0.0,
         "latency_p95_ms": percentile(latencies, 0.95) if latencies else 0.0,
         "event_count_avg": statistics.mean(event_counts) if event_counts else 0.0,
+        "first_token_sample_count": len(first_token_latencies),
+        "first_token_latency_avg_ms": (
+            statistics.mean(first_token_latencies) if first_token_latencies else 0.0
+        ),
+        "first_token_latency_p95_ms": (
+            percentile(first_token_latencies, 0.95) if first_token_latencies else 0.0
+        ),
         "status_counts": dict(statuses),
         "fallback_case_count": fallback_case_count,
         "fallback_rate": fallback_case_count / total if total else 0.0,
@@ -545,6 +569,24 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
             f"stream degraded_fallback_rate {stream_summary['degraded_fallback_rate']:.3f} "
             f"> {max_stream_degraded_rate:.3f}"
         )
+    max_stream_first_token_p95_ms = getattr(args, "max_stream_first_token_p95_ms", None)
+    if (
+        args.stream_weight > 0
+        and stream_summary
+        and stream_summary["total"] >= min_samples_per_scenario
+        and max_stream_first_token_p95_ms is not None
+    ):
+        first_token_sample_count = stream_summary.get("first_token_sample_count", 0)
+        if first_token_sample_count < min_samples_per_scenario:
+            failures.append(
+                f"stream first_token_sample_count {first_token_sample_count} "
+                f"< {min_samples_per_scenario}"
+            )
+        elif stream_summary.get("first_token_latency_p95_ms", 0.0) > max_stream_first_token_p95_ms:
+            failures.append(
+                f"stream first_token_latency_p95_ms {stream_summary['first_token_latency_p95_ms']:.1f} "
+                f"> {max_stream_first_token_p95_ms:.1f}"
+            )
     return failures
 
 
@@ -585,6 +627,12 @@ async def main() -> int:
         default=0.05,
         help="Maximum share of stream requests using an upstream failure fallback",
     )
+    parser.add_argument(
+        "--max-stream-first-token-p95-ms",
+        type=float,
+        default=5000.0,
+        help="Maximum p95 time to the first non-empty SSE token",
+    )
     parser.add_argument("--browse-weight", type=int, default=4, help="Browse scenario weight")
     parser.add_argument("--chat-weight", type=int, default=3, help="Non-stream chat scenario weight")
     parser.add_argument("--stream-weight", type=int, default=2, help="SSE chat scenario weight")
@@ -613,6 +661,8 @@ async def main() -> int:
         )
     ):
         raise SystemExit("latency thresholds must be > 0")
+    if args.max_stream_first_token_p95_ms <= 0:
+        raise SystemExit("max-stream-first-token-p95-ms must be > 0")
 
     base_url = trim_slash(args.base_url)
     fixture = resolve_fixture(args)
@@ -664,6 +714,7 @@ async def main() -> int:
                 "max_latency_p95_ms_by_scenario": scenario_latency_limits(args),
                 "min_samples_per_scenario": args.min_samples_per_scenario,
                 "max_stream_degraded_rate": args.max_stream_degraded_rate,
+                "max_stream_first_token_p95_ms": args.max_stream_first_token_p95_ms,
             },
         },
         "overall": overall,

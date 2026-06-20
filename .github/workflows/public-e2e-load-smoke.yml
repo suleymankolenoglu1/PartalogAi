@@ -35,6 +35,10 @@ on:
         description: "Maximum upstream failure fallback rate for SSE requests"
         required: true
         default: "0.05"
+      max_stream_first_token_p95_ms:
+        description: "SSE first non-empty token p95 latency threshold"
+        required: true
+        default: "5000"
       checkout_weight:
         description: "Checkout/order scenario weight; keep 0 unless side effects are acceptable"
         required: true
@@ -81,6 +85,7 @@ jobs:
             --max-checkout-latency-p95-ms "${{ inputs.max_checkout_latency_p95_ms }}" \
             --min-samples-per-scenario "${{ inputs.min_samples_per_scenario }}" \
             --max-stream-degraded-rate "${{ inputs.max_stream_degraded_rate }}" \
+            --max-stream-first-token-p95-ms "${{ inputs.max_stream_first_token_p95_ms }}" \
             --min-success-rate 0.90 \
             --browse-weight 4 \
             --chat-weight 3 \
@@ -109,6 +114,7 @@ jobs:
           print(f"- Concurrency: `{report['config']['concurrency']}`")
           print(f"- Overall success: `{report['overall']['success_rate']:.2%}`")
           print(f"- Overall p95 latency: `{report['overall']['latency_p95_ms']:.1f} ms`")
+          print(f"- SSE first token p95: `{report['scenarios']['stream'].get('first_token_latency_p95_ms', 0.0):.1f} ms`")
           print("")
           print("| scenario | total | success | p95 ms | limit ms | avg events | degraded | fallback reasons | errors |")
           print("|---|---:|---:|---:|---:|---:|---:|---|---:|")
