@@ -458,6 +458,12 @@ def check_thresholds(args: argparse.Namespace, scenario_summaries: dict[str, dic
     return failures
 
 
+def write_json_report(path: str, report: dict[str, Any]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Katalogcu end-to-end public flow load test")
     parser.add_argument("--base-url", default="http://localhost:5159", help="API base URL")
@@ -539,7 +545,7 @@ async def main() -> int:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if args.output_json:
-        Path(args.output_json).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_report(args.output_json, report)
 
     failures = check_thresholds(args, scenario_summaries)
     if failures:

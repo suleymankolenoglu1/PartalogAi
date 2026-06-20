@@ -80,6 +80,13 @@ Staging veya canli API ayaga kalkinca:
 ./backend/scripts/postdeploy_catalog_only_check.sh --api-url https://api-domain.example
 ```
 
+Public AI/chat ve e-ticaret modulleri acilmadan once kontrollu yuk kaniti icin manuel workflow calistirilir:
+
+- GitHub Actions: `Public E2E Load Smoke`
+- Gerekli secretlar: `PARTALOG_BASE_URL`, `PARTALOG_PUBLIC_TOKEN`
+- Varsayilan akista browse/chat/SSE test edilir, checkout/siparis senaryosu `checkout_weight=0` ile kapali kalir.
+- Checkout senaryosu sadece siparis olusturma yan etkisi kabul edildiginde manuel olarak acilir.
+
 Yerel catalog-only staging provasi:
 
 ```bash
