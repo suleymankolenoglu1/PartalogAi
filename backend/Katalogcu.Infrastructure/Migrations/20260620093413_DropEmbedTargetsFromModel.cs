@@ -11,8 +11,7 @@ namespace Katalogcu.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "EmbedTargets");
+            migrationBuilder.Sql("""DROP TABLE IF EXISTS "EmbedTargets";""");
         }
 
         /// <inheritdoc />
