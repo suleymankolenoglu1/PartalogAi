@@ -93,6 +93,7 @@ Public AI/chat ve e-ticaret modulleri acilmadan once kontrollu yuk kaniti icin m
 - Onaylanan artifact `backend/load-baselines/public-e2e-load-baseline.json` yoluna alindiginda sonraki kosular basarili RPS degerlerini otomatik karsilastirir. Varsayilan `%20` gerileme toleransi `PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE` Actions variable'i ile degistirilebilir.
 - `Public E2E Saturation Smoke` workflow'u varsayilan `4/8/16` concurrency kademelerini sirayla calistirir. Throughput artisi `%10` altinda kalirsa doygunluk raporlanir; onceki kademeye gore `%10`dan fazla duserse workflow fail olur.
 - Saturation ozeti her kademede `429`, `5xx`, timeout, baglanti, upstream ve diger hata sayilarini ayri gostererek darbogaz nedenini gorunur kilar.
+- Browse, chat ve SSE throughput egrileri ayri analiz edilir; ilk doygunluga ulasan akis darbogaz senaryosu olarak raporlanir.
 - Checkout senaryosu sadece siparis olusturma yan etkisi kabul edildiginde manuel olarak acilir.
 
 Yerel catalog-only staging provasi:

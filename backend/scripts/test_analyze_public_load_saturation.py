@@ -14,7 +14,13 @@ def report(
     successful_rps: float,
     duration: int = 30,
     status: str = "passed",
+    scenario_rps: dict[str, float] | None = None,
 ) -> dict:
+    scenario_rps = scenario_rps or {
+        "browse": successful_rps * 0.5,
+        "chat": successful_rps * 0.3,
+        "stream": successful_rps * 0.2,
+    }
     return {
         "schema_version": 1,
         "status": status,
@@ -31,6 +37,15 @@ def report(
             "success_rate": 1.0,
             "latency_p95_ms": 1000.0,
             "error_kind_counts": {},
+        },
+        "scenarios": {
+            name: {
+                "successful_throughput_rps": value,
+                "success_rate": 1.0,
+                "latency_p95_ms": 1000.0,
+                "error_kind_counts": {},
+            }
+            for name, value in scenario_rps.items()
         },
     }
 
@@ -51,6 +66,8 @@ class SaturationAnalysisTests(unittest.TestCase):
             [item["classification"] for item in summary["transitions"]],
             ["scaling", "scaling"],
         )
+        self.assertIsNone(summary["bottleneck_scenario"])
+        self.assertEqual(summary["scenario_curves"]["stream"]["status"], "scaling")
 
     def test_reports_saturation_without_failing(self) -> None:
         summary, failures = analyze_saturation(
@@ -123,6 +140,46 @@ class SaturationAnalysisTests(unittest.TestCase):
             summary["points"][1]["error_kind_counts"],
             {"rate_limited": 2, "timeout": 1},
         )
+
+    def test_identifies_scenario_bottleneck_before_overall_saturation(self) -> None:
+        reports = [
+            report(4, 10.0, scenario_rps={"browse": 5.0, "chat": 3.0, "stream": 2.0}),
+            report(8, 18.0, scenario_rps={"browse": 9.0, "chat": 5.2, "stream": 3.8}),
+            report(16, 30.0, scenario_rps={"browse": 15.0, "chat": 11.0, "stream": 4.0}),
+        ]
+
+        summary, failures = analyze_saturation(
+            reports,
+            [4, 8, 16],
+            min_throughput_gain_rate=0.10,
+            max_throughput_drop_rate=0.10,
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(summary["status"], "saturated")
+        self.assertEqual(summary["bottleneck_scenario"], "stream")
+        self.assertEqual(summary["scenario_curves"]["stream"]["status"], "saturated")
+        self.assertEqual(summary["scenario_curves"]["stream"]["recommended_concurrency"], 8)
+        self.assertEqual(summary["scenario_curves"]["browse"]["status"], "scaling")
+
+    def test_scenario_regression_is_diagnostic_not_an_independent_gate(self) -> None:
+        reports = [
+            report(4, 10.0, scenario_rps={"browse": 5.0, "chat": 3.0, "stream": 2.0}),
+            report(8, 18.0, scenario_rps={"browse": 9.0, "chat": 5.0, "stream": 4.0}),
+            report(16, 30.0, scenario_rps={"browse": 16.0, "chat": 11.0, "stream": 3.0}),
+        ]
+
+        summary, failures = analyze_saturation(
+            reports,
+            [4, 8, 16],
+            min_throughput_gain_rate=0.10,
+            max_throughput_drop_rate=0.10,
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(summary["status"], "saturated")
+        self.assertEqual(summary["bottleneck_scenario"], "stream")
+        self.assertEqual(summary["scenario_curves"]["stream"]["status"], "regressed")
 
 
 if __name__ == "__main__":

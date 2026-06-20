@@ -12,6 +12,80 @@ from typing import Any
 PROFILE_FIELDS = ("duration_seconds", "timeout_seconds", "weights", "chat_queries")
 
 
+def throughput_point(concurrency: int, summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "concurrency": concurrency,
+        "successful_throughput_rps": float(summary.get("successful_throughput_rps", 0.0)),
+        "success_rate": float(summary.get("success_rate", 0.0)),
+        "latency_p95_ms": float(summary.get("latency_p95_ms", 0.0)),
+        "error_kind_counts": dict(summary.get("error_kind_counts", {})),
+    }
+
+
+def analyze_curve(
+    points: list[dict[str, Any]],
+    min_throughput_gain_rate: float,
+    max_throughput_drop_rate: float,
+) -> dict[str, Any]:
+    transitions: list[dict[str, Any]] = []
+    first_saturation_concurrency: int | None = None
+    recommended_concurrency = points[0]["concurrency"] if points else 0
+    if points and points[0]["successful_throughput_rps"] > 0:
+        base_concurrency = points[0]["concurrency"]
+        base_rps = points[0]["successful_throughput_rps"]
+        for previous, current in zip(points, points[1:]):
+            previous_rps = previous["successful_throughput_rps"]
+            current_rps = current["successful_throughput_rps"]
+            gain_rate = (current_rps / previous_rps) - 1.0 if previous_rps > 0 else -1.0
+            scaling_efficiency = (
+                (current_rps / base_rps) / (current["concurrency"] / base_concurrency)
+                if base_rps > 0
+                else 0.0
+            )
+            if gain_rate < -max_throughput_drop_rate:
+                classification = "regressed"
+            elif gain_rate < min_throughput_gain_rate:
+                classification = "saturated"
+            else:
+                classification = "scaling"
+
+            if classification in {"saturated", "regressed"} and first_saturation_concurrency is None:
+                first_saturation_concurrency = current["concurrency"]
+                recommended_concurrency = previous["concurrency"]
+            elif first_saturation_concurrency is None:
+                recommended_concurrency = current["concurrency"]
+
+            transitions.append(
+                {
+                    "from_concurrency": previous["concurrency"],
+                    "to_concurrency": current["concurrency"],
+                    "throughput_gain_rate": gain_rate,
+                    "scaling_efficiency": scaling_efficiency,
+                    "classification": classification,
+                }
+            )
+
+    classifications = {item["classification"] for item in transitions}
+    if "regressed" in classifications:
+        status = "regressed"
+    elif "saturated" in classifications:
+        status = "saturated"
+    else:
+        status = "scaling"
+    return {
+        "status": status,
+        "recommended_concurrency": recommended_concurrency,
+        "first_saturation_concurrency": first_saturation_concurrency,
+        "max_observed": max(
+            points,
+            key=lambda item: item["successful_throughput_rps"],
+            default=None,
+        ),
+        "points": points,
+        "transitions": transitions,
+    }
+
+
 def analyze_saturation(
     reports: list[dict[str, Any]],
     expected_concurrencies: list[int],
@@ -69,71 +143,62 @@ def analyze_saturation(
             )
         if successful_rps <= 0:
             failures.append(f"concurrency {concurrency} successful_throughput_rps must be > 0")
-        points.append(
-            {
-                "concurrency": concurrency,
-                "successful_throughput_rps": successful_rps,
-                "success_rate": float(overall.get("success_rate", 0.0)),
-                "latency_p95_ms": float(overall.get("latency_p95_ms", 0.0)),
-                "error_kind_counts": dict(overall.get("error_kind_counts", {})),
-            }
+        points.append(throughput_point(concurrency, overall))
+
+    overall_curve = analyze_curve(
+        points,
+        min_throughput_gain_rate,
+        max_throughput_drop_rate,
+    )
+    for transition in overall_curve["transitions"]:
+        if transition["classification"] == "regressed":
+            failures.append(
+                f"concurrency {transition['to_concurrency']} throughput drop "
+                f"{-transition['throughput_gain_rate']:.1%} > {max_throughput_drop_rate:.1%}"
+            )
+
+    scenario_curves: dict[str, dict[str, Any]] = {}
+    weights = ordered[0].get("config", {}).get("weights", {}) if ordered else {}
+    for name, weight in weights.items():
+        if weight <= 0:
+            continue
+        scenario_points = [
+            throughput_point(
+                int(report["config"]["concurrency"]),
+                report.get("scenarios", {}).get(name, {}),
+            )
+            for report in ordered
+        ]
+        scenario_curves[name] = analyze_curve(
+            scenario_points,
+            min_throughput_gain_rate,
+            max_throughput_drop_rate,
         )
 
-    transitions: list[dict[str, Any]] = []
-    first_saturation_concurrency: int | None = None
-    recommended_concurrency = points[0]["concurrency"] if points else 0
-    if points and points[0]["successful_throughput_rps"] > 0:
-        base_concurrency = points[0]["concurrency"]
-        base_rps = points[0]["successful_throughput_rps"]
-        for previous, current in zip(points, points[1:]):
-            previous_rps = previous["successful_throughput_rps"]
-            current_rps = current["successful_throughput_rps"]
-            gain_rate = (current_rps / previous_rps) - 1.0 if previous_rps > 0 else -1.0
-            scaling_efficiency = (
-                (current_rps / base_rps) / (current["concurrency"] / base_concurrency)
-                if base_rps > 0
-                else 0.0
-            )
-            if gain_rate < -max_throughput_drop_rate:
-                classification = "regressed"
-                failures.append(
-                    f"concurrency {current['concurrency']} throughput drop "
-                    f"{-gain_rate:.1%} > {max_throughput_drop_rate:.1%}"
-                )
-            elif gain_rate < min_throughput_gain_rate:
-                classification = "saturated"
-            else:
-                classification = "scaling"
-
-            if classification in {"saturated", "regressed"} and first_saturation_concurrency is None:
-                first_saturation_concurrency = current["concurrency"]
-                recommended_concurrency = previous["concurrency"]
-            elif first_saturation_concurrency is None:
-                recommended_concurrency = current["concurrency"]
-
-            transitions.append(
-                {
-                    "from_concurrency": previous["concurrency"],
-                    "to_concurrency": current["concurrency"],
-                    "throughput_gain_rate": gain_rate,
-                    "scaling_efficiency": scaling_efficiency,
-                    "classification": classification,
-                }
-            )
-
-    saturated = any(item["classification"] == "saturated" for item in transitions)
-    status = "failed" if failures else "saturated" if saturated else "scaling"
-    max_point = max(points, key=lambda item: item["successful_throughput_rps"], default=None)
+    bottleneck_candidates = [
+        (
+            curve["first_saturation_concurrency"],
+            0 if curve["status"] == "regressed" else 1,
+            name,
+        )
+        for name, curve in scenario_curves.items()
+        if curve["first_saturation_concurrency"] is not None
+    ]
+    bottleneck_scenario = min(bottleneck_candidates)[2] if bottleneck_candidates else None
+    diagnostic_saturation = overall_curve["status"] != "scaling" or bool(bottleneck_candidates)
+    status = "failed" if failures else "saturated" if diagnostic_saturation else "scaling"
     return {
         "schema_version": 1,
         "status": status,
         "min_throughput_gain_rate": min_throughput_gain_rate,
         "max_throughput_drop_rate": max_throughput_drop_rate,
-        "recommended_concurrency": recommended_concurrency,
-        "first_saturation_concurrency": first_saturation_concurrency,
-        "max_observed": max_point,
-        "points": points,
-        "transitions": transitions,
+        "recommended_concurrency": overall_curve["recommended_concurrency"],
+        "first_saturation_concurrency": overall_curve["first_saturation_concurrency"],
+        "max_observed": overall_curve["max_observed"],
+        "points": overall_curve["points"],
+        "transitions": overall_curve["transitions"],
+        "scenario_curves": scenario_curves,
+        "bottleneck_scenario": bottleneck_scenario,
         "failures": failures,
     }, failures
 

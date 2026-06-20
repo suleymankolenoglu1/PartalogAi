@@ -144,6 +144,7 @@ jobs:
           print(f"- Status: `{summary['status']}`")
           print(f"- Recommended concurrency: `{summary['recommended_concurrency']}`")
           print(f"- First saturation concurrency: `{summary['first_saturation_concurrency'] or '-'}`")
+          print(f"- Bottleneck scenario: `{summary.get('bottleneck_scenario') or '-'}`")
           print("")
           print("| concurrency | successful rps | success | p95 ms | error distribution |")
           print("|---:|---:|---:|---:|---|")
@@ -176,6 +177,22 @@ jobs:
               print(
                   f"| {step} | {transition['throughput_gain_rate']:.2%} | "
                   f"{transition['scaling_efficiency']:.2%} | {transition['classification']} |"
+              )
+          print("")
+          print("| scenario | status | recommended concurrency | first saturation | max successful rps | curve |")
+          print("|---|---|---:|---:|---:|---|")
+          for name, curve in summary.get("scenario_curves", {}).items():
+              max_observed = curve.get("max_observed") or {}
+              transition_text = "; ".join(
+                  f"{item['from_concurrency']}->{item['to_concurrency']} "
+                  f"{item['throughput_gain_rate']:.1%} {item['classification']}"
+                  for item in curve["transitions"]
+              ) or "-"
+              print(
+                  f"| {name} | {curve['status']} | {curve['recommended_concurrency']} | "
+                  f"{curve['first_saturation_concurrency'] or '-'} | "
+                  f"{max_observed.get('successful_throughput_rps', 0.0):.2f} | "
+                  f"{transition_text} |"
               )
           if summary["failures"]:
               print("")
