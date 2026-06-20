@@ -75,16 +75,16 @@ services:
   partalog-ai:
     build:
       context: ../partalog-ai
-      dockerfile: Dockerfile.chat
+      dockerfile: Dockerfile.chat-local
     container_name: partalog_ai_chat_local
     env_file:
       - ../partalog-ai/.env
     environment:
       HOST: 0.0.0.0
       PORT: 8000
-      STARTUP_SKIP_MODEL_LOADING: "true"
-      ENABLE_HOTSPOT_ENDPOINTS: "false"
-      ENABLE_CATALOG_PROCESSING_ENDPOINTS: "false"
+      STARTUP_SKIP_MODEL_LOADING: "false"
+      ENABLE_HOTSPOT_ENDPOINTS: "true"
+      ENABLE_CATALOG_PROCESSING_ENDPOINTS: "true"
       DB_CONNECTION_STRING: postgresql://postgres:${POSTGRES_PASSWORD:-CHANGE_ME}@pgbouncer:5432/KatalogcuDb
       DB_POOL_MIN_SIZE: 1
       DB_POOL_MAX_SIZE: 4
@@ -131,14 +131,17 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      JwtSettings__SecretKey: local-chat-smoke-jwt-secret-32-bytes-minimum
-      PublicLink__SecretKey: local-chat-smoke-public-link-secret-32-bytes-minimum
       ConnectionStrings__DefaultConnection: Host=pgbouncer;Port=5432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-CHANGE_ME};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=12;Timeout=15;Command Timeout=30;Max Auto Prepare=0
       AiService__BaseUrl: http://partalog-ai:8000
+      AiService__EnableItemEmbeddings: "false"
+      AiService__EmbeddingTimeoutSeconds: "15"
       AiCapacity__Provider: Redis
+      AiCapacity__GlobalConcurrentChats: "100"
+      AiCapacity__PerUserConcurrentChats: "12"
+      AiCapacity__AcquireTimeoutMs: "500"
       AiCapacity__RedisConnectionString: redis:6379,abortConnect=false
       AiCapacity__DistributedPoolName: api-chat
-      DistributedRateLimits__RedisPublicChatEnabled: "true"
+      DistributedRateLimits__RedisPublicChatEnabled: "false"
       DistributedRateLimits__RedisConnectionString: redis:6379,abortConnect=false
       DistributedRateLimits__FailOpen: "false"
       DataProtection__Provider: Redis
@@ -146,13 +149,13 @@ services:
       DataProtection__RedisKey: partalog:data-protection:keys
       DataProtection__KeyEncryptionKey: ${DATA_PROTECTION_KEY_ENCRYPTION_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
       ProductFeatures__EnableChatbot: "true"
-      ProductFeatures__EnableCatalogAnalysis: "false"
-      ProductFeatures__EnableEcommerce: "false"
+      ProductFeatures__EnableCatalogAnalysis: "true"
+      ProductFeatures__EnableEcommerce: "true"
       ProductFeatures__EnableUpgradePrompts: "false"
       ProductFeatures__EnablePlanManagement: "false"
       Frontend__BaseUrl: http://127.0.0.1:4200
       Cors__AllowedOrigins__0: http://127.0.0.1:4200
-      BackgroundProcessing__EnableCatalogAiServer: "false"
+      BackgroundProcessing__EnableCatalogAiServer: "true"
       BackgroundProcessing__EnableExternalSiteCrawlServer: "false"
       BackgroundProcessing__EnableDefaultServer: "false"
       BackgroundProcessing__EnableRecurringJobs: "false"

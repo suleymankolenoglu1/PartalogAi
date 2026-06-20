@@ -2,11 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import {
-  ChatStreamEvent,
-  extractChatStreamEvents,
-  flushChatStreamBuffer,
-} from './ai-stream-contract';
+import { AiStreamEvent, parseAiStreamSseLine } from './ai-stream-contract';
 // 🔥 GÜNCELLENDİ: Backend (ChatController) Response Yapısı
 // PublicViewComponent'te kullandığımız 'res.replySuggestion' ve 'res.products' ile eşleşmeli.
 export interface AiChatResponse {
@@ -108,7 +104,7 @@ export class AiService {
     history: any[],
     catalogIds?: string[],
     publicToken?: string
-  ): Observable<ChatStreamEvent> {
+  ): Observable<AiStreamEvent> {
     return new Observable(observer => {
       const formData = new FormData();
       if (text) formData.append('text', text);
@@ -133,23 +129,24 @@ export class AiService {
         const read = () => {
           reader.read().then(({ done, value }) => {
             if (done) {
-              const flushed = flushChatStreamBuffer(buffer);
-              if (flushed.errors.length > 0) {
-                observer.error(new Error(flushed.errors[0]));
-                return;
+              if (buffer.trim().length > 0) {
+                const event = parseAiStreamSseLine(buffer.trim());
+                if (event) {
+                  observer.next(event);
+                }
               }
-              flushed.events.forEach(event => observer.next(event));
               observer.complete();
               return;
             }
             buffer += decoder.decode(value, { stream: true });
-            const parsed = extractChatStreamEvents(buffer);
-            buffer = parsed.remaining;
-            if (parsed.errors.length > 0) {
-              observer.error(new Error(parsed.errors[0]));
-              return;
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const rawLine of lines) {
+              const event = parseAiStreamSseLine(rawLine);
+              if (event) {
+                observer.next(event);
+              }
             }
-            parsed.events.forEach(event => observer.next(event));
             read();
           }).catch(err => observer.error(err));
         };

@@ -1,124 +1,78 @@
 import {
-  beginPublicChatStream,
-  ChatMessage,
-  PublicChatStreamState,
-  reducePublicChatStreamState,
+  initialPublicViewStreamState,
+  reducePublicViewStreamState,
 } from './public-view.stream-state';
-import { extractChatStreamEvents } from '../core/services/ai-stream-contract';
-import { PUBLIC_CHAT_HAPPY_PATH_SSE } from '../core/services/chat-stream-contract.fixture';
 
-describe('public view stream state', () => {
-  const emptyState = (): PublicChatStreamState => ({
-    messages: [],
-    chatHistory: [],
-    latestAssistantMessage: null,
-    aiState: {
-      isActive: false,
-      isLoading: false,
-      response: null,
-    },
+describe('reducePublicViewStreamState', () => {
+  it('transitions from idle to connecting on start', () => {
+    const next = reducePublicViewStreamState(initialPublicViewStreamState, { type: 'start' });
+
+    expect(next.phase).toBe('connecting');
+    expect(next.replySuggestion).toBe('');
+    expect(next.products).toEqual([]);
+    expect(next.errorMessage).toBeNull();
   });
 
-  it('models sources -> token -> done as one explicit lifecycle', () => {
-    let state = beginPublicChatStream(emptyState(), 'yağ deposu contası', 'u1', 'a1');
+  it('transitions from connecting to streaming when sources arrive', () => {
+    const connecting = reducePublicViewStreamState(initialPublicViewStreamState, { type: 'start' });
+    const products = [{ code: 'ABC-123' }];
 
-    expect(state.messages.map((message) => message.role)).toEqual(['user', 'assistant']);
-    expect(state.aiState.isLoading).toBeTrue();
-
-    state = reducePublicChatStreamState(state, {
-      type: 'sources',
-      products: [{ code: '4109410', name: 'Conta' }],
+    const next = reducePublicViewStreamState(connecting, {
+      type: 'sourcesReceived',
+      products,
     });
 
-    expect(state.aiState.isLoading).toBeFalse();
-    expect(state.aiState.response?.products[0].code).toBe('4109410');
-    expect(state.aiState.response?.replySuggestion).toBe('');
-
-    state = reducePublicChatStreamState(state, { type: 'token', token: 'Parça ' });
-    state = reducePublicChatStreamState(state, { type: 'token', token: '4109410.' });
-
-    expect(state.messages[1].text).toBe('Parça 4109410.');
-    expect(state.aiState.response?.replySuggestion).toBe('Parça 4109410.');
-
-    state = reducePublicChatStreamState(state, { type: 'done' });
-
-    expect(state.messages[1].isStreaming).toBeFalse();
-    expect(state.aiState.isLoading).toBeFalse();
-    expect(state.latestAssistantMessage?.text).toBe('Parça 4109410.');
-    expect(state.chatHistory).toEqual([
-      { role: 'user', text: 'yağ deposu contası' },
-      { role: 'assistant', text: 'Parça 4109410.' },
-    ]);
+    expect(next.phase).toBe('streaming');
+    expect(next.products).toEqual(products);
+    expect(next.replySuggestion).toBe('');
   });
 
-  it('replays the shared backend SSE fixture into message, loading and reply state', () => {
-    const parsed = extractChatStreamEvents(PUBLIC_CHAT_HAPPY_PATH_SSE);
-    expect(parsed.errors).toEqual([]);
+  it('stays in streaming and appends text on tokenReceived', () => {
+    const streaming = reducePublicViewStreamState(initialPublicViewStreamState, { type: 'start' });
 
-    let state = beginPublicChatStream(emptyState(), 'yağ deposu contası', 'u1', 'a1');
-    for (const event of parsed.events) {
-      if (event.type === 'sources') {
-        state = reducePublicChatStreamState(state, { type: 'sources', products: event.sources });
-      } else if (event.type === 'token') {
-        state = reducePublicChatStreamState(state, { type: 'token', token: event.token });
-      } else if (event.type === 'done') {
-        state = reducePublicChatStreamState(state, { type: 'done' });
-      }
-    }
-
-    expect(state.aiState.isLoading).toBeFalse();
-    expect(state.messages[1].isStreaming).toBeFalse();
-    expect(state.messages[1].text).toBe('Parça 4109410 bulundu.');
-    expect(state.aiState.response?.replySuggestion).toBe('Parça 4109410 bulundu.');
-    expect(state.aiState.response?.products[0].catalogItemId).toBe('ci-1');
-    expect(state.latestAssistantMessage?.products?.[0].code).toBe('4109410');
-  });
-
-  it('keeps UI consistent when tokens arrive before sources', () => {
-    let state = beginPublicChatStream(emptyState(), 'kod nedir', 'u1', 'a1');
-    state = reducePublicChatStreamState(state, { type: 'token', token: 'Kod ' });
-    state = reducePublicChatStreamState(state, { type: 'sources', products: [{ code: 'A1' }] });
-    state = reducePublicChatStreamState(state, { type: 'token', token: 'A1' });
-
-    expect(state.aiState.isLoading).toBeFalse();
-    expect(state.messages[1].text).toBe('Kod A1');
-    expect(state.aiState.response).toEqual({
-      replySuggestion: 'Kod A1',
-      products: [{ code: 'A1' }],
-    });
-  });
-
-  it('ends loading and preserves the failed assistant bubble on stream error', () => {
-    let state = beginPublicChatStream(emptyState(), 'merhaba', 'u1', 'a1');
-    state = reducePublicChatStreamState(state, {
-      type: 'error',
-      message: 'Bağlantı hatası, lütfen tekrar deneyin.',
+    const next = reducePublicViewStreamState(streaming, {
+      type: 'tokenReceived',
+      token: 'Merhaba',
     });
 
-    expect(state.aiState.isLoading).toBeFalse();
-    expect(state.aiState.response).toBeNull();
-    expect(state.messages[1].isStreaming).toBeFalse();
-    expect(state.messages[1].text).toBe('Bağlantı hatası, lütfen tekrar deneyin.');
+    expect(next.phase).toBe('streaming');
+    expect(next.replySuggestion).toBe('Merhaba');
   });
 
-  it('restores message list, loading flag and replySuggestion from saved history', () => {
-    const messages: ChatMessage[] = [
-      { role: 'user', text: 'soru', timestamp: 'u1' },
-      {
-        role: 'assistant',
-        text: 'cevap',
-        timestamp: 'a1',
-        products: [{ code: 'P1' }],
-        isStreaming: false,
-      },
-    ];
+  it('transitions from streaming to completed on complete', () => {
+    const streaming = reducePublicViewStreamState(initialPublicViewStreamState, {
+      type: 'tokenReceived',
+      token: 'Tamam',
+    });
 
-    const state = reducePublicChatStreamState(emptyState(), { type: 'restore', messages });
+    const next = reducePublicViewStreamState(streaming, { type: 'complete' });
 
-    expect(state.messages).toEqual(messages);
-    expect(state.aiState.isActive).toBeTrue();
-    expect(state.aiState.isLoading).toBeFalse();
-    expect(state.aiState.response?.replySuggestion).toBe('cevap');
-    expect(state.aiState.response?.products[0].code).toBe('P1');
+    expect(next.phase).toBe('completed');
+    expect(next.replySuggestion).toBe('Tamam');
+  });
+
+  it('transitions to error on fail', () => {
+    const connecting = reducePublicViewStreamState(initialPublicViewStreamState, { type: 'start' });
+
+    const next = reducePublicViewStreamState(connecting, {
+      type: 'fail',
+      message: 'Baglanti hatasi',
+    });
+
+    expect(next.phase).toBe('error');
+    expect(next.replySuggestion).toBe('Baglanti hatasi');
+    expect(next.errorMessage).toBe('Baglanti hatasi');
+  });
+
+  it('transitions back to idle on reset', () => {
+    const completed = reducePublicViewStreamState(initialPublicViewStreamState, {
+      type: 'restore',
+      replySuggestion: 'Hazir',
+      products: [{ code: 'SKU-1' }],
+    });
+
+    const next = reducePublicViewStreamState(completed, { type: 'reset' });
+
+    expect(next).toEqual(initialPublicViewStreamState);
   });
 });

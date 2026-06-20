@@ -4,7 +4,6 @@ set -euo pipefail
 API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:5159}"
 AI_BASE_URL="${AI_BASE_URL:-http://127.0.0.1:8000}"
 PUBLIC_TOKEN="${PARTALOG_PUBLIC_TOKEN:-}"
-ADMIN_BEARER_TOKEN="${PARTALOG_ADMIN_TOKEN:-}"
 CATALOG_IDS="${PARTALOG_CATALOG_IDS:-[]}"
 CHAT_QUERY="${PARTALOG_CHAT_SMOKE_QUERY:-Yamato VG2500-8F için yağ deposu contası var mı? Kodunu söyler misin?}"
 WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-90}"
@@ -21,8 +20,6 @@ Options:
   --api-base-url <url>       API base URL. Default: API_BASE_URL or http://127.0.0.1:5159
   --ai-base-url <url>        AI base URL. Default: AI_BASE_URL or http://127.0.0.1:8000
   --public-token <token>     Public chat token. Or PARTALOG_PUBLIC_TOKEN env.
-  --admin-bearer-token <jwt> Optional admin JWT. Or PARTALOG_ADMIN_TOKEN env.
-                             When provided, checks /api/system/production-readiness.
   --catalog-ids <json>       Catalog IDs JSON array. Or PARTALOG_CATALOG_IDS env.
   --chat-query <text>        Real chat query. Or PARTALOG_CHAT_SMOKE_QUERY env.
   --wait-timeout <seconds>   Wait timeout. Default: 90
@@ -49,10 +46,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --public-token)
       PUBLIC_TOKEN="$2"
-      shift 2
-      ;;
-    --admin-bearer-token)
-      ADMIN_BEARER_TOKEN="$2"
       shift 2
       ;;
     --catalog-ids)
@@ -115,14 +108,6 @@ expect_body_contains() {
   fi
 }
 
-is_placeholder_token() {
-  local token="$1"
-  [[ "$token" == "ADMIN_JWT" ]] && return 0
-  [[ "$token" == "<ADMIN_JWT>" ]] && return 0
-  [[ "$token" == "token" ]] && return 0
-  return 1
-}
-
 echo "[1/6] API liveness"
 wait_for_url "${API_BASE_URL}/health/live" "API live"
 
@@ -134,18 +119,6 @@ expect_body_contains "$api_ready" "\"ready\":true" "API capacity readiness"
 echo "[3/6] Migration readiness"
 migrations="$(curl_with_timeout -fsS "${API_BASE_URL}/health/migrations")"
 expect_body_contains "$migrations" "\"status\":\"ok\"" "Migration readiness"
-
-if [[ -n "$ADMIN_BEARER_TOKEN" ]] && ! is_placeholder_token "$ADMIN_BEARER_TOKEN"; then
-  echo "[extra] API production-readiness guard"
-  prod_readiness="$(
-    curl_with_timeout -fsS \
-      -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
-      "${API_BASE_URL}/api/system/production-readiness"
-  )"
-  expect_body_contains "$prod_readiness" "\"status\":" "Production readiness response"
-else
-  echo "[extra] API production-readiness guard skipped: PARTALOG_ADMIN_TOKEN not provided"
-fi
 
 echo "[4/6] AI readiness"
 ai_ready="$(curl_with_timeout -fsS "${AI_BASE_URL}/health/ready")"

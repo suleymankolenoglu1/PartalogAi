@@ -5,11 +5,9 @@
         <span class="material-symbols-outlined">menu</span>
         <span>Sayfalar</span>
       </button>
-      @if (!isTargetedEmbed) {
-        <a [routerLink]="['/view', catalogId]" [queryParams]="publicQueryParams" class="back-link" title="Kataloga dön">
-          <span class="material-symbols-outlined">arrow_back</span>
-        </a>
-      }
+      <a [routerLink]="['/view', catalogId]" [queryParams]="publicQueryParams" class="back-link" title="Kataloga dön">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </a>
       <div class="topbar-title">
         <div class="catalog-name">{{ catalog?.name || 'Katalog' }}</div>
         <div class="catalog-page-meta">
@@ -229,7 +227,7 @@
                   }
                 </div>
 
-                @if (canUseEcommerce) {
+                @if (showsPrimaryAction(item)) {
                   <div class="part-actions">
                     <div class="qty-picker">
                       <button type="button" (click)="$event.stopPropagation(); decreaseSelectionQty(item)">−</button>
@@ -244,9 +242,6 @@
           }
         }
       </div>
-      @if (hostCartFeedback) {
-        <p class="hint-text">{{ hostCartFeedback }}</p>
-      }
     </aside>
   </div>
 

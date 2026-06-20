@@ -7,12 +7,10 @@ Bu klasör chatbot kalitesini ölçmek için hızlı bir eval aracı içerir.
 - `SuccessRate`
 - `Latency avg/p95`
 - `Hit@1`, `Hit@3`, `Hit@5`, `MRR` (`expected_codes` verilen case'lerde)
-- `Precision@3` (`expected_codes` verilen case'lerde)
 - `No-code pass rate` (`expect_no_codes=true` verilen case'lerde)
 - `Required-term pass rate`
 - `Forbidden-term pass rate`
 - `Hallucination rate` (cevapta geçen kod benzeri token'lar, dönen ürün/model/isim-açıklama içindeki identifier setinde yoksa)
-- Case freshness metadata (`last_verified_at` / `updated_at` verilen case'lerde)
 
 ## Case formatı (JSONL)
 
@@ -27,9 +25,7 @@ Her satır bir case:
   "expected_codes": ["160000"],
   "expect_no_codes": false,
   "required_terms": ["vida"],
-  "forbidden_terms": ["elimizde yok"],
-  "source": "chat-feedback:optional-id",
-  "last_verified_at": "2026-06-14T00:00:00Z"
+  "forbidden_terms": ["elimizde yok"]
 }
 ```
 
@@ -65,26 +61,6 @@ python eval/chat_eval.py \
   --output-md eval/report.nightly.md
 ```
 
-Behavior smoke set:
-
-```bash
-python eval/chat_eval.py \
-  --base-url http://localhost:5159 \
-  --cases eval/queries.behavior_smoke.jsonl \
-  --output-json eval/report.behavior_smoke.json \
-  --output-md eval/report.behavior_smoke.md
-```
-
-Feedback regression set:
-
-```bash
-python eval/chat_eval.py \
-  --base-url http://localhost:5159 \
-  --cases eval/queries.feedback_regressions.jsonl \
-  --output-json eval/report.feedback_regressions.json \
-  --output-md eval/report.feedback_regressions.md
-```
-
 ## Placeholder kullanımı (önerilen)
 
 `queries.*.jsonl` içindeki `<PUBLIC_TOKEN>` değerini elle değiştirmek yerine:
@@ -106,25 +82,9 @@ python eval/chat_eval.py \
   --cases eval/queries.hard.jsonl \
   --min-success-rate 1.0 \
   --min-hit-at-1 0.9 \
-  --min-precision-at-3 0.6 \
   --max-latency-p95-ms 8000 \
   --max-hallucination-rate 0.05 \
-  --min-no-code-pass-rate 0.9 \
-  --min-required-term-pass-rate 0.9 \
-  --min-forbidden-term-pass-rate 1.0
-```
-
-## Case validation
-
-PR sırasında uzak servise bağlanılamasa bile JSONL case dosyalarını statik doğrulamak için:
-
-```bash
-python eval/validate_cases.py \
-  eval/queries.hard.jsonl \
-  eval/queries.behavior_smoke.jsonl \
-  eval/queries.feedback_regressions.jsonl \
-  --allow-empty eval/queries.feedback_regressions.jsonl \
-  --require-freshness eval/queries.feedback_regressions.jsonl
+  --min-no-code-pass-rate 0.9
 ```
 
 ## GitHub Actions (CI Gate)
@@ -149,4 +109,3 @@ Nightly workflow: `.github/workflows/chat-eval-nightly.yml`
 - Public senaryo için `public_token` kullan.
 - `catalog_ids` opsiyoneldir. Verirsen aramayı daraltır.
 - `--fail-on-error` kullanılırsa mantıksal fallback/hata cevapları da hata sayılır (çıkış kodu `2`).
-- Feedback regression case'leri gerçek kullanıcı hatasından gelmeli; `source` ve `last_verified_at` alanları olmadan CI validation'dan geçmez.

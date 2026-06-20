@@ -12,7 +12,6 @@ import { PublicViewComponent } from './public-view/public-view';
 import { PublicCheckoutComponent } from './public-view/public-checkout/public-checkout';
 import { PublicCatalogShowcaseComponent } from './public-catalog-showcase/public-catalog-showcase';
 import { PublicCatalogViewerComponent } from './public-view/public-catalog-viewer/public-catalog-viewer';
-import { EmbedRuntimeComponent } from './embed-runtime/embed-runtime.component';
 import { PlatformLoginComponent } from './platform/platform-login/platform-login';
 import { PlatformDashboardComponent } from './platform/platform-dashboard/platform-dashboard';
 import { PlatformTenantDetailComponent } from './platform/platform-tenant-detail/platform-tenant-detail';
@@ -30,8 +29,8 @@ import { PartsAddComponent } from './dashboard/parts/parts-add/parts-add';
 import { PartsImportComponent } from './dashboard/parts/parts-import/parts-import';
 import { VisualFeedbackComponent } from './dashboard/visual-feedback/visual-feedback';
 import { ChatQualityComponent } from './dashboard/chat-quality/chat-quality';
+import { PolicyThresholdsComponent } from './dashboard/policy-thresholds/policy-thresholds';
 import { OrdersComponent } from './dashboard/orders/orders';
-import { EmbedIntegrationComponent } from './dashboard/embed-integration/embed-integration';
 import { planGuard } from './core/guards/plan.guard';
 import { planSelectionGuard } from './core/guards/plan-selection.guard';
 import { platformAdminGuard } from './core/guards/platform-admin.guard';
@@ -52,7 +51,6 @@ export const routes: Routes = [
   ...(ecommerceEnabled ? [{ path: 'p/:publicToken/checkout', component: PublicCheckoutComponent }] : []),
   { path: 'view/:id', component: PublicCatalogShowcaseComponent },
   { path: 'view/:id/viewer/:pageIndex', component: PublicCatalogViewerComponent },
-  { path: 'embed/runtime/:embedKey', component: EmbedRuntimeComponent },
   { path: 'explore', component: ExploreComponent },
   { path: 'blog', component: BlogComponent },
   { path: 'services', component: ServislerComponent },
@@ -73,11 +71,11 @@ export const routes: Routes = [
       { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
       { path: 'settings', component: SettingsComponent },
-      { path: 'embed', component: EmbedIntegrationComponent },
       ...(aiEnabled
         ? [
             { path: 'visual-feedback', component: VisualFeedbackComponent, canActivate: [planGuard], data: { minPlan: 2 } },
             { path: 'chat-quality', component: ChatQualityComponent, canActivate: [planGuard], data: { minPlan: 2 } },
+            { path: 'policy-thresholds', component: PolicyThresholdsComponent, canActivate: [planGuard], data: { minPlan: 2 } },
             { path: 'ai', component: ChatQualityComponent, canActivate: [planGuard], data: { minPlan: 2 } }
           ]
         : []),

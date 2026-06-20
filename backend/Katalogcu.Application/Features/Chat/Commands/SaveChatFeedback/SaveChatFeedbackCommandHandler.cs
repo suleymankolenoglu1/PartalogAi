@@ -23,12 +23,6 @@ public sealed class SaveChatFeedbackCommandHandler : IRequestHandler<SaveChatFee
             .Distinct()
             .Take(30)
             .ToList();
-        var catalogIds = (request.CatalogIds ?? [])
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(50)
-            .ToList();
 
         var entry = new ChatFeedbackEntry
         {
@@ -41,9 +35,6 @@ public sealed class SaveChatFeedbackCommandHandler : IRequestHandler<SaveChatFee
             UserQuery = string.IsNullOrWhiteSpace(request.UserQuery) ? null : request.UserQuery.Trim(),
             ReplySuggestion = request.ReplySuggestion.Trim(),
             SourceCodes = sourceCodes,
-            CatalogIds = catalogIds,
-            PublicToken = string.IsNullOrWhiteSpace(request.PublicToken) ? null : request.PublicToken.Trim(),
-            ContextJson = NormalizeContextJson(request.ContextJson),
             MessageId = string.IsNullOrWhiteSpace(request.MessageId) ? null : request.MessageId.Trim(),
             ConversationId = string.IsNullOrWhiteSpace(request.ConversationId) ? null : request.ConversationId.Trim(),
             UserAgent = string.IsNullOrWhiteSpace(request.UserAgent) ? null : request.UserAgent.Trim(),
@@ -56,23 +47,5 @@ public sealed class SaveChatFeedbackCommandHandler : IRequestHandler<SaveChatFee
         {
             Id = id
         });
-    }
-
-    private static string? NormalizeContextJson(string? contextJson)
-    {
-        if (string.IsNullOrWhiteSpace(contextJson))
-            return null;
-
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(contextJson);
-            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
-                ? doc.RootElement.GetRawText()
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

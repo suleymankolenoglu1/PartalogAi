@@ -1,0 +1,10 @@
+# Context-aware chat benchmark.
+# These cases test viewer-originated prompts such as "bu parça" and "bunun".
+# Replace placeholder context values with real catalog/page/item values before using as a gate.
+
+{"id":"CTX1","text":"bu parça hangi sayfada","public_token":"<PUBLIC_TOKEN>","catalog_ids":["<CATALOG_GUID>"],"context_json":{"catalogId":"<CATALOG_GUID>","pageNumber":5,"partCode":"160000","refNo":"12","partName":"Vida"},"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"CTX2","text":"bunun kodu ne","public_token":"<PUBLIC_TOKEN>","catalog_ids":["<CATALOG_GUID>"],"context_json":{"catalogId":"<CATALOG_GUID>","pageNumber":5,"partCode":"160000","refNo":"12","partName":"Vida"},"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"CTX3","text":"seçtiğim parçayı katalogda açmak istiyorum","public_token":"<PUBLIC_TOKEN>","catalog_ids":["<CATALOG_GUID>"],"context_json":{"catalogId":"<CATALOG_GUID>","pageNumber":5,"partCode":"160000","refNo":"12","partName":"Vida"},"expected_codes":["160000"],"required_terms":["160000"]}
+{"id":"CTX4","text":"bu vida yerine benzer alternatif var mı","public_token":"<PUBLIC_TOKEN>","catalog_ids":["<CATALOG_GUID>"],"context_json":{"catalogId":"<CATALOG_GUID>","pageNumber":5,"partCode":"160000","refNo":"12","partName":"Vida"},"required_terms":["vida"]}
+{"id":"CTX5","text":"bunun makine modeli ne görünüyor","public_token":"<PUBLIC_TOKEN>","catalog_ids":["<CATALOG_GUID>"],"context_json":{"catalogId":"<CATALOG_GUID>","pageNumber":5,"partCode":"160000","refNo":"12","partName":"Vida"},"expected_codes":["160000"],"forbidden_terms":["bilmiyorum"]}
+{"id":"CTX6","text":"bu parça ne işe yarar","public_token":"<PUBLIC_TOKEN>","catalog_ids":["<CATALOG_GUID>"],"context_json":{"catalogId":"<CATALOG_GUID>","pageNumber":5,"partCode":"160000","refNo":"12","partName":"Vida"},"expected_codes":["160000"],"required_terms":["vida"]}

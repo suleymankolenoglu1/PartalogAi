@@ -1,0 +1,21 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM nginx:1.27-alpine AS final
+WORKDIR /usr/share/nginx/html
+
+ENV PORT=8080
+ENV API_PROXY_URL=http://localhost:8081
+
+COPY nginx.cloudrun.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist/katalogcu-frontend/browser/ ./
+
+EXPOSE 8080
+
+CMD ["nginx", "-g", "daemon off;"]

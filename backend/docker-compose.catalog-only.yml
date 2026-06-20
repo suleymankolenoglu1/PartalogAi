@@ -1,0 +1,115 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    command:
+      - postgres
+      - -c
+      - max_connections=80
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - statement_timeout=30000
+      - -c
+      - lock_timeout=5000
+      - -c
+      - idle_in_transaction_session_timeout=60000
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalog_only_local_password}
+      POSTGRES_DB: KatalogcuDb
+    volumes:
+      - catalog_only_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d KatalogcuDb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - catalog_only_net
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-catalog_only_local_password}
+      DB_NAME: KatalogcuDb
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 2
+      RESERVE_POOL_SIZE: 5
+      SERVER_RESET_QUERY: DISCARD ALL
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U postgres -d KatalogcuDb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - catalog_only_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Katalogcu.API/Dockerfile
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=pgbouncer;Port=6432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-catalog_only_local_password};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=12;Timeout=15;Command Timeout=30;Max Auto Prepare=0
+      JwtSettings__SecretKey: catalog_only_local_jwt_secret_32_chars_minimum
+      JwtSettings__Issuer: KatalogcuAPI
+      JwtSettings__Audience: KatalogcuFrontend
+      PublicLink__SecretKey: catalog_only_local_public_secret_32_chars_minimum
+      PublicLink__Issuer: KatalogcuPublic
+      PublicLink__Audience: KatalogcuPublic
+      Registration__OwnerInviteCodes: ""
+      Frontend__BaseUrl: http://localhost:4200
+      Cors__AllowedOrigins__0: http://localhost:4200
+      ProductFeatures__EnableChatbot: "false"
+      ProductFeatures__EnableCatalogAnalysis: "true"
+      ProductFeatures__EnableEcommerce: "false"
+      ProductFeatures__EnableUpgradePrompts: "false"
+      ProductFeatures__EnablePlanManagement: "false"
+    ports:
+      - "5160:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - catalog_only_visual_parts:/app/wwwroot/static/visual-parts
+    networks:
+      - catalog_only_net
+
+  frontend:
+    build:
+      context: ../frontend/katalogcu-frontend
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "4200:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - catalog_only_net
+
+volumes:
+  catalog_only_pgdata:
+  catalog_only_visual_parts:
+
+networks:
+  catalog_only_net:
+    driver: bridge

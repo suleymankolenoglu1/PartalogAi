@@ -1,9 +1,6 @@
-# Curated feedback regressions live here.
+# Feedback-derived behavior/context regressions.
+# Add reviewed exports from the admin Chat Quality panel or:
+# python eval/build_cases_from_feedback.py --input ../backend/Katalogcu.API/App_Data/chat-feedback/index.jsonl --output eval/queries.feedback_regressions.jsonl --only-negative --target-set behavior --append
 #
-# Add only reviewed user-feedback failures that should never regress again.
-# Required metadata for executable cases:
-# - source: feedback ticket, support note, or reviewed chat-feedback id
-# - last_verified_at: ISO date/time when expected identifiers were checked against current catalog data
-#
-# Example:
-# {"id":"FB_001","source":"chat-feedback:2026-06-14:abc123","last_verified_at":"2026-06-14T00:00:00Z","text":"model plakasi kodu nedir","public_token":"<PUBLIC_TOKEN>","catalog_ids":[],"expected_codes":["4109410"],"required_terms":["4109410"]}
+# Keep this file reviewable: prefer small batches of high-signal failures with explicit expected_codes,
+# forbidden_terms, required_terms, expect_no_codes, or context_json assertions.

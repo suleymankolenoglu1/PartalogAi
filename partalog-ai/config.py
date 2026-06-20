@@ -13,9 +13,10 @@ import logging
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
 
-# 2. .env içeriğini yükle ama gerçek runtime env'lerini ezme.
-# Cloud Run/Secret Manager değerleri local .env'nin üstünde kalmalı.
-load_dotenv(ENV_PATH, override=False)
+# 2. .env içeriğini işletim sistemi ortam değişkenlerine (os.environ) zorla yükle!
+# Böylece embedding.py veya Google SDK'ları direkt os.getenv() ile okuyabilir
+# override=True: mevcut ortam değişkenlerini .env ile ez (local dev'de tutarlılık için)
+load_dotenv(ENV_PATH, override=True)
 
 def _clean_env(value: str) -> str:
     return value.strip().strip('"').strip("'").strip()
@@ -29,28 +30,14 @@ class Settings(BaseSettings):
     # SUNUCU
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
-    STARTUP_SKIP_MODEL_LOADING: bool = Field(default=False)
-    FAIL_STARTUP_ON_UNREADY: bool = Field(default=False)
-    ENABLE_HOTSPOT_ENDPOINTS: bool = Field(default=True)
-    ENABLE_CATALOG_PROCESSING_ENDPOINTS: bool = Field(default=True)
     
     # YOLLAR
     BASE_DIR: Path = BASE_DIR
     MODELS_DIR: Path = Field(default=Path("models"))
     
-    # --- GENAI PROVIDER ---
-    GENAI_PROVIDER: str = Field(default="legacy")
-    GOOGLE_CLOUD_PROJECT: str = Field(default="")
-    GOOGLE_CLOUD_LOCATION: str = Field(default="global")
-    VERTEX_API_KEY: str = Field(default="")
-    GEMINI_CHAT_MODEL: str = Field(default="gemini-2.5-flash")
-    GEMINI_STREAM_MODEL: str = Field(default="gemini-2.5-flash")
-    GEMINI_TABLE_MODEL: str = Field(default="gemini-2.5-flash")
-    GEMINI_ANALYSIS_MODEL: str = Field(default="gemini-2.5-flash")
-    GEMINI_EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
-
     # --- GEMINI AI ---
-    # Legacy key yolu local/dev fallback olarak tutuluyor.
+    # Hem 'GEMINI_API_KEY' hem de 'GOOGLE_API_KEY' olarak gelsen kabul etsin.
+    # .env dosyasında hangisi varsa onu alır.
     GEMINI_API_KEY: str = Field(
         default="",
         validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -64,14 +51,6 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("DB_CONNECTION_STRING", "DATABASE_URL")
     )
-    DB_POOL_MIN_SIZE: int = Field(default=2)
-    DB_POOL_MAX_SIZE: int = Field(default=10)
-    DB_POOL_COMMAND_TIMEOUT_SECONDS: float = Field(default=15.0)
-    DB_POOL_HEALTHCHECK_TIMEOUT_SECONDS: float = Field(default=3.0)
-    DB_POOL_MAX_INACTIVE_CONNECTION_LIFETIME_SECONDS: float = Field(default=300.0)
-    DB_STATEMENT_CACHE_SIZE: int = Field(default=0)
-    DB_ALLOW_EPHEMERAL_FALLBACK: bool = Field(default=True)
-    HEALTH_READY_DB_PING_SLO_MS: float = Field(default=250.0)
 
     @property
     def db_dsn(self) -> str:
@@ -112,25 +91,6 @@ class Settings(BaseSettings):
     STORAGE_SECRET_KEY: str = Field(default="")
     STORAGE_REGION: str = Field(default="auto")
 
-    # RATE LIMIT / OPERATIONAL TESTING
-    RATE_LIMIT_HEADERS_ENABLED: bool = Field(default=True)
-    RATE_LIMIT_PROBE_LIMIT: str = Field(default="5/second")
-    RATE_LIMIT_PROBE_WINDOW_SECONDS: float = Field(default=1.0)
-    CHAT_HTTP_RATE_LIMIT_ENABLED: bool = Field(default=False)
-    DEV_AI_QUOTA_BYPASS: bool = Field(default=False)
-    AI_CHAT_CAPACITY_PROVIDER: str = Field(default="inmemory")
-    AI_CHAT_GLOBAL_CONCURRENCY: int = Field(default=80)
-    AI_CHAT_ACQUIRE_TIMEOUT_SECONDS: float = Field(default=0.15)
-    AI_CHAT_USE_DISTRIBUTED_LEASES: bool = Field(default=False)
-    AI_CHAT_DISTRIBUTED_LEASE_TTL_SECONDS: int = Field(default=180)
-    AI_CHAT_DISTRIBUTED_POOL_NAME: str = Field(default="python-chat")
-    AI_CHAT_REDIS_URL: str = Field(default="redis://localhost:6379/0")
-    AI_CHAT_REDIS_KEY_PREFIX: str = Field(default="partalog:ai-capacity")
-    AI_CHAT_BUSY_MESSAGE: str = Field(default="AI kapasitesi şu an dolu. Lütfen birkaç saniye sonra tekrar deneyin.")
-    GEMINI_CHAT_TIMEOUT_SECONDS: float = Field(default=35.0)
-    GEMINI_STREAM_TIMEOUT_SECONDS: float = Field(default=75.0)
-    GEMINI_STREAM_SOCK_READ_TIMEOUT_SECONDS: float = Field(default=30.0)
-
     # Config Ayarları
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH), # Sadece ".env" yerine tam yolu veriyoruz
@@ -146,24 +106,6 @@ class Settings(BaseSettings):
         # API ve model
         if self.GEMINI_API_KEY:
             self.GEMINI_API_KEY = _clean_env(self.GEMINI_API_KEY)
-        if self.GENAI_PROVIDER:
-            self.GENAI_PROVIDER = _clean_env(self.GENAI_PROVIDER).lower()
-        if self.GOOGLE_CLOUD_PROJECT:
-            self.GOOGLE_CLOUD_PROJECT = _clean_env(self.GOOGLE_CLOUD_PROJECT)
-        if self.GOOGLE_CLOUD_LOCATION:
-            self.GOOGLE_CLOUD_LOCATION = _clean_env(self.GOOGLE_CLOUD_LOCATION)
-        if self.VERTEX_API_KEY:
-            self.VERTEX_API_KEY = _clean_env(self.VERTEX_API_KEY)
-        if self.GEMINI_CHAT_MODEL:
-            self.GEMINI_CHAT_MODEL = _clean_env(self.GEMINI_CHAT_MODEL)
-        if self.GEMINI_STREAM_MODEL:
-            self.GEMINI_STREAM_MODEL = _clean_env(self.GEMINI_STREAM_MODEL)
-        if self.GEMINI_TABLE_MODEL:
-            self.GEMINI_TABLE_MODEL = _clean_env(self.GEMINI_TABLE_MODEL)
-        if self.GEMINI_ANALYSIS_MODEL:
-            self.GEMINI_ANALYSIS_MODEL = _clean_env(self.GEMINI_ANALYSIS_MODEL)
-        if self.GEMINI_EMBEDDING_MODEL:
-            self.GEMINI_EMBEDDING_MODEL = _clean_env(self.GEMINI_EMBEDDING_MODEL)
         if self.GEMINI_VISUAL_MODEL:
             self.GEMINI_VISUAL_MODEL = _clean_env(self.GEMINI_VISUAL_MODEL)
 
@@ -188,16 +130,6 @@ class Settings(BaseSettings):
             self.STORAGE_SECRET_KEY = _clean_env(self.STORAGE_SECRET_KEY)
         if self.STORAGE_REGION:
             self.STORAGE_REGION = _clean_env(self.STORAGE_REGION)
-        if self.RATE_LIMIT_PROBE_LIMIT:
-            self.RATE_LIMIT_PROBE_LIMIT = _clean_env(self.RATE_LIMIT_PROBE_LIMIT)
-        if self.AI_CHAT_CAPACITY_PROVIDER:
-            self.AI_CHAT_CAPACITY_PROVIDER = _clean_env(self.AI_CHAT_CAPACITY_PROVIDER).lower()
-        if self.AI_CHAT_REDIS_URL:
-            self.AI_CHAT_REDIS_URL = _clean_env(self.AI_CHAT_REDIS_URL)
-        if self.AI_CHAT_REDIS_KEY_PREFIX:
-            self.AI_CHAT_REDIS_KEY_PREFIX = _clean_env(self.AI_CHAT_REDIS_KEY_PREFIX)
-        if self.AI_CHAT_BUSY_MESSAGE:
-            self.AI_CHAT_BUSY_MESSAGE = _clean_env(self.AI_CHAT_BUSY_MESSAGE)
 
 
 settings = Settings()
@@ -214,12 +146,5 @@ def _mask_key(value: str) -> str:
 
 if settings.GEMINI_API_KEY:
     logger.info(f"🔐 GEMINI_API_KEY loaded: {_mask_key(settings.GEMINI_API_KEY)} (len={len(settings.GEMINI_API_KEY)})")
-elif settings.GENAI_PROVIDER != "vertex":
-    logger.warning("⚠️ GEMINI_API_KEY not loaded (empty). Legacy provider won't work without a key.")
-
-logger.info(
-    "🧭 GENAI provider={} project={} location={}",
-    settings.GENAI_PROVIDER,
-    settings.GOOGLE_CLOUD_PROJECT or "<empty>",
-    settings.GOOGLE_CLOUD_LOCATION or "<empty>",
-)
+else:
+    logger.warning("⚠️ GEMINI_API_KEY not loaded (empty). Check partalog-ai/.env")

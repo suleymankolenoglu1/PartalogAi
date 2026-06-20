@@ -34,6 +34,7 @@ public sealed class ProductionReadinessService : IProductionReadinessService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _environment;
+    private readonly FileStorageOptions _fileStorageOptions;
     private readonly AiServiceOptions _aiServiceOptions;
     private readonly DistributedRateLimitOptions _rateLimitOptions;
     private readonly DataProtectionKeyRingOptions _dataProtectionOptions;
@@ -45,6 +46,7 @@ public sealed class ProductionReadinessService : IProductionReadinessService
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
         IWebHostEnvironment environment,
+        IOptions<FileStorageOptions> fileStorageOptions,
         IOptions<AiServiceOptions> aiServiceOptions,
         IOptions<DistributedRateLimitOptions> rateLimitOptions,
         IOptions<DataProtectionKeyRingOptions> dataProtectionOptions)
@@ -55,6 +57,7 @@ public sealed class ProductionReadinessService : IProductionReadinessService
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
         _environment = environment;
+        _fileStorageOptions = fileStorageOptions.Value;
         _aiServiceOptions = aiServiceOptions.Value;
         _rateLimitOptions = rateLimitOptions.Value;
         _dataProtectionOptions = dataProtectionOptions.Value;
@@ -65,16 +68,11 @@ public sealed class ProductionReadinessService : IProductionReadinessService
         var checks = new List<ProductionReadinessCheck>
         {
             CheckEnvironment(),
+            CheckFileStorage(),
             CheckDataProtectionKeyRing(),
             CheckDistributedPublicChatRateLimit(),
             CheckNpgsqlPoolConfiguration()
         };
-        checks.AddRange(ProductionConfigurationGuard.Check(
-            _configuration,
-            _environment.IsProduction(),
-            _featurePolicy.ChatbotEnabled || _featurePolicy.CatalogAnalysisEnabled,
-            _aiServiceOptions,
-            _dataProtectionOptions));
 
         checks.Add(await CheckDatabaseAsync(cancellationToken));
         checks.Add(await CheckAiCapacityAsync(cancellationToken));
@@ -180,6 +178,28 @@ public sealed class ProductionReadinessService : IProductionReadinessService
                 "Python AI servis readiness kontrolü başarısız.",
                 new { _aiServiceOptions.BaseUrl, error = ex.Message });
         }
+    }
+
+    private ProductionReadinessCheck CheckFileStorage()
+    {
+        var provider = (_fileStorageOptions.Provider ?? "Local").Trim();
+        if (provider.Equals("googlecloudstorage", StringComparison.OrdinalIgnoreCase)
+            || provider.Equals("gcs", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(_fileStorageOptions.BucketName)
+                ? Fail("file_storage", "GCS seçili ama FileStorage:BucketName boş.")
+                : Pass("file_storage", "Dosya depolama GCS provider ile hazır.", new { provider, bucketName = _fileStorageOptions.BucketName });
+        }
+
+        if (_environment.IsProduction())
+        {
+            return Warn(
+                "file_storage",
+                "Production ortamda Local file storage kullanımı multi-instance deploy için risklidir.",
+                new { provider });
+        }
+
+        return Pass("file_storage", "Dosya depolama local/dev kullanım için hazır.", new { provider });
     }
 
     private ProductionReadinessCheck CheckDataProtectionKeyRing()

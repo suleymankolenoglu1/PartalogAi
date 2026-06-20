@@ -22,12 +22,22 @@ namespace Katalogcu.Infrastructure.Persistence
         public DbSet<CatalogItem> CatalogItems { get; set; }
         public DbSet<Folder> Folders { get; set; }
         public DbSet<Customer> Customers { get; set; }
+        public DbSet<CustomerMachine> CustomerMachines { get; set; }
         public DbSet<StockMovement> StockMovements { get; set; }
         public DbSet<ErpInventorySnapshot> ErpInventorySnapshots { get; set; }
-        public DbSet<EmbedTarget> EmbedTargets { get; set; }
         public DbSet<CatalogAiJob> CatalogAiJobs { get; set; }
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
+        public DbSet<ExternalSite> ExternalSites { get; set; }
+        public DbSet<ExternalProduct> ExternalProducts { get; set; }
+        public DbSet<ExternalProductOemNumber> ExternalProductOemNumbers { get; set; }
+        public DbSet<ExternalSiteCrawl> ExternalSiteCrawls { get; set; }
+        public DbSet<ExternalProductLinkCheck> ExternalProductLinkChecks { get; set; }
+        public DbSet<ManualImportFile> ManualImportFiles { get; set; }
+        public DbSet<CatalogItemExternalMatch> CatalogItemExternalMatches { get; set; }
+        public DbSet<MachineModel> MachineModels { get; set; }
+        public DbSet<PartCompatibilityRule> PartCompatibilityRules { get; set; }
         public DbSet<PolicyThreshold> PolicyThresholds { get; set; }
+        public DbSet<RegistrationInviteCode> RegistrationInviteCodes { get; set; }
 
         // İlişki ve Davranış Ayarları
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -144,10 +154,6 @@ namespace Katalogcu.Infrastructure.Persistence
             modelBuilder.Entity<Customer>()
                 .HasIndex(c => new { c.UserId, c.PublicSessionToken });
 
-            modelBuilder.Entity<CatalogItem>()
-                .Property(i => i.SearchText)
-                .HasColumnType("text");
-
             modelBuilder.Entity<Order>()
                 .HasIndex(o => o.CustomerId);
 
@@ -231,67 +237,6 @@ namespace Katalogcu.Infrastructure.Persistence
                 .HasForeignKey(x => x.ProductId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            modelBuilder.Entity<EmbedTarget>()
-                .HasIndex(x => x.EmbedKey)
-                .IsUnique();
-
-            modelBuilder.Entity<EmbedTarget>()
-                .HasIndex(x => new { x.UserId, x.Type, x.IsActive });
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.Name)
-                .HasMaxLength(160);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.Type)
-                .HasMaxLength(32);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.EmbedKey)
-                .HasMaxLength(96);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.CommerceMode)
-                .HasMaxLength(32);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.HostActionMode)
-                .HasMaxLength(32);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.ProductUrlTemplate)
-                .HasMaxLength(1024);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.SearchUrlTemplate)
-                .HasMaxLength(1024);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.ExistingCartUrl)
-                .HasMaxLength(1024);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .Property(x => x.ExistingCartMethod)
-                .HasMaxLength(16);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .HasOne(x => x.User)
-                .WithMany()
-                .HasForeignKey(x => x.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .HasOne(x => x.Catalog)
-                .WithMany()
-                .HasForeignKey(x => x.CatalogId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<EmbedTarget>()
-                .HasOne(x => x.CatalogPage)
-                .WithMany()
-                .HasForeignKey(x => x.CatalogPageId)
-                .OnDelete(DeleteBehavior.SetNull);
-
             modelBuilder.Entity<CatalogAiJob>()
                 .HasIndex(j => j.CatalogId)
                 .IsUnique();
@@ -312,52 +257,6 @@ namespace Katalogcu.Infrastructure.Persistence
                 .WithMany()
                 .HasForeignKey(j => j.CatalogId)
                 .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.ScopeType)
-                .HasMaxLength(32);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.ScopeKey)
-                .HasMaxLength(128);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.HighConfidence)
-                .HasPrecision(5, 4);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.LowConfidence)
-                .HasPrecision(5, 4);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.AmbiguityScoreDelta)
-                .HasPrecision(5, 4);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.IsActive)
-                .HasDefaultValue(true);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.Version)
-                .HasDefaultValue(1);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.Notes)
-                .HasMaxLength(1024);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .Property(x => x.UpdatedBy)
-                .HasMaxLength(256);
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .HasIndex(x => new { x.ScopeType, x.ScopeKey })
-                .IsUnique()
-                .HasDatabaseName("UX_PolicyThresholds_ActiveScope")
-                .HasFilter("\"IsActive\" = TRUE");
-
-            modelBuilder.Entity<PolicyThreshold>()
-                .HasIndex(x => new { x.IsActive, x.ScopeType, x.ScopeKey })
-                .HasDatabaseName("IX_PolicyThresholds_ActiveScope");
 
             modelBuilder.Entity<PlatformAuditLog>()
                 .Property(x => x.Action)

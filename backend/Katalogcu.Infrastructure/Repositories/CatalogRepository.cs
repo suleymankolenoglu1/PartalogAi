@@ -320,6 +320,52 @@ public sealed class CatalogRepository : ICatalogRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<(IReadOnlyList<CatalogListItemDto> Items, int TotalCount)> GetCatalogListPageByUserAsync(
+        Guid userId,
+        Guid? folderId,
+        int skip,
+        int take,
+        string? search,
+        CancellationToken cancellationToken)
+    {
+        var query = _context.Catalogs
+            .AsNoTracking()
+            .Where(c => c.UserId == userId);
+
+        if (folderId.HasValue)
+        {
+            query = query.Where(c => c.FolderId == folderId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(c =>
+                c.Name.ToLower().Contains(term) ||
+                c.Description.ToLower().Contains(term));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(c => c.CreatedDate)
+            .Skip(Math.Max(0, skip))
+            .Take(Math.Clamp(take, 1, 100))
+            .Select(c => new CatalogListItemDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Description = c.Description,
+                ImageUrl = c.ImageUrl,
+                Status = c.Status,
+                CreatedDate = c.CreatedDate,
+                FolderId = c.FolderId,
+                PartCount = _context.CatalogItems.Count(i => i.CatalogId == c.Id)
+            })
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
+
     public Task<Catalog?> GetCatalogByIdForAccessAsync(
         Guid catalogId,
         Guid userId,

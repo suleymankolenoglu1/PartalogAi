@@ -251,9 +251,6 @@ namespace Katalogcu.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("SearchText")
-                        .HasColumnType("text");
-
                     b.Property<DateTime?>("UpdatedDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -280,6 +277,94 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.HasIndex("CatalogId");
 
                     b.ToTable("CatalogItems");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.CatalogItemExternalMatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CatalogId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CatalogItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CatalogPageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ConfidenceScore")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ExternalProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExternalProductTitle")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExternalProductUrl")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ExternalSiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool?>("IsLinkHealthy")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLinkCheckAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("LastLinkStatusCode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MatchReasonsJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("MatchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MatchedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReviewNote")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CatalogId");
+
+                    b.HasIndex("CatalogItemId");
+
+                    b.HasIndex("CatalogPageId");
+
+                    b.HasIndex("ExternalProductId");
+
+                    b.HasIndex("ExternalSiteId");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.ToTable("CatalogItemExternalMatches");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.CatalogPage", b =>
@@ -422,86 +507,50 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.ToTable("Customers");
                 });
 
-            modelBuilder.Entity("Katalogcu.Domain.Entities.EmbedTarget", b =>
+            modelBuilder.Entity("Katalogcu.Domain.Entities.CustomerMachine", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime?>("AccessExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CatalogId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("CatalogPageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CommerceMode")
+                    b.Property<string>("Brand")
                         .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("EmbedKey")
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayName")
                         .IsRequired()
-                        .HasMaxLength(96)
-                        .HasColumnType("character varying(96)");
-
-                    b.Property<string>("ExistingCartMethod")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("ExistingCartUrl")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("HostActionMode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("MachineGroup")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
                         .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
+                        .HasColumnType("text");
 
-                    b.Property<string>("ProductUrlTemplate")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("SearchUrlTemplate")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                    b.Property<string>("SerialNumber")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedDate")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
+                    b.Property<string>("Variant")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CatalogId");
+                    b.HasIndex("CustomerId");
 
-                    b.HasIndex("CatalogPageId");
-
-                    b.HasIndex("EmbedKey")
-                        .IsUnique();
-
-                    b.HasIndex("UserId", "Type", "IsActive");
-
-                    b.ToTable("EmbedTargets");
+                    b.ToTable("CustomerMachines");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.ErpInventorySnapshot", b =>
@@ -576,6 +625,246 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.ToTable("ErpInventorySnapshots");
                 });
 
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProduct", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AvailabilityText")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Brand")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CanonicalUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CategoryPathJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ExternalSiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LastSeenInCrawlId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PartCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PriceText")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RawPayloadJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Sku")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalSiteId");
+
+                    b.HasIndex("LastSeenInCrawlId");
+
+                    b.ToTable("ExternalProducts");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProductLinkCheck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ExternalProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FinalUrl")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsReachable")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalProductId");
+
+                    b.ToTable("ExternalProductLinkChecks");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProductOemNumber", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ExternalProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NormalizedOemNumber")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OriginalOemNumber")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalProductId");
+
+                    b.ToTable("ExternalProductOemNumbers");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalSite", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BaseUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastCrawlAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSuccessfulCrawlAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PreferredCrawlMode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ExternalSites");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalSiteCrawl", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExecutionMode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ExternalSiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("OemCoverage")
+                        .HasColumnType("numeric");
+
+                    b.Property<int>("ProductCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RawStatsJson")
+                        .HasColumnType("text");
+
+                    b.Property<decimal?>("SkuCoverage")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalSiteId");
+
+                    b.ToTable("ExternalSiteCrawls");
+                });
+
             modelBuilder.Entity("Katalogcu.Domain.Entities.Folder", b =>
                 {
                     b.Property<Guid>("Id")
@@ -643,6 +932,92 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("Hotspots");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.MachineModel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AliasesJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MachineGroup")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Variant")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MachineModels");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ManualImportFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ExternalSiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FileType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("ImportedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ImportedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalSiteId");
+
+                    b.HasIndex("ImportedByUserId");
+
+                    b.ToTable("ManualImportFiles");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.Order", b =>
@@ -804,6 +1179,47 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.ToTable("OrderStatusHistory");
                 });
 
+            modelBuilder.Entity("Katalogcu.Domain.Entities.PartCompatibilityRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CatalogItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CompatibilityLevel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Confidence")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MachineModelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CatalogItemId");
+
+                    b.HasIndex("MachineModelId");
+
+                    b.ToTable("PartCompatibilityRules");
+                });
+
             modelBuilder.Entity("Katalogcu.Domain.Entities.PlatformAuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -864,60 +1280,41 @@ namespace Katalogcu.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal?>("AmbiguityScoreDelta")
-                        .HasPrecision(5, 4)
-                        .HasColumnType("numeric(5,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal?>("HighConfidence")
-                        .HasPrecision(5, 4)
-                        .HasColumnType("numeric(5,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
+                        .HasColumnType("boolean");
 
                     b.Property<decimal?>("LowConfidence")
-                        .HasPrecision(5, 4)
-                        .HasColumnType("numeric(5,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Notes")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
+                        .HasColumnType("text");
 
                     b.Property<string>("ScopeKey")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("text");
 
                     b.Property<string>("ScopeType")
                         .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                        .HasColumnType("text");
 
                     b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedDate")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Version")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ScopeType", "ScopeKey")
-                        .IsUnique()
-                        .HasDatabaseName("UX_PolicyThresholds_ActiveScope")
-                        .HasFilter("\"IsActive\" = TRUE");
-
-                    b.HasIndex("IsActive", "ScopeType", "ScopeKey")
-                        .HasDatabaseName("IX_PolicyThresholds_ActiveScope");
 
                     b.ToTable("PolicyThresholds");
                 });
@@ -980,6 +1377,51 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.HasIndex("CatalogId");
 
                     b.ToTable("Products");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.RegistrationInviteCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedByEmail")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevokedByEmail")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RevokedReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UsedByEmail")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("RegistrationInviteCodes");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.StockMovement", b =>
@@ -1089,6 +1531,51 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Navigation("Catalog");
                 });
 
+            modelBuilder.Entity("Katalogcu.Domain.Entities.CatalogItemExternalMatch", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.Catalog", "Catalog")
+                        .WithMany()
+                        .HasForeignKey("CatalogId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.CatalogItem", "CatalogItem")
+                        .WithMany()
+                        .HasForeignKey("CatalogItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.CatalogPage", "CatalogPage")
+                        .WithMany()
+                        .HasForeignKey("CatalogPageId");
+
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalProduct", "ExternalProduct")
+                        .WithMany("CatalogMatches")
+                        .HasForeignKey("ExternalProductId");
+
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalSite", "ExternalSite")
+                        .WithMany()
+                        .HasForeignKey("ExternalSiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.AppUser", "ReviewedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId");
+
+                    b.Navigation("Catalog");
+
+                    b.Navigation("CatalogItem");
+
+                    b.Navigation("CatalogPage");
+
+                    b.Navigation("ExternalProduct");
+
+                    b.Navigation("ExternalSite");
+
+                    b.Navigation("ReviewedByUser");
+                });
+
             modelBuilder.Entity("Katalogcu.Domain.Entities.CatalogPage", b =>
                 {
                     b.HasOne("Katalogcu.Domain.Entities.Catalog", "Catalog")
@@ -1100,30 +1587,15 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Navigation("Catalog");
                 });
 
-            modelBuilder.Entity("Katalogcu.Domain.Entities.EmbedTarget", b =>
+            modelBuilder.Entity("Katalogcu.Domain.Entities.CustomerMachine", b =>
                 {
-                    b.HasOne("Katalogcu.Domain.Entities.Catalog", "Catalog")
+                    b.HasOne("Katalogcu.Domain.Entities.Customer", "Customer")
                         .WithMany()
-                        .HasForeignKey("CatalogId")
+                        .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Katalogcu.Domain.Entities.CatalogPage", "CatalogPage")
-                        .WithMany()
-                        .HasForeignKey("CatalogPageId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("Katalogcu.Domain.Entities.AppUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Catalog");
-
-                    b.Navigation("CatalogPage");
-
-                    b.Navigation("User");
+                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.ErpInventorySnapshot", b =>
@@ -1134,6 +1606,67 @@ namespace Katalogcu.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProduct", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalSite", "ExternalSite")
+                        .WithMany("Products")
+                        .HasForeignKey("ExternalSiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalSiteCrawl", "LastSeenInCrawl")
+                        .WithMany()
+                        .HasForeignKey("LastSeenInCrawlId");
+
+                    b.Navigation("ExternalSite");
+
+                    b.Navigation("LastSeenInCrawl");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProductLinkCheck", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalProduct", "ExternalProduct")
+                        .WithMany("LinkChecks")
+                        .HasForeignKey("ExternalProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ExternalProduct");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProductOemNumber", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalProduct", "ExternalProduct")
+                        .WithMany("OemNumbers")
+                        .HasForeignKey("ExternalProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ExternalProduct");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalSite", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalSiteCrawl", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalSite", "ExternalSite")
+                        .WithMany("Crawls")
+                        .HasForeignKey("ExternalSiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ExternalSite");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.Hotspot", b =>
@@ -1151,6 +1684,25 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Navigation("Page");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ManualImportFile", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.ExternalSite", "ExternalSite")
+                        .WithMany()
+                        .HasForeignKey("ExternalSiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.AppUser", "ImportedByUser")
+                        .WithMany()
+                        .HasForeignKey("ImportedByUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ExternalSite");
+
+                    b.Navigation("ImportedByUser");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.OrderItem", b =>
@@ -1179,6 +1731,25 @@ namespace Katalogcu.Infrastructure.Migrations
                         .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.PartCompatibilityRule", b =>
+                {
+                    b.HasOne("Katalogcu.Domain.Entities.CatalogItem", "CatalogItem")
+                        .WithMany()
+                        .HasForeignKey("CatalogItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Katalogcu.Domain.Entities.MachineModel", "MachineModel")
+                        .WithMany("CompatibilityRules")
+                        .HasForeignKey("MachineModelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CatalogItem");
+
+                    b.Navigation("MachineModel");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.Product", b =>
@@ -1217,9 +1788,30 @@ namespace Katalogcu.Infrastructure.Migrations
                     b.Navigation("Hotspots");
                 });
 
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalProduct", b =>
+                {
+                    b.Navigation("CatalogMatches");
+
+                    b.Navigation("LinkChecks");
+
+                    b.Navigation("OemNumbers");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.ExternalSite", b =>
+                {
+                    b.Navigation("Crawls");
+
+                    b.Navigation("Products");
+                });
+
             modelBuilder.Entity("Katalogcu.Domain.Entities.Folder", b =>
                 {
                     b.Navigation("Catalogs");
+                });
+
+            modelBuilder.Entity("Katalogcu.Domain.Entities.MachineModel", b =>
+                {
+                    b.Navigation("CompatibilityRules");
                 });
 
             modelBuilder.Entity("Katalogcu.Domain.Entities.Order", b =>

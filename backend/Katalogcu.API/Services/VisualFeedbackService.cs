@@ -1,7 +1,7 @@
 using Katalogcu.Application.Common.Interfaces;
-using Katalogcu.Application.Common.Models;
 using Katalogcu.Application.Features.Ai.Common;
 using Katalogcu.Application.Features.Chat.Common;
+using Microsoft.AspNetCore.Http;
 
 namespace Katalogcu.API.Services;
 
@@ -16,12 +16,16 @@ public sealed class VisualFeedbackService : IVisualFeedbackService
 
     public async Task<VisualFeedbackResultDto> SaveAsync(VisualFeedbackInputDto input, CancellationToken cancellationToken)
     {
+        await using var stream = new MemoryStream(input.ImageBytes);
+        var formFile = new FormFile(stream, 0, stream.Length, "file", input.FileName)
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = string.IsNullOrWhiteSpace(input.ContentType) ? "image/jpeg" : input.ContentType
+        };
+
         var request = new VisualFeedbackRequestDto
         {
-            Image = UploadedFile.FromBytes(
-                input.ImageBytes,
-                input.FileName,
-                contentType: string.IsNullOrWhiteSpace(input.ContentType) ? "image/jpeg" : input.ContentType),
+            Image = formFile,
             PartName = input.PartName,
             PartCode = input.PartCode,
             MachineBrand = input.MachineBrand,

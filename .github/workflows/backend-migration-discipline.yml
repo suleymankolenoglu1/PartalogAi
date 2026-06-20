@@ -68,6 +68,8 @@ jobs:
             --startup-project backend/Katalogcu.API/Katalogcu.API.csproj \
             --context AppDbContext \
             --configuration Release \
+            --no-build \
+            --target-runtime linux-x64 \
             --output backend/artifacts/efbundle
 
       - name: Smoke apply migration bundle on clean Postgres

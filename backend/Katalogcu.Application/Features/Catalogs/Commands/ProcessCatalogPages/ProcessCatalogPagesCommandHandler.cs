@@ -99,23 +99,7 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
                 page.AiDescription = analysis.Title ?? string.Empty;
                 page.IsTechnicalDrawing = analysis.IsTechnicalDrawing;
 
-                // Some parts-list pages are misclassified by the vision model.
-                // We still don't want to force extraction on the catalog cover,
-                // so only use the fallback for non-drawing pages after page 1.
-                var shouldAttemptTableExtraction =
-                    analysis.IsPartsList ||
-                    (!analysis.IsTechnicalDrawing && page.PageNumber > 1);
-
-                _logger.LogInformation(
-                    "🧭 Sayfa AI kararı | Catalog={CatalogId} | Page={PageNumber} | Title={Title} | IsTechnicalDrawing={IsTechnicalDrawing} | IsPartsList={IsPartsList} | ShouldExtractTable={ShouldExtractTable}",
-                    request.CatalogId,
-                    page.PageNumber,
-                    analysis.Title ?? string.Empty,
-                    analysis.IsTechnicalDrawing,
-                    analysis.IsPartsList,
-                    shouldAttemptTableExtraction);
-
-                if (shouldAttemptTableExtraction)
+                if (analysis.IsPartsList)
                 {
                     var extractedItems = await _partalogAiService.ExtractTableAsync(
                         fileBytes,
@@ -131,28 +115,21 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
                         var catalogItems = new List<CatalogItem>(extractedItems.Count);
                         foreach (var item in extractedItems)
                         {
-                            var catalogItem = BuildCatalogItem(
+                            var catalogItem = await BuildCatalogItemAsync(
                                 request.CatalogId,
                                 page.PageNumber,
                                 item,
                                 machineBrand,
                                 machineModel,
                                 machineGroup,
-                                analysis.Title);
+                                analysis.Title,
+                                cancellationToken);
 
                             catalogItems.Add(catalogItem);
                         }
 
-                        await EnrichCatalogItemsWithCanonicalSearchTextAsync(catalogItems, cancellationToken);
                         await _catalogProcessingRepository.AddCatalogItemsAsync(catalogItems, cancellationToken);
                         savedItemCount += catalogItems.Count;
-                    }
-                    else
-                    {
-                        _logger.LogInformation(
-                            "📭 Table extraction ürün döndürmedi | Catalog={CatalogId} | Page={PageNumber}",
-                            request.CatalogId,
-                            page.PageNumber);
                     }
                 }
 
@@ -194,17 +171,13 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
             }
         }
 
-        if (processedPageCount == 0 || (savedItemCount == 0 && savedHotspotCount == 0))
+        if (processedPageCount == 0)
         {
             catalog.Status = "Error";
             catalog.UpdatedDate = DateTime.UtcNow;
             await _catalogProcessingRepository.SaveChangesAsync(cancellationToken);
 
-            return OperationResult<ProcessCatalogPagesResponse>.Failure(
-                "processing_failed",
-                processedPageCount == 0
-                    ? "Katalog sayfaları işlenemedi."
-                    : "AI analizi tamamlandı ancak hiç parça veya hotspot üretilemedi.");
+            return OperationResult<ProcessCatalogPagesResponse>.Failure("processing_failed", "Katalog sayfaları işlenemedi.");
         }
 
         catalog.Status = "Published";
@@ -238,16 +211,17 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
         });
     }
 
-    private CatalogItem BuildCatalogItem(
+    private async Task<CatalogItem> BuildCatalogItemAsync(
         Guid catalogId,
         int pageNumber,
         ProductItemDto item,
         string? machineBrand,
         string? machineModel,
         string? machineGroup,
-        string? mechanism)
+        string? mechanism,
+        CancellationToken cancellationToken)
     {
-        return new CatalogItem
+        var catalogItem = new CatalogItem
         {
             CatalogId = catalogId,
             PageNumber = pageNumber.ToString(),
@@ -261,59 +235,18 @@ public sealed class ProcessCatalogPagesCommandHandler : IRequestHandler<ProcessC
             Mechanism = mechanism,
             Dimensions = item.Dimensions
         };
-    }
 
-    private async Task EnrichCatalogItemsWithCanonicalSearchTextAsync(
-        IReadOnlyList<CatalogItem> catalogItems,
-        CancellationToken cancellationToken)
-    {
-        if (catalogItems.Count == 0)
+        var embeddingText = $"{item.PartName} {item.Description} {item.PartCode} {mechanism}".Trim();
+        if (!string.IsNullOrWhiteSpace(embeddingText))
         {
-            return;
-        }
-
-        var searchTextRequests = catalogItems
-            .Select(item => new IngestionSearchTextRequest(
-                PartName: item.PartName,
-                MachineBrandModel: BuildMachineBrandModel(item.MachineBrand, item.MachineModel),
-                MachineBrand: item.MachineBrand,
-                MachineModel: item.MachineModel,
-                MachineGroup: item.MachineGroup,
-                Category: item.MachineGroup,
-                Description: item.Description,
-                PartCode: item.PartCode,
-                RefNo: item.RefNumber,
-                Dimensions: item.Dimensions,
-                Mechanism: item.Mechanism))
-            .ToList();
-
-        var searchTexts = await _partalogAiService.BuildSearchTextsAsync(searchTextRequests, cancellationToken);
-
-        for (var i = 0; i < catalogItems.Count; i++)
-        {
-            var searchText = searchTexts[i];
-            catalogItems[i].SearchText = searchText;
-
-            if (!string.IsNullOrWhiteSpace(searchText))
+            var vectorData = await _partalogAiService.GetEmbeddingAsync(embeddingText);
+            if (vectorData is { Length: > 0 })
             {
-                var vectorData = await _partalogAiService.GetEmbeddingAsync(searchText);
-                if (vectorData is { Length: > 0 })
-                {
-                    catalogItems[i].Embedding = new(vectorData);
-                }
+                catalogItem.Embedding = new(vectorData);
             }
         }
-    }
 
-    private static string? BuildMachineBrandModel(string? machineBrand, string? machineModel)
-    {
-        var values = new[] { machineBrand, machineModel }
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        return values.Length == 0 ? null : string.Join(" ", values);
+        return catalogItem;
     }
 
     private static string? BuildCatalogName(string? machineModel, string? catalogTitle)

@@ -13,8 +13,7 @@ Bu dokuman ilk canli cikis icin catalog-only mimariyi tarif eder.
 
 Ilk canli cikista AI servisi deploy edilmez. Chatbot/e-ticaret/plan yonetimi feature flag ile kapali kalir.
 
-AI/chat fazi icin ayri prod/staging readiness runbook'u:
-- `deploy/prod-chat-readiness-runbook.md`
+AI fazi icin ayri plan: `deploy/google-cloud/vertex-ai-ai-plan.md`.
 
 ## Gerekli Bilgiler
 
@@ -28,7 +27,7 @@ Deploy oncesi su degerler netlesmeli:
 - Cloud SQL instance adi, onerilen: `katalogcu-db`
 - Cloud Storage bucket adi, onerilen: `<PROJECT_ID>-katalogcu-assets`
 - Production DB kullanici/sifre
-- JWT, PublicLink ve EmbedAccessToken secretlari
+- JWT, PublicLink ve DataProtection secretlari
 
 ## Google Cloud Servisleri
 
@@ -112,7 +111,7 @@ gcloud storage buckets add-iam-policy-binding "gs://$ASSETS_BUCKET" \
 ```bash
 printf "%s" "$JWT_SECRET" | gcloud secrets create katalogcu-jwt-secret --data-file=-
 printf "%s" "$PUBLIC_LINK_SECRET" | gcloud secrets create katalogcu-public-link-secret --data-file=-
-printf "%s" "$EMBED_SECRET" | gcloud secrets create katalogcu-embed-secret --data-file=-
+printf "%s" "$DATA_PROTECTION_KEY_ENCRYPTION_KEY" | gcloud secrets create katalogcu-data-protection-key-encryption-key --data-file=-
 printf "%s" "$DB_PASSWORD" | gcloud secrets create katalogcu-db-password --data-file=-
 ```
 
@@ -148,7 +147,7 @@ gcloud run deploy katalogcu-api \
   --allow-unauthenticated \
   --add-cloudsql-instances="$INSTANCE_CONNECTION_NAME" \
   --set-env-vars="ASPNETCORE_ENVIRONMENT=Production,ASPNETCORE_URLS=http://+:8080,ConnectionStrings__DefaultConnection=$DB_CONNECTION,Frontend__BaseUrl=https://$DOMAIN,Cors__AllowedOrigins__0=https://$DOMAIN,FileStorage__Provider=GoogleCloudStorage,FileStorage__BucketName=$ASSETS_BUCKET,FileStorage__PublicBaseUrl=https://storage.googleapis.com/$ASSETS_BUCKET,DataProtection__Provider=Redis,DataProtection__RedisConnectionString=$REDIS_CONNECTION,DataProtection__RedisKey=partalog:data-protection:keys,ProductFeatures__EnableChatbot=false,ProductFeatures__EnableCatalogAnalysis=true,ProductFeatures__EnableEcommerce=false,ProductFeatures__EnableUpgradePrompts=false,ProductFeatures__EnablePlanManagement=false" \
-  --set-secrets="JwtSettings__SecretKey=katalogcu-jwt-secret:latest,PublicLink__SecretKey=katalogcu-public-link-secret:latest,EmbedAccessToken__SecretKey=katalogcu-embed-secret:latest,DataProtection__KeyEncryptionKey=katalogcu-data-protection-key-encryption-key:latest" \
+  --set-secrets="JwtSettings__SecretKey=katalogcu-jwt-secret:latest,PublicLink__SecretKey=katalogcu-public-link-secret:latest,DataProtection__KeyEncryptionKey=katalogcu-data-protection-key-encryption-key:latest" \
   --memory=1Gi \
   --cpu=1 \
   --min-instances=0 \
@@ -206,4 +205,13 @@ API servisini ayri domain'e acmak zorunda degiliz; ama `postdeploy_catalog_only_
 - Repo veya image icine service account JSON dosyasi koyma.
 - Cloud Run'da dogrudan servis hesabi/IAM kullan.
 - Lokal test icin gerekiyorsa `GOOGLE_APPLICATION_CREDENTIALS` repo disindaki bir path'i gostersin.
-- Gercek bir key dosyasi daha once olusturu
+- Gercek bir key dosyasi daha once olusturulduysa release oncesi revoke/rotate edilmelidir.
+
+## Rollback
+
+Bir onceki image tag'i sakla:
+
+```bash
+gcloud run services update katalogcu-api --image="$PREVIOUS_API_IMAGE" --region="$REGION"
+gcloud run services update katalogcu-web --image="$PREVIOUS_WEB_IMAGE" --region="$REGION"
+```
