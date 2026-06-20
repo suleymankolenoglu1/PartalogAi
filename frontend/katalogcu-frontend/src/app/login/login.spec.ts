@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideStandaloneComponentTestDeps } from '../../testing/standalone-component-test-providers';
 
 import { LoginComponent } from './login';
 
@@ -8,9 +9,9 @@ describe('Login', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [LoginComponent]
-    })
-    .compileComponents();
+      imports: [LoginComponent],
+      providers: provideStandaloneComponentTestDeps(),
+    }).compileComponents();
 
     fixture = TestBed.createComponent(LoginComponent);
     component = fixture.componentInstance;

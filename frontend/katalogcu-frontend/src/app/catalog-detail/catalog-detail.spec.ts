@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideStandaloneComponentTestDeps } from '../../testing/standalone-component-test-providers';
 
 import { CatalogDetailComponent } from './catalog-detail';
 
@@ -8,9 +9,9 @@ describe('CatalogDetail', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CatalogDetailComponent]
-    })
-    .compileComponents();
+      imports: [CatalogDetailComponent],
+      providers: provideStandaloneComponentTestDeps(),
+    }).compileComponents();
 
     fixture = TestBed.createComponent(CatalogDetailComponent);
     component = fixture.componentInstance;

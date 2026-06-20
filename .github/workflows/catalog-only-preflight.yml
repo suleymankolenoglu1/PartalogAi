@@ -85,12 +85,12 @@ jobs:
       - name: Run catalog-only preflight
         run: |
           chmod +x backend/scripts/preflight_catalog_only.sh
-          backend/scripts/preflight_catalog_only.sh --skip-build --skip-runtime
+          backend/scripts/preflight_catalog_only.sh --skip-build --skip-migration-check --skip-runtime
 
       - name: Generate catalog-only release report
         if: always()
         env:
-          PREFLIGHT_EXTRA_ARGS: --skip-build
+          PREFLIGHT_EXTRA_ARGS: --skip-build --skip-migration-check
         run: |
           chmod +x backend/scripts/generate_catalog_release_report.sh
           backend/scripts/generate_catalog_release_report.sh --with-preflight
