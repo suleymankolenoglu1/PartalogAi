@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.chat_eval import (  # noqa: E402
     best_rank,
+    choose_better_result,
     classify_quality_issues,
     evaluate_thresholds,
     extract_codes_from_response,
@@ -239,6 +240,32 @@ class ChatEvalMetricsTests(unittest.TestCase):
 
         self.assertEqual(summary["no_code_case_count"], 2)
         self.assertEqual(summary["no_code_pass_rate"], 0.5)
+
+    def test_choose_better_result_prefers_clean_retry_result(self) -> None:
+        failed = {
+            "ok": True,
+            "rank": None,
+            "expected_codes": ["160000"],
+            "expect_no_codes": False,
+            "no_code_ok": None,
+            "required_ok": True,
+            "forbidden_ok": True,
+            "hallucinated_codes": ["999999"],
+            "mrr": 0.0,
+            "source_count": 0,
+        }
+        clean = {
+            **failed,
+            "rank": 1,
+            "hit_at_1": True,
+            "hit_at_3": True,
+            "hit_at_5": True,
+            "mrr": 1.0,
+            "source_count": 1,
+            "hallucinated_codes": [],
+        }
+
+        self.assertIs(choose_better_result(failed, clean), clean)
 
     def test_summarize_reports_retrieval_metrics_by_category(self) -> None:
         base = {

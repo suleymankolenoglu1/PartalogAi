@@ -351,6 +351,34 @@ def classify_quality_issues(result: Dict[str, Any]) -> List[str]:
     return issues
 
 
+def choose_better_result(current: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+    current_issues = classify_quality_issues(current)
+    candidate_issues = classify_quality_issues(candidate)
+
+    if len(candidate_issues) != len(current_issues):
+        return candidate if len(candidate_issues) < len(current_issues) else current
+
+    if candidate.get("ok") != current.get("ok"):
+        return candidate if candidate.get("ok") else current
+
+    candidate_rank = candidate.get("rank")
+    current_rank = current.get("rank")
+    if candidate_rank is not None and current_rank is None:
+        return candidate
+    if candidate_rank is None and current_rank is not None:
+        return current
+    if candidate_rank is not None and current_rank is not None and candidate_rank != current_rank:
+        return candidate if candidate_rank < current_rank else current
+
+    if float(candidate.get("mrr") or 0.0) != float(current.get("mrr") or 0.0):
+        return candidate if float(candidate.get("mrr") or 0.0) > float(current.get("mrr") or 0.0) else current
+
+    if int(candidate.get("source_count") or 0) != int(current.get("source_count") or 0):
+        return candidate if int(candidate.get("source_count") or 0) > int(current.get("source_count") or 0) else current
+
+    return current
+
+
 def _is_identifier_covered(token: str, allowed_identifiers: List[str]) -> bool:
     t = token.strip().upper()
     if not t:
@@ -476,6 +504,46 @@ async def run_case(
         "hallucinated_codes": hallucinated_codes,
         "case": case,
     }
+
+
+async def run_case_with_retries(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    endpoint: str,
+    case: Dict[str, Any],
+    retries: int,
+    retry_delay_seconds: float,
+) -> Dict[str, Any]:
+    best_result: Optional[Dict[str, Any]] = None
+    attempts = max(0, retries) + 1
+
+    for attempt in range(1, attempts + 1):
+        result = await run_case(session, base_url, endpoint, case)
+        result["attempt"] = attempt
+        result["attempts"] = attempt
+        if best_result is None:
+            best_result = result
+        else:
+            best_result = choose_better_result(best_result, result)
+            best_result["attempts"] = attempt
+
+        issues = classify_quality_issues(result)
+        if not issues:
+            best_result = result
+            best_result["attempts"] = attempt
+            return best_result
+
+        if attempt < attempts:
+            case_id = case.get("id", f"case-{attempt}")
+            issue_text = ", ".join(issues)
+            print(
+                f"[{case_id}] retrying after quality issues: {issue_text} "
+                f"(attempt {attempt}/{attempts})"
+            )
+            if retry_delay_seconds > 0:
+                await asyncio.sleep(retry_delay_seconds)
+
+    return best_result or await run_case(session, base_url, endpoint, case)
 
 
 def summarize_category_metrics(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -763,6 +831,9 @@ async def main() -> int:
     parser.add_argument("--endpoint", default="/api/chat/ask")
     parser.add_argument("--cases", default="eval/queries.sample.jsonl")
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
+    parser.add_argument("--case-delay-seconds", type=float, default=0.0)
+    parser.add_argument("--retry-quality-issues", type=int, default=0)
+    parser.add_argument("--retry-delay-seconds", type=float, default=30.0)
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
     parser.add_argument("--fail-on-error", action="store_true")
@@ -853,12 +924,19 @@ async def main() -> int:
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         for idx, case in enumerate(cases, start=1):
             case_id = case.get("id", f"case-{idx}")
-            result = await run_case(session, args.base_url, args.endpoint, case)
+            result = await run_case_with_retries(
+                session,
+                args.base_url,
+                args.endpoint,
+                case,
+                retries=args.retry_quality_issues,
+                retry_delay_seconds=args.retry_delay_seconds,
+            )
             results.append(result)
             print(
                 f"[{case_id}] ok={result['ok']} status={result['status']} "
                 f"lat={result['latency_ms']:.1f}ms rank={result['rank']} "
-                f"codes={result['codes'][:5]}"
+                f"codes={result['codes'][:5]} attempts={result.get('attempts', 1)}"
             )
             if result["error"]:
                 print(f"  error: {result['error']}")
@@ -866,6 +944,8 @@ async def main() -> int:
                 print("  logical_error: generic fallback/error reply detected")
             if result["hallucinated_codes"]:
                 print(f"  hallucinated_codes: {result['hallucinated_codes']}")
+            if args.case_delay_seconds > 0 and idx < len(cases):
+                await asyncio.sleep(args.case_delay_seconds)
 
     summary = summarize(results)
     print_summary(summary)

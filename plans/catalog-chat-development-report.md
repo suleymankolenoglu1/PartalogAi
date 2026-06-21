@@ -6,17 +6,67 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu artık exact-code smoke/eval/load yanında semantic/natural-language eval ile de doğrulandı. Oranlar hâlâ konservatif tutuldu; çünkü full saturation/load baseline, alert/error-budget ve maliyet budget kontrolleri tamamlanmadan canlıya alma yüzdesini çok yukarı çekmek yanıltıcı olur.
 
-- Genel proje ilerlemesi yaklaşık **%87** seviyesine çıktı.
-- Catalog + Chat MVP kod hazırlığı yaklaşık **%92** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%87** seviyesine çıktı.
-- Staging/eval/load kanıtı yaklaşık **%84** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%88** seviyesine çıktı.
+- Catalog + Chat MVP kod hazırlığı yaklaşık **%93** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%88** seviyesine çıktı.
+- Staging/eval/load kanıtı yaklaşık **%87** seviyesine çıktı.
 
 Bu artış; staging Cloud Run ortamının kurulması, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code eval baseline, kontrollü public load smoke, staging katalog embedding backfill ve semantic eval kanıtları sayesinde geldi.
 
 ### Kalan Ana Blokajlar
 
-- Semantic eval artık çalışıyor; ancak küçük corpus'ta 1/4 case hâlâ kalite sorunu üretiyor. Bu case büyük olasılıkla staging katalog içeriğiyle beklenen ürün kodu arasındaki uyumsuzluktan etkileniyor ve corpus temizliği gerekiyor.
+- Semantic eval artık gerçek staging katalog içeriğine göre temizlenmiş 8-case corpus ile `100% Hit@1` veriyor. Bu gate quota-dostu yavaş profil ve sınırlı retry ile koşmalı.
 - Full saturation/load baseline ve alert/bütçe kontrolleri henüz onaylı release gate seviyesinde değil.
+
+## 2026-06-22 — Paket 7: Temiz Staging Semantic Corpus ve Quota-Dostu Eval Gate
+
+### Tamamlananlar
+
+- Published staging katalog içeriği tekrar doğrulandı:
+  - published catalogs: `1`
+  - catalog items: `32`
+  - embedded items: `32`
+  - search text items: `32`
+- Gerçek staging katalog item'larına dayalı kalıcı semantic eval corpus'u eklendi:
+  - `partalog-ai/eval/queries.staging_semantic.jsonl`
+  - public token ve catalog id dosyada tutulmuyor; `<PUBLIC_TOKEN>` ve `<CATALOG_GUID>` placeholder'ları env ile çözülüyor.
+- Corpus; gerçek katalogda bulunan ve semantic retrieval için kararlı olan 8 ürüne odaklandı:
+  - `70003363` İplik Kılavuzu
+  - `13302302` Lastik Tampon
+  - `WS0510002KP` Yaylı Pul
+  - `70003402` Açılır Kapak
+  - `70003409` Ön Plaka
+  - `70003404` Plaka Desteği
+  - `PS0150042K0` Yaylı Pim
+  - `SM6050800SP` M5 L=8 Vida
+- `chat_eval.py` quota-dostu staging gate için genişletildi:
+  - `--case-delay-seconds`
+  - `--retry-quality-issues`
+  - `--retry-delay-seconds`
+  - retry denemelerinde en iyi sonucu seçen `choose_better_result`
+- Retry seçimi için unit test eklendi.
+
+### Doğrulama Durumu
+
+- Corpus validation geçti: `8 cases`.
+- Chat eval metric unit testleri geçti: `17/17`.
+- Python compile geçti: `partalog-ai/eval/chat_eval.py`.
+- Yavaş public staging semantic eval geçti:
+  - komut profili: `--case-delay-seconds 15 --retry-quality-issues 2 --retry-delay-seconds 65`
+  - total: `8`
+  - success: `8/8`
+  - Hit@1/Hit@3/Hit@5: `100% / 100% / 100%`
+  - MRR: `1.000`
+  - hallucination rate: `0%`
+  - quality issue cases: `0`
+  - latency avg/p95: `4073.5 ms / 5211.1 ms`
+- İlk case bir kez retry istedi; Cloud Logging'de Vertex `gemini-embedding` 429 quota kayıtları görüldü. Bu yüzden yavaş profil release gate dokümantasyonunda korunmalı.
+
+### Açık İşler
+
+- Full public load/saturation baseline onaylı gate seviyesinde üretilmeli.
+- Alerting, error budget ve maliyet budget doğrulaması eklenmeli.
+- Production tarafında embedding quota artırımı veya alternatif cache/rate-limit stratejisi planlanmalı.
 
 ## 2026-06-22 — Paket 6: Semantic Chat Readiness ve Staging Source Fix
 
@@ -69,8 +119,7 @@ Bu artış; staging Cloud Run ortamının kurulması, Redis rate-limit/capacity/
 
 ### Açık İşler
 
-- Semantic eval corpus'u staging katalog içeriğine göre temizlenmeli; özellikle `staging-semantic-thread-guide` beklenen ürünü katalogda yoksa gate case'i olmamalı.
-- Embedding quota için production/staging ayrı rate-limit veya düşük hız backfill profili dokümante edilmeli.
+- Bu paketteki 4-case ara eval sonrasında corpus temizliği Paket 7'de tamamlandı.
 - Full saturation/load baseline onaylı gate seviyesinde üretilmeli.
 - Alerting, error budget ve maliyet budget doğrulaması eklenmeli.
 

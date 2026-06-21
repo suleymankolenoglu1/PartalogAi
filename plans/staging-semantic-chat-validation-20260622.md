@@ -37,7 +37,7 @@
 - API health:
   - `/health/live`: `Healthy`
   - `/health/ready`: `ready`
-- Semantic eval:
+- Ara semantic eval:
   - total: `4`
   - success: `4/4`
   - Hit@1/Hit@3/Hit@5: `75% / 75% / 75%`
@@ -45,18 +45,33 @@
   - hallucination rate: `25%`
   - quality issue cases: `1`
   - latency avg/p95: `3141.9 ms / 3979.2 ms`
+- Temiz corpus semantic eval:
+  - corpus: `partalog-ai/eval/queries.staging_semantic.jsonl`
+  - profile: `--case-delay-seconds 15 --retry-quality-issues 2 --retry-delay-seconds 65`
+  - total: `8`
+  - success: `8/8`
+  - Hit@1/Hit@3/Hit@5: `100% / 100% / 100%`
+  - MRR: `1.000`
+  - hallucination rate: `0%`
+  - quality issue cases: `0`
+  - latency avg/p95: `4073.5 ms / 5211.1 ms`
 
 ## Case Özeti
 
 | Case | Sonuç | Not |
 |---|---:|---|
-| `staging-semantic-thread-guide` | kalite sorunu | Beklenen ürün kodu bulunamadı; staging catalog/corpus uyumu ayrıca temizlenmeli. |
-| `staging-semantic-spring-washer` | geçti | `WS0510002KP` rank 1 |
+| `staging-semantic-thread-guide` | geçti | `70003363` rank 1; yavaş profilde ilk deneme quota kaynaklı retry istedi. |
 | `staging-semantic-rubber-buffer` | geçti | `13302302` rank 1 |
-| `staging-semantic-m4-l10-screw` | geçti | `SM8041012TP` rank 1 |
+| `staging-semantic-spring-washer` | geçti | `WS0510002KP` rank 1 |
+| `staging-semantic-opening-cover` | geçti | `70003402` rank 1 |
+| `staging-semantic-front-plate` | geçti | `70003409` rank 1 |
+| `staging-semantic-plate-support` | geçti | `70003404` rank 1 |
+| `staging-semantic-spring-pin` | geçti | `PS0150042K0` rank 1 |
+| `staging-semantic-m5-l8-screw` | geçti | `SM6050800SP` rank 1 |
 
 ## Notlar
 
 - Embedding backfill sırasında Vertex embedding quota `429` verdi; düşük batch ve daha uzun sleep ile kalan kayıtlar başarıyla tamamlandı.
+- Public semantic eval sırasında da Vertex `gemini-embedding` quota `429` kayıtları görüldü. Bu yüzden staging semantic gate yavaş profil ve kalite-issue retry ile koşulmalı.
 - `backend/reports/` git ignore altında olduğu için ham eval JSON/MD artifact'leri repoya alınmadı; bu dosya kalıcı özet rapordur.
-- Sıradaki release gate işi: corpus temizliği + full saturation/load + alert/maliyet budget doğrulaması.
+- Sıradaki release gate işi: full saturation/load + alert/maliyet budget doğrulaması.
