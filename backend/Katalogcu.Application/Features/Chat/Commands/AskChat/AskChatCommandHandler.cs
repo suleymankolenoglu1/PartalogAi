@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Common.Models;
 using Katalogcu.Application.Features.Chat.Common;
@@ -9,6 +10,10 @@ namespace Katalogcu.Application.Features.Chat.Commands.AskChat;
 
 public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, OperationResult<AskChatResponse>>
 {
+    private static readonly Regex PartNumberRegex = new(
+        @"\b[A-Z0-9][A-Z0-9-]{4,}\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private readonly IChatQueryService _chatQueryService;
     private readonly ILogger<AskChatCommandHandler> _logger;
 
@@ -22,9 +27,28 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
     {
         var (intent, searchTerm, partCode, confidence, multiTerms) = ParseDebugIntent(request.DebugIntentJson);
         var answer = request.AiAnswer;
+        var directCodeProducts = await ResolveCodeProductsAsync(
+            request,
+            partCode,
+            searchTerm,
+            multiTerms,
+            cancellationToken);
 
         if (confidence.HasValue && confidence.Value < 0.60)
         {
+            if (directCodeProducts.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Low intent confidence bypassed with exact code fallback. confidence={Confidence} text={Text}",
+                    confidence.Value,
+                    request.UserText);
+
+                return Success(
+                    replySuggestion: BuildDirectCodeMatchReply(directCodeProducts),
+                    products: directCodeProducts,
+                    debugInfo: $"Intent: {intent ?? "Yok"} | LowConfidenceCodeFallback: {confidence.Value:0.00}");
+            }
+
             _logger.LogWarning("Low intent confidence: {Confidence} | Intent: {Intent} | Text: {Text}",
                 confidence.Value, intent ?? "n/a", request.UserText);
 
@@ -129,8 +153,9 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
         var intentQuery = partCode ?? searchTerm ?? request.UserText;
         if (string.Equals(intent, "PRICE", StringComparison.OrdinalIgnoreCase))
         {
-            var results = await _chatQueryService.SearchByCodeAsync(intentQuery, request.CatalogIds, cancellationToken);
-            var products = await _chatQueryService.EnrichResultsAsync(results, request.CatalogIds, cancellationToken);
+            var products = directCodeProducts.Count > 0
+                ? directCodeProducts
+                : await ResolveProductsBySingleTermAsync(intentQuery, request.CatalogIds, cancellationToken);
 
             return products.Count == 0
                 ? Success("Fiyat için uygun parça bulamadım. Kod veya isim net mi?", [], $"Intent: PRICE | Code: {intentQuery}")
@@ -139,8 +164,9 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
 
         if (string.Equals(intent, "STOCK", StringComparison.OrdinalIgnoreCase))
         {
-            var results = await _chatQueryService.SearchByCodeAsync(intentQuery, request.CatalogIds, cancellationToken);
-            var products = await _chatQueryService.EnrichResultsAsync(results, request.CatalogIds, cancellationToken);
+            var products = directCodeProducts.Count > 0
+                ? directCodeProducts
+                : await ResolveProductsBySingleTermAsync(intentQuery, request.CatalogIds, cancellationToken);
 
             return products.Count == 0
                 ? Success("Stok için uygun parça bulamadım.", [], $"Intent: STOCK | Code: {intentQuery}")
@@ -149,8 +175,9 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
 
         if (string.Equals(intent, "COMPATIBILITY", StringComparison.OrdinalIgnoreCase))
         {
-            var results = await _chatQueryService.SearchByCodeAsync(intentQuery, request.CatalogIds, cancellationToken);
-            var products = await _chatQueryService.EnrichResultsAsync(results, request.CatalogIds, cancellationToken);
+            var products = directCodeProducts.Count > 0
+                ? directCodeProducts
+                : await ResolveProductsBySingleTermAsync(intentQuery, request.CatalogIds, cancellationToken);
             return Success(
                 replySuggestion: products.Count > 0
                     ? (request.AiAnswer ?? "Uyumlu model bilgilerini listeledim.")
@@ -201,14 +228,14 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
             finalProducts = await _chatQueryService.EnrichResultsAsync(fallback, request.CatalogIds, cancellationToken);
         }
 
-        if (IsPartNumber(request.UserText) && finalProducts.Count == 0)
+        if (finalProducts.Count == 0 && directCodeProducts.Count > 0)
         {
-            var direct = await _chatQueryService.SearchByCodeAsync(request.UserText, request.CatalogIds, cancellationToken);
-            if (direct.Count > 0)
-            {
-                finalProducts = await _chatQueryService.EnrichResultsAsync(direct, request.CatalogIds, cancellationToken);
-                answer = $"Aradığınız {request.UserText} kodlu ürün için veritabanında {finalProducts.Count} sonuç buldum.";
-            }
+            finalProducts = directCodeProducts;
+            answer = BuildDirectCodeMatchReply(finalProducts);
+        }
+        else if (finalProducts.Count > 0 && string.IsNullOrWhiteSpace(answer))
+        {
+            answer = BuildDirectCodeMatchReply(finalProducts);
         }
 
         return Success(
@@ -316,6 +343,96 @@ public sealed class AskChatCommandHandler : IRequestHandler<AskChatCommand, Oper
     private static bool IsPartNumber(string? term)
     {
         return !string.IsNullOrWhiteSpace(term) && term.Length > 2 && term.Any(char.IsDigit);
+    }
+
+    private async Task<IReadOnlyList<EnrichedPartDto>> ResolveProductsBySingleTermAsync(
+        string? term,
+        IReadOnlyCollection<Guid> catalogIds,
+        CancellationToken cancellationToken)
+    {
+        var results = await _chatQueryService.SearchByCodeAsync(term, catalogIds, cancellationToken);
+        return await _chatQueryService.EnrichResultsAsync(results, catalogIds, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<EnrichedPartDto>> ResolveCodeProductsAsync(
+        AskChatCommand request,
+        string? partCode,
+        string? searchTerm,
+        IReadOnlyCollection<string> multiTerms,
+        CancellationToken cancellationToken)
+    {
+        var codeTerms = ExtractPartNumberCandidates(
+                [partCode, searchTerm, request.UserText, .. multiTerms])
+            .ToList();
+
+        if (codeTerms.Count == 0)
+        {
+            return [];
+        }
+
+        var allItems = new List<Katalogcu.Domain.Entities.CatalogItem>();
+        foreach (var term in codeTerms)
+        {
+            var results = await _chatQueryService.SearchByCodeAsync(term, request.CatalogIds, cancellationToken);
+            allItems.AddRange(results);
+        }
+
+        var enriched = await _chatQueryService.EnrichResultsAsync(allItems, request.CatalogIds, cancellationToken);
+        return DeduplicateProducts(enriched);
+    }
+
+    private static IReadOnlyList<string> ExtractPartNumberCandidates(IEnumerable<string?> values)
+    {
+        var candidates = new List<string>();
+
+        foreach (var rawValue in values)
+        {
+            var value = rawValue?.Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            if (IsPartNumber(value) && !value.Any(char.IsWhiteSpace) && value.Length <= 64)
+            {
+                candidates.Add(value);
+            }
+
+            foreach (Match match in PartNumberRegex.Matches(value))
+            {
+                var token = match.Value.Trim();
+                if (IsPartNumber(token))
+                {
+                    candidates.Add(token);
+                }
+            }
+        }
+
+        return candidates
+            .Select(x => x.Trim().ToUpperInvariant())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+    }
+
+    private static string BuildDirectCodeMatchReply(IReadOnlyCollection<EnrichedPartDto> products)
+    {
+        var codes = products
+            .Select(p => p.Code)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return $"Veritabanında {products.Count} uygun parça buldum.";
+        }
+
+        return codes.Count == 1
+            ? $"{codes[0]} kodlu parçayı buldum."
+            : $"{string.Join(", ", codes)} kodlu parçaları buldum.";
     }
 
     private async Task<IReadOnlyList<EnrichedPartDto>> ResolveDiagnoseProductsAsync(

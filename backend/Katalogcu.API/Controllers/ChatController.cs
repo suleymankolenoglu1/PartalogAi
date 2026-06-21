@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using System.Text.Json;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Katalogcu.API.Controllers
@@ -22,6 +23,10 @@ namespace Katalogcu.API.Controllers
     [ApiController]
     public class ChatController : ControllerBase
     {
+        private static readonly Regex PartNumberRegex = new(
+            @"\b[A-Z0-9][A-Z0-9-]{4,}\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
         private readonly IPartalogAiService _aiService;
         private readonly ISender _sender;
         private readonly ILogger<ChatController> _logger;
@@ -75,6 +80,25 @@ namespace Katalogcu.API.Controllers
             }
         }
 
+        private static string? ExtractFirstPartNumberCandidate(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return null;
+            }
+
+            foreach (Match match in PartNumberRegex.Matches(text))
+            {
+                var token = match.Value.Trim();
+                if (token.Any(char.IsDigit))
+                {
+                    return token.ToUpperInvariant();
+                }
+            }
+
+            return null;
+        }
+
         [HttpPost("ask")]
         [EnableRateLimiting("public-chat")]
         public async Task<IActionResult> Ask([FromForm] AiChatRequestWithHistoryDto request)
@@ -107,6 +131,33 @@ namespace Katalogcu.API.Controllers
                 if (!userResult.IsSuccess)
                 {
                     return BadRequest(userResult.ErrorMessage ?? "Geçerli kullanıcı veya public token gerekli.");
+                }
+
+                if (request.Image is null)
+                {
+                    var directPartCode = ExtractFirstPartNumberCandidate(request.Text);
+                    if (!string.IsNullOrWhiteSpace(directPartCode))
+                    {
+                        var directIntentJson = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            intent = "SEARCH",
+                            part_code = directPartCode,
+                            confidence = 1.0
+                        });
+
+                        var directChatResult = await _sender.Send(new AskChatCommand(
+                            request.Text,
+                            AiAnswer: null,
+                            directIntentJson,
+                            catalogIds,
+                            []));
+
+                        if (directChatResult.IsSuccess && directChatResult.Value!.Products.Count > 0)
+                        {
+                            _logger.LogInformation("Direct part-code chat path served. catalogCount={CatalogCount}", catalogIds.Count);
+                            return Ok(directChatResult.Value);
+                        }
+                    }
                 }
 
                 var aiQuota = await _aiUsageQuotaService.ConsumeAsync(userResult.Value!.UserId, HttpContext.RequestAborted);

@@ -4,14 +4,88 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-21 — Güncel İlerleme Notu
 
-Staging ortamı şu an olmadığı için canlıya alma oranı konservatif hesaplandı.
+Staging ortamı artık Google Cloud üzerinde çalışıyor ve gerçek public-token chat yolu smoke/eval/load ile doğrulandı. Oranlar hâlâ konservatif tutuldu; çünkü semantic relevance corpus, tam saturation testi, alert/bütçe kontrolleri ve AI model bölge/erişim ayarı tamamlanmadan canlıya alma yüzdesini çok yukarı çekmek yanıltıcı olur.
 
-- Genel proje ilerlemesi önceki yaklaşık `%72` seviyesinden yaklaşık **%78** seviyesine çıktı.
-- Catalog + Chat MVP kod hazırlığı yaklaşık **%84** seviyesinde.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%74** seviyesinde.
-- Staging/eval/load kanıtı yaklaşık **%35** seviyesinde; bu alan ana blokaj.
+- Genel proje ilerlemesi yaklaşık **%84** seviyesine çıktı.
+- Catalog + Chat MVP kod hazırlığı yaklaşık **%90** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%84** seviyesine çıktı.
+- Staging/eval/load kanıtı yaklaşık **%78** seviyesine çıktı.
 
-Bu artış; chat ve katalog analiz feature gate'lerinin ayrılması, private Cloud Run OIDC auth akışı, Vertex/provider geçişi, timeout/retry ayarları, hafif chat runtime profili, health endpointleri, deploy şablonları ve audit tooling sayesinde geldi. Staging kurulmadan canlıya hazırlığı **%80+** göstermek yanıltıcı olur.
+Bu artış; staging Cloud Run ortamının kurulması, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code eval baseline ve kontrollü public load smoke kanıtları sayesinde geldi.
+
+### Kalan Ana Blokajlar
+
+- Staging katalogda `CatalogItems.Embedding` sayısı şu an `0`; semantic/natural-language relevance baseline bu yüzden exact-code baseline kadar güçlü değil.
+- AI service loglarında Vertex `gemini-2.0-flash` için `404 model not found/access` uyarısı görüldü; direct-code fast path bu yolu hızlandırıyor ama doğal dil chat kalitesi için model/region erişimi netleştirilmeli.
+- Full saturation/load baseline ve alert/bütçe kontrolleri henüz onaylı release gate seviyesinde değil.
+
+## 2026-06-21 — Paket 5: Gerçek Public Chat Smoke, Eval ve Load Kanıtı
+
+### Tamamlananlar
+
+- Cloud SQL Auth Proxy standalone binary `.tools/cloud-sql-proxy` ile staging DB'ye geçici ve güvenli tünel açıldı.
+- Staging DB'de gerçek yayınlı katalog/public token keşfedildi:
+  - users: `2`
+  - published catalogs: `1`
+  - catalog items: `32`
+  - embedded items: `0`
+  - active public links: `44`
+- İlk gerçek public-token chat smoke `500` verdi; kök neden bulundu:
+  - `AiUsageQuotaService`, EF Core'un sahip olduğu `DbConnection`'ı `await using` ile dispose ediyordu.
+  - Aynı request içinde sonraki chat enrichment sorgusu `ObjectDisposedException` ile kırılıyordu.
+- Quota servisinde EF connection ownership düzeltildi:
+  - Connection dispose edilmiyor.
+  - Servis connection'ı sadece kendisi açtıysa işlem sonunda kapatıyor.
+- Exact-code chat fallback güçlendirildi:
+  - Kullanıcı cümlesinden ürün kodu regex ile çıkarılıyor.
+  - Low-confidence intent durumunda da ürün kodu varsa clarification yerine DB sonucu dönüyor.
+  - Ürün bulunduğunda reply metni artık `Üzgünüm, sonuç bulunamadı` olarak kalmıyor.
+- API direct-code fast path eklendi:
+  - Görselsiz mesajda katalogdaki ürün kodu bulunursa AI servisine gitmeden cevap dönüyor.
+  - Bu yol gereksiz AI round trip ve quota consumption'ı azaltıyor.
+
+### Staging Revision / Build Kanıtları
+
+- Quota fix API build: `e44aacad-383a-4c8c-b779-a787c25652fc` — SUCCESS
+- Exact-code fallback API build: `ad5a46da-3558-4340-bdbb-8ff24105bbc1` — SUCCESS
+- Direct-code fast path API build: `072e3fc4-75e5-45db-bfb4-98869122e3a0` — SUCCESS
+- Direct-code reply API build: `2b7683c0-765d-4540-a7e6-15cbc4790625` — SUCCESS
+- Aktif API revision: `partalog-api-staging-00007-dn5`
+- Aktif API image: `europe-west1-docker.pkg.dev/partalog/partalog/api-staging:api-staging-20260621-2052-direct-code-reply`
+
+### Doğrulama Durumu
+
+- Backend testleri geçti: `69/69`.
+- Gerçek public-token chat smoke geçti:
+  - API live
+  - API ready
+  - migrations ready
+  - private AI ready
+  - invalid public token `400`
+  - real public chat `200`
+- Eval raporu üretildi: `backend/reports/staging-chat-eval-20260621.md`
+  - total: `4`
+  - success: `4/4`
+  - exact-code Hit@1/Hit@3/Hit@5: `100% / 100% / 100%`
+  - MRR: `1.000`
+  - hallucination rate: `0%`
+  - quality issue cases: `0`
+  - latency avg/p95: `215.3 ms / 354.4 ms`
+- Kontrollü public load smoke raporu üretildi: `backend/reports/staging-public-load-smoke-20260621.md`
+  - status: `passed`
+  - concurrency: `2`
+  - total requests: `20`
+  - overall success: `100%`
+  - browse: `16/16`, p95 `3738.3 ms`
+  - chat: `4/4`, p95 `151.0 ms`
+- Daha agresif lokal load denemesinde public chat `429` döndürdü; bu beklenen rate-limit davranışını doğruladı.
+
+### Açık İşler
+
+- Staging katalog item embedding'lerini üretip natural-language semantic eval baseline almak.
+- Vertex chat model adı/bölgesi/erişimini netleştirip AI loglarındaki `model not found/access` uyarısını kapatmak.
+- Full saturation/load baseline'ı onaylı gate olarak üretmek.
+- Alerting, error budget ve maliyet budget doğrulamalarını eklemek.
 
 ## 2026-06-21 — Paket 3: Staging Kurulum Başlangıcı
 

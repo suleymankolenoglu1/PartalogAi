@@ -89,70 +89,82 @@ public sealed class AiUsageQuotaService : IAiUsageQuotaService
         var nowUtc = DateTime.UtcNow;
         var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        await using var connection = _dbContext.Database.GetDbConnection();
+        var connection = _dbContext.Database.GetDbConnection();
+        var openedConnection = false;
         if (connection.State != ConnectionState.Open)
         {
             await connection.OpenAsync(cancellationToken);
+            openedConnection = true;
         }
 
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-
-        var inserted = await EnsureMonthlyRowAsync(connection, transaction, userId, monthStartUtc, nowUtc, cancellationToken);
-        if (!inserted)
+        try
         {
-            await transaction.RollbackAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            var inserted = await EnsureMonthlyRowAsync(connection, transaction, userId, monthStartUtc, nowUtc, cancellationToken);
+            if (!inserted)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new AiQuotaConsumeResult
+                {
+                    Allowed = false,
+                    Message = "AI kullanım kaydı oluşturulamadı.",
+                    Plan = userPlan.Value,
+                    MonthlyLimit = monthlyLimit
+                };
+            }
+
+            var usedAfterConsume = await TryConsumeWithinLimitAsync(
+                connection,
+                transaction,
+                userId,
+                monthStartUtc,
+                nowUtc,
+                monthlyLimit,
+                cancellationToken);
+
+            if (usedAfterConsume.HasValue)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                var used = usedAfterConsume.Value;
+                return new AiQuotaConsumeResult
+                {
+                    Allowed = true,
+                    Message = string.Empty,
+                    Plan = userPlan.Value,
+                    MonthlyLimit = monthlyLimit,
+                    UsedThisMonth = used,
+                    UsedBeforeConsume = Math.Max(used - 1, 0)
+                };
+            }
+
+            var currentUsed = await ReadCurrentUsageAsync(connection, transaction, userId, monthStartUtc, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "AI quota blocked. userId={UserId} plan={Plan} used={Used} limit={Limit}",
+                userId,
+                userPlan.Value,
+                currentUsed,
+                monthlyLimit);
+
             return new AiQuotaConsumeResult
             {
                 Allowed = false,
-                Message = "AI kullanım kaydı oluşturulamadı.",
-                Plan = userPlan.Value,
-                MonthlyLimit = monthlyLimit
-            };
-        }
-
-        var usedAfterConsume = await TryConsumeWithinLimitAsync(
-            connection,
-            transaction,
-            userId,
-            monthStartUtc,
-            nowUtc,
-            monthlyLimit,
-            cancellationToken);
-
-        if (usedAfterConsume.HasValue)
-        {
-            await transaction.CommitAsync(cancellationToken);
-            var used = usedAfterConsume.Value;
-            return new AiQuotaConsumeResult
-            {
-                Allowed = true,
-                Message = string.Empty,
+                Message = "AI sorgu limitinize ulaştınız, planınızı yükseltin",
                 Plan = userPlan.Value,
                 MonthlyLimit = monthlyLimit,
-                UsedThisMonth = used,
-                UsedBeforeConsume = Math.Max(used - 1, 0)
+                UsedThisMonth = currentUsed,
+                UsedBeforeConsume = currentUsed
             };
         }
-
-        var currentUsed = await ReadCurrentUsageAsync(connection, transaction, userId, monthStartUtc, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "AI quota blocked. userId={UserId} plan={Plan} used={Used} limit={Limit}",
-            userId,
-            userPlan.Value,
-            currentUsed,
-            monthlyLimit);
-
-        return new AiQuotaConsumeResult
+        finally
         {
-            Allowed = false,
-            Message = "AI sorgu limitinize ulaştınız, planınızı yükseltin",
-            Plan = userPlan.Value,
-            MonthlyLimit = monthlyLimit,
-            UsedThisMonth = currentUsed,
-            UsedBeforeConsume = currentUsed
-        };
+            if (openedConnection && connection.State == ConnectionState.Open)
+            {
+                await connection.CloseAsync();
+            }
+        }
     }
 
     public async Task<AiUsageSnapshot> GetCurrentUsageAsync(Guid userId, CancellationToken cancellationToken)
@@ -193,41 +205,53 @@ public sealed class AiUsageQuotaService : IAiUsageQuotaService
 
         var nowUtc = DateTime.UtcNow;
         var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        await using var connection = _dbContext.Database.GetDbConnection();
+        var connection = _dbContext.Database.GetDbConnection();
+        var openedConnection = false;
         if (connection.State != ConnectionState.Open)
         {
             await connection.OpenAsync(cancellationToken);
+            openedConnection = true;
         }
 
-        var usedThisMonth = await ReadCurrentUsageAsync(
-            connection,
-            transaction: null,
-            userId,
-            monthStartUtc,
-            cancellationToken);
-
-        if (monthlyLimit is null)
+        try
         {
+            var usedThisMonth = await ReadCurrentUsageAsync(
+                connection,
+                transaction: null,
+                userId,
+                monthStartUtc,
+                cancellationToken);
+
+            if (monthlyLimit is null)
+            {
+                return new AiUsageSnapshot
+                {
+                    Plan = userPlan.Value,
+                    AiEnabled = true,
+                    Unlimited = true,
+                    MonthlyLimit = null,
+                    UsedThisMonth = usedThisMonth,
+                    RemainingThisMonth = int.MaxValue
+                };
+            }
+
             return new AiUsageSnapshot
             {
                 Plan = userPlan.Value,
                 AiEnabled = true,
-                Unlimited = true,
-                MonthlyLimit = null,
+                Unlimited = false,
+                MonthlyLimit = monthlyLimit.Value,
                 UsedThisMonth = usedThisMonth,
-                RemainingThisMonth = int.MaxValue
+                RemainingThisMonth = Math.Max(monthlyLimit.Value - usedThisMonth, 0)
             };
         }
-
-        return new AiUsageSnapshot
+        finally
         {
-            Plan = userPlan.Value,
-            AiEnabled = true,
-            Unlimited = false,
-            MonthlyLimit = monthlyLimit.Value,
-            UsedThisMonth = usedThisMonth,
-            RemainingThisMonth = Math.Max(monthlyLimit.Value - usedThisMonth, 0)
-        };
+            if (openedConnection && connection.State == ConnectionState.Open)
+            {
+                await connection.CloseAsync();
+            }
+        }
     }
 
     private static async Task<bool> EnsureMonthlyRowAsync(
