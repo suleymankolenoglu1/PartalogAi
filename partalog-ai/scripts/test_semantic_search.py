@@ -100,11 +100,13 @@ async def test_semantic_search():
 
     # Initialize the DB pool
     pool_result = await init_db_pool()
-    logger.info(f"DB pool init: ready={pool_result.get('ready')} mode={pool_result.get('mode')}")
-
-    if not pool_result.get("ready"):
-        logger.error("DB pool not ready — cannot test")
-        return
+    if isinstance(pool_result, dict):
+        logger.info(f"DB pool init: ready={pool_result.get('ready')} mode={pool_result.get('mode')}")
+        if not pool_result.get("ready"):
+            logger.error("DB pool not ready — cannot test")
+            return
+    else:
+        logger.info("DB pool init completed")
 
     try:
         for test in TEST_QUERIES:

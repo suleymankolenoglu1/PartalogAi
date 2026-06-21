@@ -41,6 +41,45 @@ public sealed class PartalogAiServiceTests
         Assert.Contains("\"fallback_reason\":\"ai_capacity_limited\"", debugIntentJson);
     }
 
+    [Fact]
+    public async Task GetExpertChatResponseAsync_AllowsNullSourceSimilarity()
+    {
+        var httpClient = new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                {
+                  "answer": "İplik kılavuzu uygun adaydır.",
+                  "sources": [
+                    {
+                      "code": "70003363",
+                      "name": "İPLİK KILAVUZU",
+                      "catalog_id": "531714e8-a10a-43d5-95fd-c227753f7546",
+                      "similarity": null
+                    }
+                  ]
+                }
+                """,
+                Encoding.UTF8,
+                "application/json")
+        }))
+        {
+            BaseAddress = new Uri("http://localhost")
+        };
+
+        var service = new PartalogAiService(
+            httpClient,
+            NullLogger<PartalogAiService>.Instance,
+            Options.Create(new AiServiceOptions()));
+
+        var response = await service.GetExpertChatResponseAsync(new AiChatRequestDto { Text = "iplik geçirme mekanizması" });
+
+        Assert.Equal("İplik kılavuzu uygun adaydır.", response.Answer);
+        var source = Assert.Single(response.Sources ?? []);
+        Assert.Equal("70003363", source.Code);
+        Assert.Null(source.Similarity);
+    }
+
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

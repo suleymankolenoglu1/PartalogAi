@@ -20,10 +20,11 @@ import logging
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
 
-# 2. .env içeriğini işletim sistemi ortam değişkenlerine (os.environ) zorla yükle!
-# Böylece embedding.py veya Google SDK'ları direkt os.getenv() ile okuyabilir
-# override=True: mevcut ortam değişkenlerini .env ile ez (local dev'de tutarlılık için)
-load_dotenv(ENV_PATH, override=True)
+# 2. .env içeriğini yükle ama gerçek environment değerlerini ezme.
+# Cloud Run, CI ve batch script'lerinde açıkça verilen env var'lar .env'den
+# daha güvenilir olmalı; aksi halde staging/production komutları local .env'ye
+# yanlışlıkla bağlanabilir.
+load_dotenv(ENV_PATH, override=False)
 
 def _clean_env(value: str) -> str:
     return value.strip().strip('"').strip("'").strip()
@@ -131,8 +132,9 @@ class Settings(BaseSettings):
     VERTEX_API_KEY: str = Field(default="")
     GOOGLE_CLOUD_PROJECT: str = Field(default="")
     GOOGLE_CLOUD_LOCATION: str = Field(default="global")
-    GEMINI_CHAT_MODEL: str = Field(default="gemini-2.0-flash")
-    GEMINI_ANALYSIS_MODEL: str = Field(default="gemini-2.0-flash")
+    GEMINI_CHAT_MODEL: str = Field(default="gemini-2.5-flash-lite")
+    GEMINI_ANALYSIS_MODEL: str = Field(default="gemini-2.5-flash-lite")
+    GEMINI_EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
     GEMINI_VISUAL_MODEL: str = Field(default="gemini-3-pro-preview")
     GENAI_REQUEST_TIMEOUT_SECONDS: float = Field(default=30.0)
     GENAI_STREAM_TIMEOUT_SECONDS: float = Field(default=90.0)
@@ -223,6 +225,8 @@ class Settings(BaseSettings):
             self.GEMINI_CHAT_MODEL = _clean_env(self.GEMINI_CHAT_MODEL)
         if self.GEMINI_ANALYSIS_MODEL:
             self.GEMINI_ANALYSIS_MODEL = _clean_env(self.GEMINI_ANALYSIS_MODEL)
+        if self.GEMINI_EMBEDDING_MODEL:
+            self.GEMINI_EMBEDDING_MODEL = _clean_env(self.GEMINI_EMBEDDING_MODEL)
         if self.GEMINI_VISUAL_MODEL:
             self.GEMINI_VISUAL_MODEL = _clean_env(self.GEMINI_VISUAL_MODEL)
         if self.AI_CHAT_CAPACITY_PROVIDER:

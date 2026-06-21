@@ -2,22 +2,77 @@
 
 Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan kaydıdır.
 
-## 2026-06-21 — Güncel İlerleme Notu
+## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı artık Google Cloud üzerinde çalışıyor ve gerçek public-token chat yolu smoke/eval/load ile doğrulandı. Oranlar hâlâ konservatif tutuldu; çünkü semantic relevance corpus, tam saturation testi, alert/bütçe kontrolleri ve AI model bölge/erişim ayarı tamamlanmadan canlıya alma yüzdesini çok yukarı çekmek yanıltıcı olur.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu artık exact-code smoke/eval/load yanında semantic/natural-language eval ile de doğrulandı. Oranlar hâlâ konservatif tutuldu; çünkü full saturation/load baseline, alert/error-budget ve maliyet budget kontrolleri tamamlanmadan canlıya alma yüzdesini çok yukarı çekmek yanıltıcı olur.
 
-- Genel proje ilerlemesi yaklaşık **%84** seviyesine çıktı.
-- Catalog + Chat MVP kod hazırlığı yaklaşık **%90** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%84** seviyesine çıktı.
-- Staging/eval/load kanıtı yaklaşık **%78** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%87** seviyesine çıktı.
+- Catalog + Chat MVP kod hazırlığı yaklaşık **%92** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%87** seviyesine çıktı.
+- Staging/eval/load kanıtı yaklaşık **%84** seviyesine çıktı.
 
-Bu artış; staging Cloud Run ortamının kurulması, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code eval baseline ve kontrollü public load smoke kanıtları sayesinde geldi.
+Bu artış; staging Cloud Run ortamının kurulması, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code eval baseline, kontrollü public load smoke, staging katalog embedding backfill ve semantic eval kanıtları sayesinde geldi.
 
 ### Kalan Ana Blokajlar
 
-- Staging katalogda `CatalogItems.Embedding` sayısı şu an `0`; semantic/natural-language relevance baseline bu yüzden exact-code baseline kadar güçlü değil.
-- AI service loglarında Vertex `gemini-2.0-flash` için `404 model not found/access` uyarısı görüldü; direct-code fast path bu yolu hızlandırıyor ama doğal dil chat kalitesi için model/region erişimi netleştirilmeli.
+- Semantic eval artık çalışıyor; ancak küçük corpus'ta 1/4 case hâlâ kalite sorunu üretiyor. Bu case büyük olasılıkla staging katalog içeriğiyle beklenen ürün kodu arasındaki uyumsuzluktan etkileniyor ve corpus temizliği gerekiyor.
 - Full saturation/load baseline ve alert/bütçe kontrolleri henüz onaylı release gate seviyesinde değil.
+
+## 2026-06-22 — Paket 6: Semantic Chat Readiness ve Staging Source Fix
+
+### Tamamlananlar
+
+- Vertex chat/analysis model erişimi doğrulandı.
+  - `gemini-2.0-flash` staging projesinde/bölgelerinde `404 model not found/access` verdi.
+  - `gemini-2.5-flash-lite` Vertex üzerinden başarılı test edildi.
+  - AI staging env `GEMINI_CHAT_MODEL=gemini-2.5-flash-lite` ve `GEMINI_ANALYSIS_MODEL=gemini-2.5-flash-lite` olarak güncellendi.
+- AI config ve doküman örnekleri güncel modele geçirildi.
+- Embedding script'i staging env değerlerini lokal `.env` tarafından ezmeyecek hale getirildi.
+- `GEMINI_EMBEDDING_MODEL` config alanı eklendi; embedding servisi hardcoded model yerine config kullanıyor.
+- Staging katalog embedding backfill tamamlandı:
+  - total items: `32`
+  - embedded items: `32`
+  - search text items: `32`
+- Semantic search script'i güncel DB pool contract'ı ile uyumlu hale getirildi.
+- Semantic eval sırasında API'nin AI kaynak cevabını parse edemediği hata bulundu:
+  - `sources[0].similarity` AI cevabında `null` gelebiliyor.
+  - Backend DTO `double` beklediği için `System.Text.Json.JsonException` oluşuyor ve cevap fallback'e düşüyordu.
+- Backend `ChatSourceDto.Similarity` alanı `double?` yapıldı.
+- Null `similarity` regression testi eklendi.
+
+### Staging Revision / Build Kanıtları
+
+- AI staging revision: `partalog-ai-chat-staging-00007-brf`
+- API semantic source fix build: `e809df16-4372-46a1-a0ef-2e6d98e01b55` — SUCCESS
+- API semantic source fix image: `europe-west1-docker.pkg.dev/partalog/partalog/api-staging:api-staging-20260621-2119-semantic-source-fix`
+- Aktif API revision: `partalog-api-staging-00008-84r`
+- API traffic: `%100` latest revision
+
+### Doğrulama Durumu
+
+- Backend testleri geçti: `70/70`.
+- API health:
+  - `/health/live`: `Healthy`
+  - `/health/ready`: `{"status":"ready"}`
+- Semantic search lokal doğrulama:
+  - keyword arama doğal dil sorguda boş kalırken vector search aday döndürüyor.
+  - `iplik geçirme mekanizması` sorgusunda `70003363 İPLİK KILAVUZU` en güçlü aday olarak geldi.
+- Semantic public chat eval raporu üretildi: `backend/reports/staging-semantic-chat-eval-20260622-after-source-fix.md`
+  - total: `4`
+  - success: `4/4`
+  - Hit@1/Hit@3/Hit@5: `75% / 75% / 75%`
+  - MRR: `0.750`
+  - hallucination rate: `25%`
+  - quality issue cases: `1`
+  - latency avg/p95: `3141.9 ms / 3979.2 ms`
+- Yeni API revision loglarında önceki `JSON value could not be converted to System.Double` hatası tekrar görülmedi.
+
+### Açık İşler
+
+- Semantic eval corpus'u staging katalog içeriğine göre temizlenmeli; özellikle `staging-semantic-thread-guide` beklenen ürünü katalogda yoksa gate case'i olmamalı.
+- Embedding quota için production/staging ayrı rate-limit veya düşük hız backfill profili dokümante edilmeli.
+- Full saturation/load baseline onaylı gate seviyesinde üretilmeli.
+- Alerting, error budget ve maliyet budget doğrulaması eklenmeli.
 
 ## 2026-06-21 — Paket 5: Gerçek Public Chat Smoke, Eval ve Load Kanıtı
 

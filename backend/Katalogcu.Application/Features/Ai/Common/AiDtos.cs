@@ -70,7 +70,7 @@ public sealed class ChatSourceDto
     public string? LegacyPageNumber { get; set; }
 
     [JsonPropertyName("similarity")]
-    public double Similarity { get; set; }
+    public double? Similarity { get; set; }
 }
 
 public sealed class PageAnalysisResult

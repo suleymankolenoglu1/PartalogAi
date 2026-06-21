@@ -49,8 +49,7 @@ async def get_text_embedding(text: str):
         logger.error("GenAI credentials/config eksik: embedding")
         return None
 
-    # Model Adı
-    model_name = "gemini-embedding-001"
+    model_name = settings.GEMINI_EMBEDDING_MODEL
 
     url = provider.embed_content_url(model_name)
     if not url:
