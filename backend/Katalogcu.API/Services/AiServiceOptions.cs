@@ -8,6 +8,8 @@ public sealed class AiServiceOptions
     public int ChatTimeoutSeconds { get; set; } = 45;
     public int StreamTimeoutSeconds { get; set; } = 90;
     public int LongRunningTimeoutSeconds { get; set; } = 300;
+    public bool UseCloudRunIdentityToken { get; set; }
+    public string CloudRunAudience { get; set; } = "";
     public bool EnableItemEmbeddings { get; set; } = true;
     public int EmbeddingTimeoutSeconds { get; set; } = 20;
 

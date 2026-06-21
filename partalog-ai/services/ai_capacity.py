@@ -174,7 +174,7 @@ return 1
         transaction = None
         try:
             conn = await asyncio.wait_for(
-                asyncpg.connect(self.db_dsn, statement_cache_size=settings.DB_STATEMENT_CACHE_SIZE),
+                asyncpg.connect(**settings.db_connect_kwargs, statement_cache_size=settings.DB_STATEMENT_CACHE_SIZE),
                 timeout=timeout,
             )
             transaction = conn.transaction()
@@ -311,7 +311,10 @@ return 1
 
     async def _release_distributed(self, lease_id: uuid.UUID) -> None:
         try:
-            conn = await asyncpg.connect(self.db_dsn, statement_cache_size=settings.DB_STATEMENT_CACHE_SIZE)
+            conn = await asyncpg.connect(
+                **settings.db_connect_kwargs,
+                statement_cache_size=settings.DB_STATEMENT_CACHE_SIZE,
+            )
             try:
                 await conn.execute(
                     'DELETE FROM "AiCapacityLeases" WHERE "PoolName" = $1 AND "Id" = $2;',
@@ -340,7 +343,10 @@ return 1
                 await asyncio.wait_for(client.ping(), timeout=max(0.05, self.acquire_timeout_seconds))
             elif self.use_distributed_leases:
                 conn = await asyncio.wait_for(
-                    asyncpg.connect(self.db_dsn, statement_cache_size=settings.DB_STATEMENT_CACHE_SIZE),
+                    asyncpg.connect(
+                        **settings.db_connect_kwargs,
+                        statement_cache_size=settings.DB_STATEMENT_CACHE_SIZE,
+                    ),
                     timeout=max(0.05, self.acquire_timeout_seconds),
                 )
                 try:

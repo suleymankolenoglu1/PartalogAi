@@ -36,7 +36,7 @@ import { planSelectionGuard } from './core/guards/plan-selection.guard';
 import { platformAdminGuard } from './core/guards/platform-admin.guard';
 import { environment } from '../environments/environment';
 
-const aiEnabled = environment.features.enableAi;
+const chatbotEnabled = environment.features.enableChatbot;
 const ecommerceEnabled = environment.features.enableEcommerce;
 const upgradePromptsEnabled = environment.features.enableUpgradePrompts;
 const upgradeRoute: Route = upgradePromptsEnabled
@@ -71,7 +71,7 @@ export const routes: Routes = [
       { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
       { path: 'settings', component: SettingsComponent },
-      ...(aiEnabled
+      ...(chatbotEnabled
         ? [
             { path: 'visual-feedback', component: VisualFeedbackComponent, canActivate: [planGuard], data: { minPlan: 2 } },
             { path: 'chat-quality', component: ChatQualityComponent, canActivate: [planGuard], data: { minPlan: 2 } },

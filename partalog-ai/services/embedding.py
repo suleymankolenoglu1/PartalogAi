@@ -1,9 +1,9 @@
 import aiohttp
 import asyncio
-import os
 import time
 from loguru import logger
 from config import settings
+from services.genai_provider import provider
 
 # Simple in-memory cache to reduce duplicate embedding calls
 _cache: dict[str, tuple[float, list]] = {}
@@ -45,38 +45,48 @@ async def get_text_embedding(text: str):
         if cached:
             return cached
 
-    # 1. API Key Alma
-    raw_api_key = getattr(settings, "GOOGLE_API_KEY", None) or \
-                  os.getenv("GOOGLE_API_KEY") or \
-                  getattr(settings, "GEMINI_API_KEY", None) or \
-                  os.getenv("GEMINI_API_KEY")
-
-    if not raw_api_key:
-        logger.error("API Key bulunamadı!")
+    if not provider.has_credentials():
+        logger.error("GenAI credentials/config eksik: embedding")
         return None
 
-    api_key = raw_api_key.replace('"', '').replace("'", '').strip()
-
     # Model Adı
-    model_name = "models/gemini-embedding-001"
+    model_name = "gemini-embedding-001"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:embedContent?key={api_key}"
+    url = provider.embed_content_url(model_name)
+    if not url:
+        logger.error("GenAI embedding URL üretilemedi.")
+        return None
 
     # 2. PAYLOAD
-    payload = {
-        "model": model_name,
-        "content": {"parts": [{"text": text}]}
-    }
+    if provider.use_vertex:
+        payload = {
+            "instances": [{"content": text, "task_type": "RETRIEVAL_QUERY"}],
+            "parameters": {"autoTruncate": True, "outputDimensionality": 3072},
+        }
+    else:
+        payload = {
+            "model": f"models/{model_name}",
+            "content": {"parts": [{"text": text}]},
+        }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers={"Content-Type": "application/json"}) as response:
+        headers = await provider.build_headers()
+        timeout = aiohttp.ClientTimeout(total=max(float(settings.GENAI_REQUEST_TIMEOUT_SECONDS), 1.0), connect=5, sock_connect=5)
+        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+            async with session.post(url, json=payload) as response:
                 if response.status != 200:
                     logger.error(f"Gemini Embedding API Hatası: {await response.text()}")
                     return None
 
                 data = await response.json()
-                vector = data.get("embedding", {}).get("values")
+                if provider.use_vertex:
+                    vector = (
+                        data.get("predictions", [{}])[0]
+                        .get("embeddings", {})
+                        .get("values")
+                    )
+                else:
+                    vector = data.get("embedding", {}).get("values")
 
                 if not vector:
                     logger.error("API boş vektör döndü.")

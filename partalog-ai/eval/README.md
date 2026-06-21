@@ -131,3 +131,18 @@ Nightly workflow: `.github/workflows/chat-eval-nightly.yml`
 - Public senaryo için `public_token` kullan.
 - `catalog_ids` opsiyoneldir. Verirsen aramayı daraltır.
 - `--fail-on-error` kullanılırsa mantıksal fallback/hata cevapları da hata sayılır (çıkış kodu `2`).
+
+## Release öncesi rapor audit'i
+
+Eski ürün kodlarına bağlı stale corpus veya kota/rate-limit kaynaklı kirli raporları hızlı görmek için:
+
+```bash
+python eval/audit_eval_reports.py \
+  eval/report.after.hard.json \
+  eval/report.catalog_smoke.json \
+  --output-md eval/report-audit.md
+```
+
+Script bağımlılıksızdır. `stale_expected_codes_suspected`, `quota_or_rate_limit_pollution`
+veya `latency_gate_risk` bulursa çıkış kodu `2` döndürür. Bu durum release'i tek başına
+fail etmek zorunda değildir; ama güncel katalogla yeniden baseline alınmadan GO verilmemelidir.

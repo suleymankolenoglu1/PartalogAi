@@ -151,7 +151,7 @@ class GenAiProvider:
             return ""
         return (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_name}:embedContent?key={api_key}"
+            f"{model_name}:embedContent"
         )
 
     def normalize_generate_payload(self, payload: dict) -> dict:

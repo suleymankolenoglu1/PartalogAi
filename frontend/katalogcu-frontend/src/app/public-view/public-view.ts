@@ -120,7 +120,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   }
 
   get canUseAiChat(): boolean {
-    return environment.features.enableAi && this.storefront.aiChatEnabled !== false;
+    return environment.features.enableChatbot && this.storefront.aiChatEnabled !== false;
   }
 
   get canUseEcommerce(): boolean {

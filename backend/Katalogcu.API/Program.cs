@@ -153,30 +153,37 @@ builder.Services.AddScoped<IFileStorageService>(sp =>
 builder.Services.AddScoped<LocalFileStorageService>();
 builder.Services.AddScoped<GoogleCloudFileStorageService>();
 builder.Services.AddSingleton<CatalogAiHangfireFilter>();
-builder.Services.AddDataProtection();
+builder.Services.AddKatalogcuDataProtection(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddInfrastructureServices();
 
 // 🔥 AI SERVİS ENTEGRASYONU (POLLY İLE GÜÇLENDİRİLDİ) 🔥
 var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"] ?? "http://127.0.0.1:8000";
+var aiServiceOptions = builder.Configuration.GetSection(AiServiceOptions.SectionName).Get<AiServiceOptions>()
+    ?? new AiServiceOptions();
 if (!aiServiceBaseUrl.EndsWith("/"))
 {
     aiServiceBaseUrl += "/";
 }
 
+builder.Services.AddSingleton<ICloudRunIdentityTokenProvider, GoogleCloudRunIdentityTokenProvider>();
+builder.Services.AddTransient<CloudRunIdentityTokenHandler>();
+
 builder.Services.AddHttpClient<IPartalogAiService, PartalogAiService>(client =>
 {
     client.BaseAddress = new Uri(aiServiceBaseUrl);
-    client.Timeout = TimeSpan.FromMinutes(10); // Timeout süresini biraz artırdık
+    client.Timeout = aiServiceOptions.GetLongRunningTimeout();
 })
+.AddHttpMessageHandler<CloudRunIdentityTokenHandler>()
 .AddPolicyHandler(GetRetryPolicy()); // 👈 Hata Telafisi Eklendi
 
 // Named HttpClient for direct proxying (e.g. SSE streaming)
 builder.Services.AddHttpClient("PartalogAi", client =>
 {
     client.BaseAddress = new Uri(aiServiceBaseUrl);
-    client.Timeout = TimeSpan.FromMinutes(2);
-});
+    client.Timeout = aiServiceOptions.GetStreamTimeout();
+})
+.AddHttpMessageHandler<CloudRunIdentityTokenHandler>();
 
 // Controller ve JSON Ayarları
 builder.Services.AddControllers().AddJsonOptions(options =>

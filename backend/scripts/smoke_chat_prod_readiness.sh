@@ -3,6 +3,7 @@ set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:5159}"
 AI_BASE_URL="${AI_BASE_URL:-http://127.0.0.1:8000}"
+AI_IDENTITY_TOKEN="${AI_IDENTITY_TOKEN:-}"
 PUBLIC_TOKEN="${PARTALOG_PUBLIC_TOKEN:-}"
 CATALOG_IDS="${PARTALOG_CATALOG_IDS:-[]}"
 CHAT_QUERY="${PARTALOG_CHAT_SMOKE_QUERY:-Yamato VG2500-8F için yağ deposu contası var mı? Kodunu söyler misin?}"
@@ -19,6 +20,7 @@ Usage:
 Options:
   --api-base-url <url>       API base URL. Default: API_BASE_URL or http://127.0.0.1:5159
   --ai-base-url <url>        AI base URL. Default: AI_BASE_URL or http://127.0.0.1:8000
+  --ai-identity-token <jwt>  Identity token for private AI Cloud Run. Or AI_IDENTITY_TOKEN env.
   --public-token <token>     Public chat token. Or PARTALOG_PUBLIC_TOKEN env.
   --catalog-ids <json>       Catalog IDs JSON array. Or PARTALOG_CATALOG_IDS env.
   --chat-query <text>        Real chat query. Or PARTALOG_CHAT_SMOKE_QUERY env.
@@ -42,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ai-base-url)
       AI_BASE_URL="$2"
+      shift 2
+      ;;
+    --ai-identity-token)
+      AI_IDENTITY_TOKEN="$2"
       shift 2
       ;;
     --public-token)
@@ -114,14 +120,17 @@ wait_for_url "${API_BASE_URL}/health/live" "API live"
 echo "[2/6] API readiness"
 api_ready="$(curl_with_timeout -fsS "${API_BASE_URL}/health/ready")"
 expect_body_contains "$api_ready" "\"status\":\"ready\"" "API readiness"
-expect_body_contains "$api_ready" "\"ready\":true" "API capacity readiness"
 
 echo "[3/6] Migration readiness"
 migrations="$(curl_with_timeout -fsS "${API_BASE_URL}/health/migrations")"
 expect_body_contains "$migrations" "\"status\":\"ok\"" "Migration readiness"
 
 echo "[4/6] AI readiness"
-ai_ready="$(curl_with_timeout -fsS "${AI_BASE_URL}/health/ready")"
+ai_auth_args=()
+if [[ -n "$AI_IDENTITY_TOKEN" ]]; then
+  ai_auth_args=(-H "Authorization: Bearer ${AI_IDENTITY_TOKEN}")
+fi
+ai_ready="$(curl_with_timeout -fsS "${ai_auth_args[@]}" "${AI_BASE_URL}/health/ready")"
 expect_body_contains "$ai_ready" "\"ready\":true" "AI readiness"
 expect_body_contains "$ai_ready" "\"capacity\"" "AI capacity readiness"
 

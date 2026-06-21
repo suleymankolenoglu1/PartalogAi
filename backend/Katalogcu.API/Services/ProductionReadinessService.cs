@@ -70,6 +70,7 @@ public sealed class ProductionReadinessService : IProductionReadinessService
             CheckEnvironment(),
             CheckFileStorage(),
             CheckDataProtectionKeyRing(),
+            CheckAiServiceAuthentication(),
             CheckDistributedPublicChatRateLimit(),
             CheckNpgsqlPoolConfiguration()
         };
@@ -178,6 +179,43 @@ public sealed class ProductionReadinessService : IProductionReadinessService
                 "Python AI servis readiness kontrolü başarısız.",
                 new { _aiServiceOptions.BaseUrl, error = ex.Message });
         }
+    }
+
+    private ProductionReadinessCheck CheckAiServiceAuthentication()
+    {
+        if (!_featurePolicy.ChatbotEnabled && !_featurePolicy.CatalogAnalysisEnabled)
+        {
+            return Pass("ai_service_authentication", "AI modülleri kapalı; servis kimliği zorunlu değil.");
+        }
+
+        if (_aiServiceOptions.UseCloudRunIdentityToken)
+        {
+            var audience = string.IsNullOrWhiteSpace(_aiServiceOptions.CloudRunAudience)
+                ? _aiServiceOptions.BaseUrl
+                : _aiServiceOptions.CloudRunAudience;
+            return Pass(
+                "ai_service_authentication",
+                "Backend, AI servisine Google imzalı Cloud Run identity token ile bağlanacak.",
+                new { audience });
+        }
+
+        var isCloudRunUrl = Uri.TryCreate(_aiServiceOptions.BaseUrl, UriKind.Absolute, out var uri)
+            && uri.Host.EndsWith(".run.app", StringComparison.OrdinalIgnoreCase);
+
+        if (_environment.IsProduction() && isCloudRunUrl)
+        {
+            return Fail(
+                "ai_service_authentication",
+                "Production AI servisi Cloud Run URL'i kullanıyor fakat identity token kapalı.",
+                new { _aiServiceOptions.BaseUrl });
+        }
+
+        return _environment.IsProduction()
+            ? Warn(
+                "ai_service_authentication",
+                "AI servis çağrısında Cloud Run identity token kapalı; ağ erişiminin private olduğuna dair kanıt gerekli.",
+                new { _aiServiceOptions.BaseUrl })
+            : Pass("ai_service_authentication", "Yerel AI servis çağrısı için identity token kapalı.");
     }
 
     private ProductionReadinessCheck CheckFileStorage()

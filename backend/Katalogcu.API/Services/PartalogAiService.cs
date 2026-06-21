@@ -7,6 +7,7 @@ using Katalogcu.Application.Common.Exceptions;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Features.Ai.Common;
 using Katalogcu.Domain.Entities;
+using Microsoft.Extensions.Options;
 
 namespace Katalogcu.API.Services;
 
@@ -16,14 +17,16 @@ public class PartalogAiService : IPartalogAiService
     private readonly HttpClient _httpClient;
     private readonly ILogger<PartalogAiService> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly AiServiceOptions _options;
 
-    public PartalogAiService(HttpClient httpClient, ILogger<PartalogAiService> logger)
+    public PartalogAiService(
+        HttpClient httpClient,
+        ILogger<PartalogAiService> logger,
+        IOptions<AiServiceOptions> options)
     {
         _httpClient = httpClient;
         _logger = logger;
-
-        // Timeout ayarı (Uzun süren AI işlemleri için 5 dakika)
-        _httpClient.Timeout = TimeSpan.FromMinutes(5);
+        _options = options.Value;
 
         _jsonOptions = new JsonSerializerOptions
         {
@@ -226,7 +229,8 @@ public class PartalogAiService : IPartalogAiService
                 content.Add(fileContent, "file", request.Image.FileName);
             }
 
-            var response = await _httpClient.PostAsync("/api/chat/expert-chat", content);
+            using var timeoutCts = new CancellationTokenSource(_options.GetChatTimeout());
+            var response = await _httpClient.PostAsync("/api/chat/expert-chat", content, timeoutCts.Token);
 
             if (!response.IsSuccessStatusCode)
             {

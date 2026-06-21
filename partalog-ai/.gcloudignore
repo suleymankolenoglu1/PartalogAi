@@ -1,24 +1,17 @@
-# Cloud Build source filters for partalog-ai
-#
-# Important: we intentionally include the production YOLO weights even though
-# the local .gitignore excludes generic model files (*.pt).
-
-.git
-.gitignore
-__pycache__/
-*.py[cod]
-venv/
-.venv/
-env/
+.gcloudignore
+.dockerignore
 .env
-.DS_Store
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
 debug/
 debug_dumps/
 output/
-eval/report*.json
-eval/report*.md
+models/
+eval/
+tests/
+scripts/
+static/
 visual_debug.log
-
-# Keep the production model in the build context.
-!models/
-!models/best.pt

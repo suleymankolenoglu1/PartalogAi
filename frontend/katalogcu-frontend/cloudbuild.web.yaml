@@ -1,7 +1,7 @@
 substitutions:
   _REGION: europe-west1
   _REPOSITORY: partalog
-  _IMAGE_NAME: api
+  _IMAGE_NAME: web
   _TAG: latest
 
 steps:
@@ -11,7 +11,8 @@ steps:
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_TAG}
       - -f
-      - Katalogcu.API/Dockerfile
+      - Dockerfile.cloudrun
       - .
+
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_TAG}

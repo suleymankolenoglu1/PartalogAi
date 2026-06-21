@@ -4,6 +4,7 @@ using System.Text.Json;
 using Katalogcu.API.Services;
 using Katalogcu.Application.Features.Ai.Common;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Katalogcu.API.Tests.Services;
@@ -27,7 +28,8 @@ public sealed class PartalogAiServiceTests
 
         var service = new PartalogAiService(
             httpClient,
-            NullLogger<PartalogAiService>.Instance);
+            NullLogger<PartalogAiService>.Instance,
+            Options.Create(new AiServiceOptions()));
 
         var response = await service.GetExpertChatResponseAsync(new AiChatRequestDto { Text = "yamato vida" });
 

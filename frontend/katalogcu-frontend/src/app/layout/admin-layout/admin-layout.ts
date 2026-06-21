@@ -120,7 +120,7 @@ export class AdminLayoutComponent implements OnDestroy {
   }
 
   get supportsAiFeature(): boolean {
-    return environment.features.enableAi;
+    return environment.features.enableChatbot || environment.features.enableCatalogAnalysis;
   }
 
   get supportsEcommerceFeature(): boolean {

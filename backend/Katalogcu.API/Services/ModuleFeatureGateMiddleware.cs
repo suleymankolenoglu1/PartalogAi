@@ -17,9 +17,15 @@ public sealed class ModuleFeatureGateMiddleware
     {
         var path = context.Request.Path;
 
-        if (!_featurePolicy.AiEnabled && IsAiPath(path))
+        if (!_featurePolicy.ChatbotEnabled && IsChatbotPath(path))
         {
-            await WriteBlockedResponseAsync(context, "AI modülü bu yayında kapalı.");
+            await WriteBlockedResponseAsync(context, "Chatbot modülü bu yayında kapalı.");
+            return;
+        }
+
+        if (!_featurePolicy.CatalogAnalysisEnabled && IsCatalogAnalysisPath(path))
+        {
+            await WriteBlockedResponseAsync(context, "Katalog AI analizi bu yayında kapalı.");
             return;
         }
 
@@ -32,12 +38,17 @@ public sealed class ModuleFeatureGateMiddleware
         await _next(context);
     }
 
-    private static bool IsAiPath(PathString path)
+    private static bool IsChatbotPath(PathString path)
     {
-        if (path.StartsWithSegments("/api/ai")) return true;
         if (path.StartsWithSegments("/api/chat")) return true;
         if (path.StartsWithSegments("/api/chatfeedback")) return true;
         if (path.StartsWithSegments("/api/visualfeedback")) return true;
+        return false;
+    }
+
+    private static bool IsCatalogAnalysisPath(PathString path)
+    {
+        if (path.StartsWithSegments("/api/ai")) return true;
         if (path.StartsWithSegments("/api/catalogs/ai-jobs")) return true;
 
         var value = path.Value ?? string.Empty;

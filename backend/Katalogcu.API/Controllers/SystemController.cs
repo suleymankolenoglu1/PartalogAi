@@ -20,6 +20,8 @@ public class SystemController : ControllerBase
         return Ok(new
         {
             aiEnabled = _featurePolicy.AiEnabled,
+            chatbotEnabled = _featurePolicy.ChatbotEnabled,
+            catalogAnalysisEnabled = _featurePolicy.CatalogAnalysisEnabled,
             ecommerceEnabled = _featurePolicy.EcommerceEnabled,
             upgradePromptsEnabled = _featurePolicy.UpgradePromptsEnabled
         });

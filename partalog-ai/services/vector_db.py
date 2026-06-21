@@ -17,11 +17,8 @@ from config import settings
 _pool: asyncpg.Pool | None = None
 
 
-def _get_dsn() -> str | None:
-    dsn = getattr(settings, "DB_CONNECTION_STRING", None)
-    if not dsn:
-        dsn = getattr(settings, "DATABASE_URL", None)
-    return dsn
+def _get_connect_kwargs() -> dict[str, object]:
+    return settings.db_connect_kwargs
 
 
 async def init_db_pool():
@@ -30,12 +27,12 @@ async def init_db_pool():
     Pool'u oluşturur.
     """
     global _pool
-    dsn = _get_dsn()
-    if not dsn:
+    connect_kwargs = _get_connect_kwargs()
+    if not connect_kwargs:
         logger.critical("❌ HATA: Config dosyasında Veritabanı Bağlantı Linki bulunamadı!")
         return
     try:
-        _pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
+        _pool = await asyncpg.create_pool(**connect_kwargs, min_size=2, max_size=10)
         logger.success("✅ DB Connection Pool oluşturuldu.")
     except Exception as e:
         logger.error(f"❌ DB Pool Oluşturma Hatası: {e}")
@@ -60,11 +57,11 @@ async def _get_conn():
     if _pool:
         return await _pool.acquire(), True   # (conn, from_pool)
     # Pool henüz başlatılmadıysa tek bağlantı aç
-    dsn = _get_dsn()
-    if not dsn:
+    connect_kwargs = _get_connect_kwargs()
+    if not connect_kwargs:
         return None, False
     try:
-        conn = await asyncpg.connect(dsn)
+        conn = await asyncpg.connect(**connect_kwargs)
         return conn, False
     except Exception as e:
         logger.error(f"❌ Veritabanı Bağlantı Hatası: {e}")

@@ -29,6 +29,7 @@ logs/
 .env
 *.key.json
 google-key.json
+.tools/
 
 # User-specific files
 *.user

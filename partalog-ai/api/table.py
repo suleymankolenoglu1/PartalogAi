@@ -18,11 +18,47 @@ from typing import List, Optional
 from loguru import logger
 import time
 from config import settings
+from services.genai_provider import provider
 
 router = APIRouter()
 
-# ✅ MODEL: gemini-2.0-flash (Hız ve Maliyet Dostu)
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
+def _genai_timeout() -> aiohttp.ClientTimeout:
+    return aiohttp.ClientTimeout(total=max(float(settings.GENAI_REQUEST_TIMEOUT_SECONDS), 1.0), connect=5, sock_connect=5)
+
+
+async def _post_genai_json(payload: dict, *, label: str) -> dict | None:
+    api_url = provider.generate_content_url(settings.GEMINI_ANALYSIS_MODEL)
+    if not provider.has_credentials() or not api_url:
+        logger.error("GenAI credentials/config eksik: {}", label)
+        return None
+
+    normalized_payload = provider.normalize_generate_payload(payload)
+    attempts = max(1, int(settings.GENAI_RETRY_ATTEMPTS or 1))
+    for attempt in range(1, attempts + 1):
+        try:
+            headers = await provider.build_headers()
+            async with aiohttp.ClientSession(headers=headers, timeout=_genai_timeout()) as session:
+                async with session.post(api_url, json=normalized_payload) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    body = await response.text()
+                    logger.warning(
+                        "GenAI {} non-200 status={} attempt={}/{} body={}",
+                        label,
+                        response.status,
+                        attempt,
+                        attempts,
+                        body[:300],
+                    )
+                    if response.status not in {408, 429, 500, 502, 503, 504}:
+                        return None
+        except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+            logger.warning("GenAI {} request failed attempt={}/{} error={}", label, attempt, attempts, exc)
+
+        if attempt < attempts:
+            await asyncio.sleep(float(settings.GENAI_RETRY_BASE_DELAY_SECONDS) * attempt)
+
+    return None
 
 # --- Modeller ---
 class ProductResult(BaseModel):
@@ -112,24 +148,21 @@ async def extract_metadata(file: UploadFile = File(...)):
             "generationConfig": {"response_mime_type": "application/json", "temperature": 0.3}
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(GEMINI_API_URL, json=payload) as response:
-                if response.status == 200:
-                    res = await response.json()
-                    candidates = res.get("candidates", [])
-                    if candidates:
-                        txt = candidates[0]["content"]["parts"][0]["text"]
-                        clean_txt = txt.replace("```json", "").replace("```", "").strip()
-                        data = json.loads(clean_txt)
+        res = await _post_genai_json(payload, label="metadata")
+        candidates = res.get("candidates", []) if isinstance(res, dict) else []
+        if candidates:
+            txt = candidates[0]["content"]["parts"][0]["text"]
+            clean_txt = txt.replace("```json", "").replace("```", "").strip()
+            data = json.loads(clean_txt)
 
-                        machine_group = data.get("machine_group") or "General"
+            machine_group = data.get("machine_group") or "General"
 
-                        return MetadataResponse(
-                            machine_model=data.get("machine_model", "Unknown"),
-                            machine_brand=data.get("machine_brand"),
-                            machine_group=machine_group,
-                            catalog_title=data.get("catalog_title", "Unknown Catalog")
-                        )
+            return MetadataResponse(
+                machine_model=data.get("machine_model", "Unknown"),
+                machine_brand=data.get("machine_brand"),
+                machine_group=machine_group,
+                catalog_title=data.get("catalog_title", "Unknown Catalog")
+            )
 
         return MetadataResponse(machine_model="Unknown", catalog_title="Error")
     except Exception as e:
@@ -233,58 +266,50 @@ async def extract_table(
 
     products = []
 
-    async with aiohttp.ClientSession() as session:
-        for attempt in range(3):
-            try:
-                async with session.post(GEMINI_API_URL, json=payload) as response:
-                    if response.status == 200:
-                        res = await response.json()
-                        if not res.get("candidates"): break
+    res = await _post_genai_json(payload, label="table-extraction")
+    if res and res.get("candidates"):
+        txt = res["candidates"][0]["content"]["parts"][0]["text"]
+        clean_txt = txt.replace("```json", "").replace("```", "").strip()
+        if clean_txt.endswith(",]"):
+            clean_txt = clean_txt[:-2] + "]"
 
-                        txt = res["candidates"][0]["content"]["parts"][0]["text"]
-                        clean_txt = txt.replace("```json", "").replace("```", "").strip()
-                        if clean_txt.endswith(",]"): clean_txt = clean_txt[:-2] + "]"
+        try:
+            raw_data = json.loads(clean_txt)
+            for item in raw_data:
+                p_code = str(item.get("part_code") or "0").strip()
+                if len(p_code) < 3:
+                    continue
 
-                        try:
-                            raw_data = json.loads(clean_txt)
-                            for item in raw_data:
-                                p_code = str(item.get("part_code") or "0").strip()
-                                if len(p_code) < 3: continue
+                dims = str(item.get("dimensions") or "").strip()
+                if dims.lower() in ["null", "none"]:
+                    dims = None
 
-                                dims = str(item.get("dimensions") or "").strip()
-                                if dims.lower() in ["null", "none"]: dims = None
+                raw_name = str(item.get("part_name") or "").strip()
+                if not raw_name:
+                    raw_name = p_code
 
-                                raw_name = str(item.get("part_name") or "").strip()
-                                if not raw_name:
-                                    raw_name = p_code
+                raw_name_upper = raw_name.upper()
 
-                                raw_name_upper = raw_name.upper()
+                if not dims:
+                    name_dims = _extract_dimensions_from_name(raw_name_upper)
+                    if name_dims:
+                        dims = name_dims
 
-                                if not dims:
-                                    name_dims = _extract_dimensions_from_name(raw_name_upper)
-                                    if name_dims:
-                                        dims = name_dims
+                if dims and any(k in raw_name_upper for k in _FASTENER_KEYWORDS):
+                    if dims.upper() not in raw_name_upper:
+                        raw_name_upper = f"{raw_name_upper} {dims.upper()}".strip()
 
-                                if dims and any(k in raw_name_upper for k in _FASTENER_KEYWORDS):
-                                    if dims.upper() not in raw_name_upper:
-                                        raw_name_upper = f"{raw_name_upper} {dims.upper()}".strip()
-
-                                products.append(ProductResult(
-                                    ref_number=str(item.get("ref_no") or "0"),
-                                    part_code=p_code,
-                                    part_name=raw_name_upper,
-                                    description=str(item.get("remarks") or "").strip(),
-                                    quantity=1,
-                                    dimensions=dims
-                                ))
-                            logger.success(f"✅ [GEMINI] {len(products)} parça TÜRKÇELEŞTİRİLDİ (Sayfa {page_number})")
-                            break
-                        except:
-                            continue
-                    else:
-                        await asyncio.sleep(1)
-            except Exception:
-                await asyncio.sleep(1)
+                products.append(ProductResult(
+                    ref_number=str(item.get("ref_no") or "0"),
+                    part_code=p_code,
+                    part_name=raw_name_upper,
+                    description=str(item.get("remarks") or "").strip(),
+                    quantity=1,
+                    dimensions=dims
+                ))
+            logger.success(f"✅ [GEMINI] {len(products)} parça TÜRKÇELEŞTİRİLDİ (Sayfa {page_number})")
+        except Exception as exc:
+            logger.warning("Gemini table JSON parse failed: {}", exc)
 
     return TableExtractionResponse(
         success=True,

@@ -8,14 +8,15 @@ from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel
 from loguru import logger
 from config import settings
+from services.genai_provider import provider
 
 router = APIRouter()
 
 # 🚀 HIZ AYARI
 CONCURRENCY_LIMIT = asyncio.Semaphore(10)
 
-# ⚡ MODEL: gemini-2.0-flash-lite
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={settings.GEMINI_API_KEY}"
+def _genai_timeout() -> aiohttp.ClientTimeout:
+    return aiohttp.ClientTimeout(total=max(float(settings.GENAI_REQUEST_TIMEOUT_SECONDS), 1.0), connect=5, sock_connect=5)
 
 # ✅ GÜVENLİK: Yanıt Şeması
 class PageAnalysisResponse(BaseModel):
@@ -68,8 +69,15 @@ async def analyze_page_title(file: UploadFile = File(...)):
                 "generationConfig": { "response_mime_type": "application/json" }
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(GEMINI_API_URL, json=payload) as response:
+            api_url = provider.generate_content_url(settings.GEMINI_ANALYSIS_MODEL)
+            if not provider.has_credentials() or not api_url:
+                logger.error("GenAI credentials/config eksik: page analysis")
+                return PageAnalysisResponse(is_technical_drawing=False, is_parts_list=False, title="Hata")
+
+            headers = await provider.build_headers()
+            normalized_payload = provider.normalize_generate_payload(payload)
+            async with aiohttp.ClientSession(headers=headers, timeout=_genai_timeout()) as session:
+                async with session.post(api_url, json=normalized_payload) as response:
                     if response.status != 200:
                         logger.error(f"AI API Hatası: {await response.text()}")
                         return PageAnalysisResponse(is_technical_drawing=False, is_parts_list=False, title="Hata")

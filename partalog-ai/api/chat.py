@@ -25,6 +25,7 @@ from fastapi import APIRouter, Form, File, UploadFile, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from config import settings
+from services.genai_provider import provider
 
 # Ensure local .env is loaded for GOOGLE_API_KEY / GEMINI_API_KEY
 _BASE_DIR = Path(__file__).resolve().parents[1]
@@ -33,27 +34,6 @@ load_dotenv(_ENV_PATH)
 
 def _clean_key(value: str) -> str:
     return value.strip().strip('"').strip("'").strip() if value else ""
-
-def _get_gemini_api_key_with_source() -> tuple[str, str]:
-    if settings.GEMINI_API_KEY:
-        return _clean_key(settings.GEMINI_API_KEY), "settings.GEMINI_API_KEY"
-    env_google = os.getenv("GOOGLE_API_KEY")
-    if env_google:
-        return _clean_key(env_google), "env:GOOGLE_API_KEY"
-    env_gemini = os.getenv("GEMINI_API_KEY")
-    if env_gemini:
-        return _clean_key(env_gemini), "env:GEMINI_API_KEY"
-    return "", "empty"
-
-_gemini_key_logged = False
-
-def _mask_key(value: str) -> str:
-    if not value:
-        return "<empty>"
-    if len(value) <= 8:
-        return f"{value[:2]}...{value[-2:]}"
-    return f"{value[:4]}...{value[-4:]}"
-
 
 def _normalize_location_fields(catalog_id_value, page_number_value) -> tuple[str | None, str]:
     catalog_id = None
@@ -68,15 +48,54 @@ def _normalize_location_fields(catalog_id_value, page_number_value) -> tuple[str
 
     return catalog_id, page_number
 
-def _get_gemini_urls() -> tuple[str, str, str]:
-    global _gemini_key_logged
-    key, source = _get_gemini_api_key_with_source()
-    if not _gemini_key_logged:
-        logger.info(f"🔐 GEMINI_API_KEY source={source} value={_mask_key(key)} len={len(key)}")
-        _gemini_key_logged = True
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-    stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key={key}"
-    return key, api_url, stream_url
+def _genai_timeout(*, stream: bool = False) -> aiohttp.ClientTimeout:
+    total = settings.GENAI_STREAM_TIMEOUT_SECONDS if stream else settings.GENAI_REQUEST_TIMEOUT_SECONDS
+    return aiohttp.ClientTimeout(total=max(float(total), 1.0), connect=5, sock_connect=5)
+
+
+def _genai_retry_attempts() -> int:
+    return max(1, int(settings.GENAI_RETRY_ATTEMPTS or 1))
+
+
+def _is_retryable_genai_status(status: int) -> bool:
+    return status in {408, 429, 500, 502, 503, 504}
+
+
+async def _post_genai_json(model_name: str, payload: dict, *, label: str) -> dict | None:
+    api_url = provider.generate_content_url(model_name)
+    if not provider.has_credentials() or not api_url:
+        logger.error("⚠️ GenAI credentials/config eksik. label={}", label)
+        return None
+
+    normalized_payload = provider.normalize_generate_payload(payload)
+    attempts = _genai_retry_attempts()
+    for attempt in range(1, attempts + 1):
+        try:
+            headers = await provider.build_headers()
+            async with aiohttp.ClientSession(headers=headers, timeout=_genai_timeout()) as session:
+                async with session.post(api_url, json=normalized_payload) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+
+                    body = await resp.text()
+                    logger.warning(
+                        "GenAI {} non-200 status={} attempt={}/{} body={}",
+                        label,
+                        resp.status,
+                        attempt,
+                        attempts,
+                        body[:300],
+                    )
+                    if not _is_retryable_genai_status(resp.status) or attempt >= attempts:
+                        return None
+        except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+            logger.warning("GenAI {} request failed attempt={}/{} error={}", label, attempt, attempts, exc)
+            if attempt >= attempts:
+                return None
+
+        await asyncio.sleep(float(settings.GENAI_RETRY_BASE_DELAY_SECONDS) * attempt)
+
+    return None
 from core.rate_limiter import limiter
 
 # Rate limit constants
@@ -639,19 +658,12 @@ async def analyze_image_with_gemini(image_bytes: bytes, user_hint: str = "") -> 
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            key, api_url, _ = _get_gemini_urls()
-            if not key:
-                logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
-                return {}
-            async with session.post(api_url, json=payload) as resp:
-                if resp.status != 200:
-                    logger.warning(f"Image analyze failed status={resp.status}")
-                    return {}
-                data = await resp.json()
-                text_resp = data["candidates"][0]["content"]["parts"][0]["text"]
-                parsed = _parse_json_from_text(text_resp)
-                return parsed if isinstance(parsed, dict) else {}
+        data = await _post_genai_json(settings.GEMINI_ANALYSIS_MODEL, payload, label="image-analysis")
+        if not data:
+            return {}
+        text_resp = data["candidates"][0]["content"]["parts"][0]["text"]
+        parsed = _parse_json_from_text(text_resp)
+        return parsed if isinstance(parsed, dict) else {}
     except Exception as e:
         logger.error(f"Image analyze error: {e}")
         return {}
@@ -755,18 +767,11 @@ async def analyze_intent_with_gemini(text: str, history: list = None) -> dict:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            key, api_url, _ = _get_gemini_urls()
-            if not key:
-                logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
-                return _normalize_intent_payload(None, text)
-            async with session.post(api_url, json=payload) as resp:
-                if resp.status == 200:
-                    res = await resp.json()
-                    text_resp = res["candidates"][0]["content"]["parts"][0]["text"]
-                    return _normalize_intent_payload(json.loads(text_resp), text)
-                else:
-                    return _normalize_intent_payload(None, text)
+        res = await _post_genai_json(settings.GEMINI_CHAT_MODEL, payload, label="intent-analysis")
+        if not res:
+            return _normalize_intent_payload(None, text)
+        text_resp = res["candidates"][0]["content"]["parts"][0]["text"]
+        return _normalize_intent_payload(json.loads(text_resp), text)
     except Exception as e:
         logger.error(f"Router Hatası: {e}")
         return _normalize_intent_payload(None, text)
@@ -1499,27 +1504,15 @@ async def chat_endpoint(
         if ctx["early"]:
             return ctx["response"]
 
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "contents": [{"parts": [{"text": ctx["final_prompt"]}]}],
-                "generationConfig": GEMINI_CHAT_GENERATION_CONFIG,
-            }
-            key, api_url, _ = _get_gemini_urls()
-            if not key:
-                logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
-                fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
-                return {
-                    "answer": fallback,
-                    "reply": fallback,
-                    "sources": ctx.get("all_sources", []),
-                    "debug_intent": ctx.get("analysis"),
-                }
-            async with session.post(api_url, json=payload) as resp:
-                if resp.status == 200:
-                    ai_reply = (await resp.json())["candidates"][0]["content"]["parts"][0]["text"]
-                else:
-                    logger.warning(f"Gemini generateContent non-200: {resp.status}")
-                    ai_reply = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+        payload = {
+            "contents": [{"parts": [{"text": ctx["final_prompt"]}]}],
+            "generationConfig": GEMINI_CHAT_GENERATION_CONFIG,
+        }
+        data = await _post_genai_json(settings.GEMINI_CHAT_MODEL, payload, label="chat-generate")
+        if data:
+            ai_reply = data["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            ai_reply = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
 
         return {
             "answer": ai_reply,
@@ -1577,14 +1570,16 @@ async def chat_stream_endpoint(
                 "contents": [{"parts": [{"text": ctx["final_prompt"]}]}],
                 "generationConfig": GEMINI_CHAT_GENERATION_CONFIG,
             }
-            async with aiohttp.ClientSession() as session:
-                key, _, stream_url = _get_gemini_urls()
-                if not key:
-                    logger.error("⚠️ GEMINI_API_KEY empty. Check partalog-ai/.env")
-                    fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
-                    yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
-                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                    return
+            stream_url = provider.generate_content_url(settings.GEMINI_CHAT_MODEL, stream=True)
+            if not provider.has_credentials() or not stream_url:
+                logger.error("⚠️ GenAI credentials/config eksik. label=chat-stream")
+                fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
+                yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+            payload = provider.normalize_generate_payload(payload)
+            headers = await provider.build_headers()
+            async with aiohttp.ClientSession(headers=headers, timeout=_genai_timeout(stream=True)) as session:
                 async with session.post(stream_url, json=payload) as resp:
                     logger.info(f"🤖 [GEMINI-STREAM] status={resp.status} content-type={resp.headers.get('Content-Type')}")
                     if resp.status != 200:

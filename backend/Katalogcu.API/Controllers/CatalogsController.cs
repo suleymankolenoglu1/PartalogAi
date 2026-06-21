@@ -192,7 +192,7 @@ namespace Katalogcu.API.Controllers
                 email = storefront.Email,
                 phoneNumber = storefront.PhoneNumber,
                 subscriptionPlan = storefront.SubscriptionPlan,
-                aiChatEnabled = storefront.AiChatEnabled && _productFeaturePolicy.AiEnabled,
+                aiChatEnabled = storefront.AiChatEnabled && _productFeaturePolicy.ChatbotEnabled,
                 ecommerceEnabled = storefront.EcommerceEnabled && _productFeaturePolicy.EcommerceEnabled
             });
         }

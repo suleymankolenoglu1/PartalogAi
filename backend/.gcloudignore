@@ -1,0 +1,7 @@
+.gcloudignore
+.env
+**/bin/
+**/obj/
+Katalogcu.API.Tests/
+Katalogcu.API/wwwroot/uploads/
+reports/
