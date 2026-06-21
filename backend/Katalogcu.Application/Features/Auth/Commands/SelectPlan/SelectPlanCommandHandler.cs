@@ -24,6 +24,13 @@ public sealed class SelectPlanCommandHandler : IRequestHandler<SelectPlanCommand
             return OperationResult<AuthUserDto>.Failure("unauthorized", "Unauthorized");
         }
 
+        if (request.Plan != (int)SubscriptionPlan.CatalogOnly)
+        {
+            return OperationResult<AuthUserDto>.Failure(
+                "forbidden",
+                "Ücretli plan geçişleri yalnızca doğrulanmış abonelik veya platform yöneticisi işlemiyle yapılabilir.");
+        }
+
         var user = await _authRepository.GetByIdAsync(_currentUser.UserId, cancellationToken);
         if (user == null)
         {
@@ -34,12 +41,7 @@ public sealed class SelectPlanCommandHandler : IRequestHandler<SelectPlanCommand
         user.SubscriptionPlan = plan;
         user.PlanActivatedAt = DateTime.UtcNow;
         user.PlanExpiresAt = null;
-        user.MaxCatalogCount = plan switch
-        {
-            SubscriptionPlan.CatalogWithAI => 10,
-            SubscriptionPlan.CatalogWithAIAndEcommerce => int.MaxValue,
-            _ => 5
-        };
+        user.MaxCatalogCount = 5;
         user.UpdatedDate = DateTime.UtcNow;
 
         await _authRepository.SaveChangesAsync(cancellationToken);

@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<ICustomerRepository, CustomerRepository>();
         services.AddScoped<IFolderRepository, FolderRepository>();
         services.AddScoped<IHotspotRepository, HotspotRepository>();
+        services.AddSingleton<ISafeExternalHttpClient, SafeExternalHttpClient>();
         services.AddScoped<IExternalSiteFetchCrawler, ExternalSiteFetchCrawler>();
         services.AddScoped<IExternalSitePlaywrightCrawler, ExternalSitePlaywrightCrawler>();
         services.AddScoped<IExternalProductNormalizer, ExternalProductNormalizer>();

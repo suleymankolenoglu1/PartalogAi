@@ -23,8 +23,46 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.DataProtection;
+using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var jwtSecret = JwtSecretResolver.Resolve(builder.Configuration);
+var publicLinkSecret = builder.Configuration["PublicLink:SecretKey"]?.Trim() ?? string.Empty;
+
+if (builder.Environment.IsDevelopment())
+{
+    if (!SigningSecretPolicy.IsAcceptable(jwtSecret))
+    {
+        jwtSecret = SigningSecretPolicy.Generate();
+        builder.Configuration["JwtSettings:SecretKey"] = jwtSecret;
+    }
+
+    if (!SigningSecretPolicy.IsAcceptable(publicLinkSecret))
+    {
+        publicLinkSecret = SigningSecretPolicy.Generate();
+        builder.Configuration["PublicLink:SecretKey"] = publicLinkSecret;
+    }
+}
+else
+{
+    if (!SigningSecretPolicy.IsAcceptable(jwtSecret))
+    {
+        throw new InvalidOperationException("JwtSettings:SecretKey güvenli bir secret manager veya ortam değişkeni üzerinden sağlanmalıdır.");
+    }
+
+    if (!SigningSecretPolicy.IsAcceptable(publicLinkSecret))
+    {
+        throw new InvalidOperationException("PublicLink:SecretKey güvenli bir secret manager veya ortam değişkeni üzerinden sağlanmalıdır.");
+    }
+}
+
+if (CryptographicOperations.FixedTimeEquals(
+        Encoding.UTF8.GetBytes(jwtSecret),
+        Encoding.UTF8.GetBytes(publicLinkSecret)))
+{
+    throw new InvalidOperationException("JWT ve public-link tokenları farklı imzalama anahtarları kullanmalıdır.");
+}
 
 var defaultMaxBodySizeMb = builder.Configuration.GetValue<int?>("RequestLimits:DefaultMaxBodySizeMb") ?? 50;
 if (defaultMaxBodySizeMb is < 1 or > 512)
@@ -174,32 +212,17 @@ builder.Services.AddHealthChecks();
 
 // JWT Authentication Ayarları
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var jwtSecret = jwtSettings["SecretKey"];
-if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Trim().Length < 32)
-{
-    throw new InvalidOperationException("JwtSettings:SecretKey zorunludur ve en az 32 karakter olmalıdır.");
-}
-
-var publicLinkSecret = builder.Configuration["PublicLink:SecretKey"];
 if (builder.Environment.IsProduction())
 {
-    if (jwtSecret.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
-    {
-        throw new InvalidOperationException("JwtSettings:SecretKey production ortamında CHANGE_ME olamaz.");
-    }
-
-    if (string.IsNullOrWhiteSpace(publicLinkSecret) || publicLinkSecret.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
-    {
-        throw new InvalidOperationException("PublicLink:SecretKey production ortamında geçerli bir secret olmalıdır.");
-    }
-
-    if (string.IsNullOrWhiteSpace(defaultConnection) || defaultConnection.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+    if (string.IsNullOrWhiteSpace(defaultConnection) ||
+        defaultConnection.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase) ||
+        defaultConnection.Contains("YourPasswordHere", StringComparison.OrdinalIgnoreCase))
     {
         throw new InvalidOperationException("ConnectionStrings:DefaultConnection production ortamında geçerli olmalıdır.");
     }
 }
 
-var secretKey = Encoding.ASCII.GetBytes(jwtSecret);
+var secretKey = Encoding.UTF8.GetBytes(jwtSecret);
 
 // CORS origins (prod ortamında config zorunlu, development'ta localhost fallback var)
 var configuredCorsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
@@ -236,7 +259,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuer = true, 
         ValidIssuer = jwtSettings["Issuer"] ?? "KatalogcuAPI",
         ValidateAudience = true, 
-        ValidAudience = jwtSettings["Audience"] ?? "KatalogcuClient",
+        ValidAudience = jwtSettings["Audience"] ?? "KatalogcuUsers",
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };

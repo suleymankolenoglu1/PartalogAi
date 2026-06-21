@@ -27,17 +27,10 @@ public sealed class UserSuspensionMiddleware
             return;
         }
 
-        var role = context.User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
-        if (role.Equals("platformadmin", StringComparison.OrdinalIgnoreCase))
-        {
-            await _next(context);
-            return;
-        }
-
         var userIdRaw = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdRaw, out var userId))
         {
-            await _next(context);
+            await WriteDeniedAsync(context, StatusCodes.Status401Unauthorized, "Kimlik bilgisi geçersiz.");
             return;
         }
 
@@ -47,18 +40,27 @@ public sealed class UserSuspensionMiddleware
             .Select(u => u.Role)
             .FirstOrDefaultAsync(context.RequestAborted);
 
-        if (!string.IsNullOrWhiteSpace(currentRole) &&
-            currentRole.Equals("suspendedowner", StringComparison.OrdinalIgnoreCase))
+        var tokenRole = context.User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(currentRole) ||
+            !currentRole.Equals(tokenRole, StringComparison.OrdinalIgnoreCase))
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                message = "Hesabınız askıya alındı. Destek ekibiyle iletişime geçin."
-            }, context.RequestAborted);
+            await WriteDeniedAsync(context, StatusCodes.Status401Unauthorized, "Oturum rolü güncel değil veya kullanıcı bulunamadı.");
+            return;
+        }
+
+        if (currentRole.Equals("suspendedowner", StringComparison.OrdinalIgnoreCase))
+        {
+            await WriteDeniedAsync(context, StatusCodes.Status403Forbidden, "Hesabınız askıya alındı. Destek ekibiyle iletişime geçin.");
             return;
         }
 
         await _next(context);
+    }
+
+    private static async Task WriteDeniedAsync(HttpContext context, int statusCode, string message)
+    {
+        context.Response.StatusCode = statusCode;
+        await context.Response.WriteAsJsonAsync(new { message }, context.RequestAborted);
     }
 
     private static bool IsBypassPath(PathString path)

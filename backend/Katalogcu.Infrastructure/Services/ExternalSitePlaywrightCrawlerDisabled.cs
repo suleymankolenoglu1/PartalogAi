@@ -16,7 +16,7 @@ public sealed class ExternalSitePlaywrightCrawler : IExternalSitePlaywrightCrawl
 
     public Task<ExternalSiteFetchResult> CrawlAsync(string baseUrl, CancellationToken cancellationToken)
     {
-        const string reason = "Playwright crawler bu build'de kapalı. Etkinleştirmek için /p:EnablePlaywrightCrawler=true ile build alın.";
+        const string reason = "Playwright crawler, güvenli ağ izolasyonu sağlanana kadar devre dışıdır.";
         _logger.LogInformation("External site Playwright crawler disabled: {BaseUrl}", baseUrl);
 
         return Task.FromResult(new ExternalSiteFetchResult

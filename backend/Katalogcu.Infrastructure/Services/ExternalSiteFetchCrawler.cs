@@ -8,12 +8,12 @@ namespace Katalogcu.Infrastructure.Services;
 
 public sealed class ExternalSiteFetchCrawler : IExternalSiteFetchCrawler
 {
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ISafeExternalHttpClient _httpClient;
     private readonly ILogger<ExternalSiteFetchCrawler> _logger;
 
-    public ExternalSiteFetchCrawler(IHttpClientFactory httpClientFactory, ILogger<ExternalSiteFetchCrawler> logger)
+    public ExternalSiteFetchCrawler(ISafeExternalHttpClient httpClient, ILogger<ExternalSiteFetchCrawler> logger)
     {
-        _httpClientFactory = httpClientFactory;
+        _httpClient = httpClient;
         _logger = logger;
     }
 
@@ -21,12 +21,13 @@ public sealed class ExternalSiteFetchCrawler : IExternalSiteFetchCrawler
     {
         try
         {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("PartalogBot/1.0");
-
-            using var response = await client.GetAsync(baseUrl, cancellationToken);
+            using var response = await _httpClient.SendAsync(
+                HttpMethod.Get,
+                baseUrl,
+                HttpCompletionOption.ResponseContentRead,
+                cancellationToken);
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
+            var fetchedUri = response.RequestMessage?.RequestUri ?? new Uri(baseUrl);
             if (!response.IsSuccessStatusCode)
             {
                 return new ExternalSiteFetchResult
@@ -36,7 +37,7 @@ public sealed class ExternalSiteFetchCrawler : IExternalSiteFetchCrawler
                     RawStatsJson = JsonSerializer.Serialize(new
                     {
                         statusCode = (int)response.StatusCode,
-                        url = response.RequestMessage?.RequestUri?.ToString() ?? baseUrl
+                        url = fetchedUri.ToString()
                     })
                 };
             }
@@ -59,7 +60,7 @@ public sealed class ExternalSiteFetchCrawler : IExternalSiteFetchCrawler
                     x.Contains("part", StringComparison.OrdinalIgnoreCase))
                 .Select(x =>
                 {
-                    var absoluteUrl = new Uri(new Uri(baseUrl), x).ToString().TrimEnd('/');
+                    var absoluteUrl = new Uri(fetchedUri, x).ToString().TrimEnd('/');
                     return new CrawledProduct
                     {
                         SourceUrl = absoluteUrl,
@@ -73,7 +74,7 @@ public sealed class ExternalSiteFetchCrawler : IExternalSiteFetchCrawler
             var stats = new
             {
                 title,
-                fetchedUrl = response.RequestMessage?.RequestUri?.ToString() ?? baseUrl,
+                fetchedUrl = fetchedUri.ToString(),
                 statusCode = (int)response.StatusCode,
                 hrefCount = hrefs.Count,
                 candidateProductLinks = candidateProducts.Count,
@@ -101,8 +102,8 @@ public sealed class ExternalSiteFetchCrawler : IExternalSiteFetchCrawler
             return new ExternalSiteFetchResult
             {
                 Succeeded = false,
-                ErrorSummary = ex.Message,
-                RawStatsJson = JsonSerializer.Serialize(new { error = ex.Message, url = baseUrl })
+                ErrorSummary = "Dış site güvenli biçimde doğrulanamadı veya erişilemedi.",
+                RawStatsJson = JsonSerializer.Serialize(new { error = "external_fetch_failed", url = baseUrl })
             };
         }
     }

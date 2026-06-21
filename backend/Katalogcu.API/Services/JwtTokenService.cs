@@ -19,7 +19,13 @@ public sealed class JwtTokenService : IJwtTokenService
     public string CreateToken(AppUser user)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.ASCII.GetBytes(_configuration["JwtSettings:SecretKey"]!);
+        var secret = JwtSecretResolver.Resolve(_configuration);
+        if (!SigningSecretPolicy.IsAcceptable(secret))
+        {
+            throw new InvalidOperationException("JwtSettings:SecretKey is missing or insecure.");
+        }
+
+        var key = Encoding.UTF8.GetBytes(secret);
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
@@ -32,8 +38,8 @@ public sealed class JwtTokenService : IJwtTokenService
                 new Claim("plan", user.SubscriptionPlan.ToString())
             ]),
             Expires = DateTime.UtcNow.AddDays(7),
-            Issuer = _configuration["JwtSettings:Issuer"],
-            Audience = _configuration["JwtSettings:Audience"],
+            Issuer = _configuration["JwtSettings:Issuer"] ?? "KatalogcuAPI",
+            Audience = _configuration["JwtSettings:Audience"] ?? "KatalogcuUsers",
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
         };
 

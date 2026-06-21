@@ -15,7 +15,7 @@ services:
       - idle_in_transaction_session_timeout=60000
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalog_only_local_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: KatalogcuDb
     volumes:
       - catalog_only_pgdata:/var/lib/postgresql/data
@@ -33,7 +33,7 @@ services:
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-catalog_only_local_password}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       DB_NAME: KatalogcuDb
       POOL_MODE: transaction
       MAX_CLIENT_CONN: 200
@@ -62,11 +62,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Host=pgbouncer;Port=6432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-catalog_only_local_password};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=12;Timeout=15;Command Timeout=30;Max Auto Prepare=0
-      JwtSettings__SecretKey: catalog_only_local_jwt_secret_32_chars_minimum
+      ConnectionStrings__DefaultConnection: Host=pgbouncer;Port=6432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=12;Timeout=15;Command Timeout=30;Max Auto Prepare=0
+      JwtSettings__SecretKey: ${JWT_SECRET:?JWT_SECRET must be set}
       JwtSettings__Issuer: KatalogcuAPI
       JwtSettings__Audience: KatalogcuFrontend
-      PublicLink__SecretKey: catalog_only_local_public_secret_32_chars_minimum
+      PublicLink__SecretKey: ${PUBLIC_LINK_SECRET:?PUBLIC_LINK_SECRET must be set}
       PublicLink__Issuer: KatalogcuPublic
       PublicLink__Audience: KatalogcuPublic
       Registration__OwnerInviteCodes: ""

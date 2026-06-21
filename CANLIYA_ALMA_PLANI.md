@@ -100,6 +100,9 @@ Yerel catalog-only staging provasi:
 
 ```bash
 cd backend
+export POSTGRES_PASSWORD="$(openssl rand -base64 36)"
+export JWT_SECRET="$(openssl rand -base64 48)"
+export PUBLIC_LINK_SECRET="$(openssl rand -base64 48)"
 docker compose -f docker-compose.catalog-only.yml up -d --build
 ```
 

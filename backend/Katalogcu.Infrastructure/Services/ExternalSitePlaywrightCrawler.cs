@@ -4,6 +4,7 @@ using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Common.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
+using Katalogcu.Application.Features.ExternalSites.Commands;
 
 namespace Katalogcu.Infrastructure.Services;
 
@@ -28,8 +29,18 @@ public sealed class ExternalSitePlaywrightCrawler : IExternalSitePlaywrightCrawl
 
             var context = await browser.NewContextAsync(new BrowserNewContextOptions
             {
-                UserAgent = "PartalogBot/1.0 (+playwright)",
-                IgnoreHTTPSErrors = true
+                UserAgent = "PartalogBot/1.0 (+playwright)"
+            });
+
+            await context.RouteAsync("**/*", async route =>
+            {
+                if (await ExternalSiteUrlSecurityValidator.IsSafeExternalUrlAsync(route.Request.Url, cancellationToken))
+                {
+                    await route.ContinueAsync();
+                    return;
+                }
+
+                await route.AbortAsync();
             });
 
             var page = await context.NewPageAsync();

@@ -60,6 +60,8 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=KatalogcuDb;Username=postgres;Password=${POSTGRES_PASSWORD:-CHANGE_ME}
+      JwtSettings__SecretKey: ${JWT_SECRET:-}
+      PublicLink__SecretKey: ${PUBLIC_LINK_SECRET:-}
       AiService__BaseUrl: http://partalog-ai:8000
     ports:
       - "5159:8080"

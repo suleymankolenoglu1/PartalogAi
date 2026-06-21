@@ -176,6 +176,7 @@ namespace Katalogcu.API.Controllers
                     return result.ErrorCode switch
                     {
                         "unauthorized" => Unauthorized(),
+                        "forbidden" => StatusCode(StatusCodes.Status403Forbidden, result.ErrorMessage),
                         "validation" => BadRequest(result.ErrorMessage),
                         "not_found" => NotFound(result.ErrorMessage),
                         _ => StatusCode(500, result.ErrorMessage ?? "Profil güncellenemedi.")

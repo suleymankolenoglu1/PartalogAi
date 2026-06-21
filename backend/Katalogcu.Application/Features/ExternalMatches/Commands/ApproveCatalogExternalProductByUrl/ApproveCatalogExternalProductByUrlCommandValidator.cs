@@ -1,4 +1,5 @@
 using FluentValidation;
+using Katalogcu.Application.Features.ExternalSites.Commands;
 
 namespace Katalogcu.Application.Features.ExternalMatches.Commands.ApproveCatalogExternalProductByUrl;
 
@@ -10,13 +11,11 @@ public sealed class ApproveCatalogExternalProductByUrlCommandValidator : Abstrac
         RuleFor(x => x.ExternalSiteId).NotEmpty();
         RuleFor(x => x.ProductUrl)
             .NotEmpty()
-            .Must(BeValidHttpUrl)
-            .WithMessage("Geçerli bir ürün adresi girin.");
+            .Must(ExternalSiteUrlSecurityValidator.HasAllowedHttpScheme)
+            .WithMessage("Geçerli bir HTTP(S) ürün adresi girin.")
+            .MustAsync(ExternalSiteUrlSecurityValidator.IsSafeExternalUrlAsync)
+            .WithMessage("İç ağ, localhost veya özel IP adresleri kullanılamaz.");
         RuleFor(x => x.ProductTitle).MaximumLength(512);
         RuleFor(x => x.ReviewNote).MaximumLength(1024);
     }
-
-    private static bool BeValidHttpUrl(string value)
-        => Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-           (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }

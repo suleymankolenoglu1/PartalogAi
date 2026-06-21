@@ -1533,8 +1533,6 @@ COPY public."Products" ("Id", "Name", "Code", "Description", "Price", "StockQuan
 --
 
 COPY public."PublicAccessLinks" ("Id", "TokenHash", "UserId", "PublicLinkVersion", "CatalogIds", "ExpiresAtUtc", "IsRevoked", "CreatedDate", "UpdatedDate", "Token") FROM stdin;
-6021cac3-500f-44ab-9a3e-f5d4e7aa2880	72c62e108b357f8fd3162fe43877454ff46f25eb779ce672196f48dbe9c72459	ec5dabf2-b16f-45e2-952c-6e684beab2ca	1	\N	2027-04-20 06:55:54.29016+00	f	2026-04-20 06:55:54.292287+00	\N	pk_gRAXkbVeFuJMbORz27YLOyNf
-63b7d07e-d6c1-4469-bdfb-455b957128fd	b7032d30d32496a0d9a8ff03c9bbd6a0ee793e2c6a82adf276c8026dbcd4a80e	ec5dabf2-b16f-45e2-952c-6e684beab2ca	1	\N	2027-04-20 06:56:05.873272+00	f	2026-04-20 06:56:05.874262+00	\N	pk_q20sPmHDH1SppZlvswdfRclZ
 \.
 
 

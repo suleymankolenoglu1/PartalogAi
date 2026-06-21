@@ -3,7 +3,7 @@ using System.Net.Sockets;
 
 namespace Katalogcu.Application.Features.ExternalSites.Commands;
 
-internal static class ExternalSiteUrlSecurityValidator
+public static class ExternalSiteUrlSecurityValidator
 {
     public static bool HasAllowedHttpScheme(string? value)
         => TryCreateAllowedUri(value, out _);
@@ -16,34 +16,10 @@ internal static class ExternalSiteUrlSecurityValidator
         }
 
         ArgumentNullException.ThrowIfNull(uri);
-
-        if (IsLocalHost(uri.Host))
-        {
-            return false;
-        }
-
-        if (IPAddress.TryParse(uri.Host, out var directIp))
-        {
-            return !IsPrivateOrLocalAddress(directIp);
-        }
-
-        try
-        {
-            var addresses = await Dns.GetHostAddressesAsync(uri.DnsSafeHost, cancellationToken);
-            return addresses.Length == 0 || addresses.All(address => !IsPrivateOrLocalAddress(address));
-        }
-        catch (SocketException)
-        {
-            // DNS çözümlemesi ortamdan etkilenebilir; çözümleyemiyorsak sentaktik kontrolle devam ediyoruz.
-            return true;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
+        return (await ResolveSafeAddressesAsync(uri.DnsSafeHost, cancellationToken)).Length > 0;
     }
 
-    private static bool TryCreateAllowedUri(string? value, out Uri? uri)
+    public static bool TryCreateAllowedUri(string? value, out Uri? uri)
     {
         uri = null;
         if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var parsed))
@@ -66,14 +42,48 @@ internal static class ExternalSiteUrlSecurityValidator
         return true;
     }
 
+    public static async Task<IPAddress[]> ResolveSafeAddressesAsync(string host, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(host) || IsLocalHost(host))
+        {
+            return [];
+        }
+
+        if (IPAddress.TryParse(host, out var directIp))
+        {
+            return IsPrivateOrLocalAddress(directIp) ? [] : [directIp];
+        }
+
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            return addresses.Length > 0 && addresses.All(address => !IsPrivateOrLocalAddress(address))
+                ? addresses
+                : [];
+        }
+        catch (SocketException)
+        {
+            return [];
+        }
+        catch (ArgumentException)
+        {
+            return [];
+        }
+    }
+
     private static bool IsLocalHost(string host)
     {
         return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
                host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsPrivateOrLocalAddress(IPAddress address)
+    public static bool IsPrivateOrLocalAddress(IPAddress address)
     {
+        if (address.IsIPv4MappedToIPv6)
+        {
+            address = address.MapToIPv4();
+        }
+
         if (IPAddress.IsLoopback(address) ||
             address.Equals(IPAddress.Any) ||
             address.Equals(IPAddress.Broadcast) ||
@@ -85,10 +95,12 @@ internal static class ExternalSiteUrlSecurityValidator
 
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
+            var ipv6Bytes = address.GetAddressBytes();
             return address.IsIPv6LinkLocal ||
                    address.IsIPv6SiteLocal ||
                    address.IsIPv6Multicast ||
-                   IsUniqueLocalIpv6(address);
+                   IsUniqueLocalIpv6(address) ||
+                   (ipv6Bytes[0] == 0x20 && ipv6Bytes[1] == 0x01 && ipv6Bytes[2] == 0x0d && ipv6Bytes[3] == 0xb8);
         }
 
         var bytes = address.GetAddressBytes();
@@ -105,8 +117,12 @@ internal static class ExternalSiteUrlSecurityValidator
             100 when bytes[1] is >= 64 and <= 127 => true,
             169 when bytes[1] == 254 => true,
             172 when bytes[1] is >= 16 and <= 31 => true,
+            192 when bytes[1] == 0 => true,
+            192 when bytes[1] == 88 && bytes[2] == 99 => true,
             192 when bytes[1] == 168 => true,
             198 when bytes[1] is 18 or 19 => true,
+            198 when bytes[1] == 51 && bytes[2] == 100 => true,
+            203 when bytes[1] == 0 && bytes[2] == 113 => true,
             >= 224 => true,
             _ => false
         };

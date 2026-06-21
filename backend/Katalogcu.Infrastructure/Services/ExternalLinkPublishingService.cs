@@ -8,14 +8,14 @@ namespace Katalogcu.Infrastructure.Services;
 public sealed class ExternalLinkPublishingService : IExternalLinkPublishingService
 {
     private readonly ICatalogExternalMatchRepository _repository;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ISafeExternalHttpClient _httpClient;
 
     public ExternalLinkPublishingService(
         ICatalogExternalMatchRepository repository,
-        IHttpClientFactory httpClientFactory)
+        ISafeExternalHttpClient httpClient)
     {
         _repository = repository;
-        _httpClientFactory = httpClientFactory;
+        _httpClient = httpClient;
     }
 
     public async Task<IReadOnlyList<PublishedExternalLinkDto>> GetPublishedLinksByCatalogAsync(Guid catalogId, Guid userId, CancellationToken cancellationToken)
@@ -124,12 +124,13 @@ public sealed class ExternalLinkPublishingService : IExternalLinkPublishingServi
         string targetUrl,
         CancellationToken cancellationToken)
     {
-        var client = _httpClientFactory.CreateClient();
-
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Head, targetUrl);
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var response = await _httpClient.SendAsync(
+                HttpMethod.Head,
+                targetUrl,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
 
             var statusCode = (int)response.StatusCode;
             var isReachable = statusCode >= (int)HttpStatusCode.OK && statusCode < (int)HttpStatusCode.BadRequest;
@@ -141,13 +142,13 @@ public sealed class ExternalLinkPublishingService : IExternalLinkPublishingServi
                 FinalUrl: response.RequestMessage?.RequestUri?.ToString(),
                 ErrorSummary: errorSummary);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             return (
                 IsReachable: false,
                 StatusCode: null,
                 FinalUrl: targetUrl,
-                ErrorSummary: ex.Message);
+                ErrorSummary: "Dış bağlantı güvenli biçimde doğrulanamadı veya erişilemedi.");
         }
     }
 }
