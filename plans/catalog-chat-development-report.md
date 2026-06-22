@@ -4,11 +4,11 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı. Oranlar production on-call kanalı, semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Oranlar production on-call kanalı, semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
 
 - Genel proje ilerlemesi yaklaşık **%92** seviyesine çıktı.
 - Catalog + Chat MVP kod hazırlığı yaklaşık **%96** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%94** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%95** seviyesine çıktı.
 - Staging/eval/load kanıtı yaklaşık **%97** seviyesine çıktı.
 
 Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code ve semantic eval, kontrollü browse saturation baseline, bounded chat/SSE load kapıları, aktif uptime/alert politikaları ve maliyet budget kanıtları sayesinde geldi.
@@ -17,8 +17,9 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 
 - Vertex semantic embedding/generation quota artırımı veya cache stratejisi açık.
 - Production Monitoring notification channel ve canary/rollback tatbikatı açık.
-- Production canary öncesi yeni `vector_db` contract düzeltmesi staging
-  semantic smoke ile tekrar gözlenmeli.
+- Yeni `vector_db` contract düzeltmesi staging semantic gate ile doğrulandı;
+  production canary için notification channel + rollback tatbikatı sıradaki
+  ana kapı.
 
 ## 2026-06-22 — Paket 10: Modular Chat Vector DB Contract Düzeltmesi
 
@@ -58,13 +59,25 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 - Vector lifecycle + modular chat behavior suite geçti: `84/84`.
 - Stream contract + chat runtime fast path + eval metric suite geçti: `25/25`.
 - Chat discovery paketi geçti: `109/109`.
+- AI staging image build/deploy geçti:
+  - Cloud Build: `6a94ba22-332f-4b95-a008-93430f03bcea`
+  - Revision: `partalog-ai-chat-staging-00011-9q9`
+  - Image: `ai-staging-a12bd1c-vector-contract`
+  - Traffic: `100%`
+  - Scaling: min/max `1/1` korundu
+- Gerçek public-token staging semantic gate geçti:
+  - total: `8`
+  - success: `8/8`
+  - Hit@1/Hit@3/Hit@5: `100% / 100% / 100%`
+  - MRR: `1.000`
+  - hallucination rate: `0%`
+  - latency avg/p95: `3666.3 ms / 5572.4 ms`
 
 ### Açık İşler
 
-- Bu düzeltme lokal kontrat/test seviyesinde tamamlandı; production canary öncesi
-  staging semantic smoke ile canlı Cloud SQL verisi üstünde tekrar doğrulanmalı.
 - Vertex semantic quota/caching stratejisi ve production notification channel hâlâ
   ana açık maddeler.
+- Production canary/rollback tatbikatına geçilmeli.
 
 ## 2026-06-22 — Paket 9: SSE Contract, Exact-Code Fast Path ve Cold-Start Kapatma
 
