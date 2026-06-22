@@ -216,7 +216,7 @@ deploy_ai() {
       --set-secrets="DB_CONNECTION_STRING=$AI_DB_SECRET:latest" \
       --memory=1Gi \
       --cpu=1 \
-      --min-instances=0 \
+      --min-instances=1 \
       --max-instances=3
   else
     "$GCLOUD" run deploy "$AI_SERVICE" \
@@ -230,7 +230,7 @@ deploy_ai() {
       --set-secrets="DB_CONNECTION_STRING=$AI_DB_SECRET:latest" \
       --memory=1Gi \
       --cpu=1 \
-      --min-instances=0 \
+      --min-instances=1 \
       --max-instances=1
   fi
 

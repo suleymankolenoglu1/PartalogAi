@@ -270,7 +270,7 @@ gcloud run deploy "$AI_SERVICE" \
   --set-secrets="DB_CONNECTION_STRING=staging-partalog-ai-chat-db-connection:latest" \
   --memory=1Gi \
   --cpu=1 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=3
 ```
 
@@ -286,6 +286,11 @@ gcloud run services add-iam-policy-binding "$AI_SERVICE" \
   --member="serviceAccount:$API_SA" \
   --role="roles/run.invoker"
 ```
+
+Staging chat release gate'i first-token p95 `< 2000 ms` hedeflediği için private
+AI servisinde bir minimum instance tutulur. API ve web servisleri public uptime
+check trafiğiyle zaten periyodik olarak uyandırılır; bu nedenle onların minimum
+instance değeri `0` kalır.
 
 ## 11. API Deploy
 

@@ -20,6 +20,11 @@ The monthly billing budget is scoped to project number `851093992319`, uses the
 previous calendar period as its amount, and evaluates current spend at 50%, 80%
 and 100%, plus forecasted spend at 100%.
 
+The private AI chat service keeps one minimum instance because request logs
+showed an approximately 6.3 second container cold start. API and web remain at
+zero minimum instances. Review this incremental cost through the active monthly
+budget before changing the minimum or maximum scale.
+
 ## Apply Policies
 
 These policy definitions are intentionally version controlled:

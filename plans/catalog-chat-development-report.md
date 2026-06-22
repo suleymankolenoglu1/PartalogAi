@@ -4,20 +4,59 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi artık aktif. Oranlar production on-call kanalı, cold-start SLO kararı, Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Oranlar production on-call kanalı, semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
 
-- Genel proje ilerlemesi yaklaşık **%90** seviyesine çıktı.
-- Catalog + Chat MVP kod hazırlığı yaklaşık **%94** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%91** seviyesine çıktı.
-- Staging/eval/load kanıtı yaklaşık **%94** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%91** seviyesine çıktı.
+- Catalog + Chat MVP kod hazırlığı yaklaşık **%95** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%93** seviyesine çıktı.
+- Staging/eval/load kanıtı yaklaşık **%96** seviyesine çıktı.
 
 Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code ve semantic eval, kontrollü browse saturation baseline, bounded chat/SSE load kapıları, aktif uptime/alert politikaları ve maliyet budget kanıtları sayesinde geldi.
 
 ### Kalan Ana Blokajlar
 
-- Production Monitoring notification channel henüz seçilip doğrulanmadı.
-- SSE cold-start ölçümü first-token p95 hedefini aşıyor; min-instance veya cold-path SLO kararı gerekli.
-- Vertex embedding quota artırımı/cache stratejisi ve production canary/rollback tatbikatı açık.
+- Vertex semantic embedding/generation quota artırımı veya cache stratejisi açık.
+- Production Monitoring notification channel ve canary/rollback tatbikatı açık.
+- Modular chat behavior suite, eksik `vector_db` hybrid API contract'ı nedeniyle
+  import aşamasında bloklanıyor; production canary öncesi giderilmeli.
+
+## 2026-06-22 — Paket 9: SSE Contract, Exact-Code Fast Path ve Cold-Start Kapatma
+
+### Tamamlananlar
+
+- Cloud Run logları cold-start'ın private AI servisinden geldiğini kanıtladı:
+  - ilk API SSE istekleri: `8.94s / 8.72s`
+  - AI container startup: yaklaşık `6.3s`
+- Legacy SSE akışındaki `Decimal is not JSON serializable` hatası bulundu.
+- Tüm stream event'leri versioned `stream_contract` ile serialize ediliyor.
+- Fallback nedenleri sources/token/done event'lerinde açıkça taşınıyor.
+- Contract sonrası ara gate Vertex `429` fallback'ini doğru yakaladı:
+  - degraded fallback: `37.5%`
+  - eski contract bunu başarı gibi gösteriyordu.
+- Açık parça kodları lokal algılanıp intent GenAI çağrısı atlanıyor.
+- Exact-code yanıtları katalog kaynaklarından deterministik üretiliyor.
+- AI staging `min=1/max=1` profiline geçirildi.
+- Final AI revision: `partalog-ai-chat-staging-00010-6rh`.
+- Final exact-code SSE gate:
+  - `8/8`
+  - fallback `0%`
+  - first-token p95 `905.6 ms`
+  - completion p95 `907.1 ms`
+- Final non-stream exact-code gate:
+  - `8/8`
+  - p95 `369.7 ms`
+- Semantic SSE contract smoke:
+  - `1/1`
+  - fallback `0%`
+  - first-token `2632.1 ms`
+
+### Açık İşler
+
+- Production on-call notification channel bağlanmalı.
+- Semantic Vertex quota/caching planı netleştirilmeli.
+- `services.chat_retrieval` ile `services.vector_db` API drift'i giderilip full
+  modular behavior suite yeniden çalıştırılmalı.
+- Production canary ve rollback tatbikatına geçilmeli.
 
 ## 2026-06-22 — Paket 8: Staging Load Baseline, Alerting ve Maliyet Guardrail
 
@@ -33,8 +72,9 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 - Bounded exact-code chat kapıları çalıştırıldı:
   - non-stream: `8/8`, p95 `633.3 ms`
   - SSE cold sample: `8/8`, first-token p95 `9187.0 ms`, latency gate failed
-  - SSE warm repeat: `8/8`, first-token p95 `1444.0 ms`, gate passed
-  - tüm chat ölçümlerinde degraded fallback `0%`
+  - SSE warm repeat: legacy contract ile `8/8`, first-token p95 `1444.0 ms`
+  - Paket 9 log incelemesi legacy fallback ölçümünü supersede etti; final
+    contract gate fallback `0%` ile ayrıca doğrulandı.
 - Cloud Monitoring kaynakları oluşturuldu:
   - `2` uptime check
   - `2` alert policy / toplam `5` condition
@@ -48,7 +88,7 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 ### Açık İşler
 
 - Production on-call notification channel bağlanmalı.
-- Cold-start SSE için min-instance veya ayrı cold-path SLO kararı alınmalı.
+- Cold-start SSE maddesi Paket 9'da AI `min-instances=1` ile kapatıldı.
 - Vertex quota/caching ve production canary/rollback adımına geçilmeli.
 
 ## 2026-06-22 — Paket 7: Temiz Staging Semantic Corpus ve Quota-Dostu Eval Gate

@@ -155,6 +155,24 @@ def extract_code_from_text(text: str | None) -> str | None:
     return match.group(0).strip() if match else None
 
 
+def build_explicit_code_analysis(text: str | None) -> dict | None:
+    code = extract_code_from_text(text)
+    if not code:
+        return None
+    return {
+        "intent": "SEARCH",
+        "part_code": code,
+        "part_name": None,
+        "parts": [
+            {
+                "part_name": None,
+                "part_code": code,
+                "dimensions": None,
+            }
+        ],
+    }
+
+
 def infer_unavailable_feature_intent(text: str | None) -> str | None:
     normalized = normalize_for_overlap(text or "")
     if any(hint in normalized for hint in PRICE_HINTS):

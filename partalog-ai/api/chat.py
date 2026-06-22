@@ -25,6 +25,14 @@ from fastapi import APIRouter, Form, File, UploadFile, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from config import settings
+from api.stream_contract import (
+    build_done_event,
+    build_sources_event,
+    build_token_event,
+    serialize_sse_event,
+)
+from services.chat_intent import build_explicit_code_analysis, extract_code_from_text
+from services.chat_responses import build_exact_code_reply_from_sources
 from services.genai_provider import provider
 
 # Ensure local .env is loaded for GOOGLE_API_KEY / GEMINI_API_KEY
@@ -800,10 +808,12 @@ _ALLOWED_INTENTS = {
 
 
 def _normalize_intent_payload(payload: dict | None, fallback_text: str) -> dict:
+    fallback_code = extract_code_from_text(fallback_text)
     base = {
         "intent": "SEARCH",
         "brand": None,
-        "part_name": fallback_text,
+        "part_name": None if fallback_code else fallback_text,
+        "part_code": fallback_code,
         "machine_group": None,
     }
     if not isinstance(payload, dict):
@@ -816,6 +826,9 @@ def _normalize_intent_payload(payload: dict | None, fallback_text: str) -> dict:
     normalized.setdefault("part_name", fallback_text)
     normalized.setdefault("context_part", None)
     normalized.setdefault("machine_group", None)
+    if fallback_code and not normalized.get("part_code"):
+        normalized["part_code"] = fallback_code
+        normalized["part_name"] = None
     return normalized
 
 
@@ -883,10 +896,21 @@ async def _prepare_chat_context(
         image_analysis = results[1] if isinstance(results[1], dict) else {}
         analysis["image_analysis"] = image_analysis
     else:
-        analysis = _normalize_intent_payload(
-            await analyze_intent_with_gemini(user_query, history=history_list_for_intent),
-            user_query,
-        )
+        explicit_analysis = build_explicit_code_analysis(user_query)
+        if explicit_analysis:
+            analysis = _normalize_intent_payload(
+                explicit_analysis,
+                user_query,
+            )
+            logger.info(
+                "⚡ Explicit part code detected locally; intent GenAI call skipped: {}",
+                explicit_analysis["part_code"],
+            )
+        else:
+            analysis = _normalize_intent_payload(
+                await analyze_intent_with_gemini(user_query, history=history_list_for_intent),
+                user_query,
+            )
 
     intent = analysis.get("intent", "CHAT")
     extracted_brand = analysis.get("brand")
@@ -1504,6 +1528,19 @@ async def chat_endpoint(
         if ctx["early"]:
             return ctx["response"]
 
+        exact_reply = build_exact_code_reply_from_sources(
+            ctx["user_query"],
+            ctx["analysis"],
+            ctx["all_sources"],
+        )
+        if exact_reply:
+            return {
+                "answer": exact_reply,
+                "reply": exact_reply,
+                "sources": ctx["all_sources"],
+                "debug_intent": ctx["analysis"],
+            }
+
         payload = {
             "contents": [{"parts": [{"text": ctx["final_prompt"]}]}],
             "generationConfig": GEMINI_CHAT_GENERATION_CONFIG,
@@ -1549,21 +1586,47 @@ async def chat_stream_endpoint(
         try:
             limit_msg = _plan_limit_message(user_plan, ai_limit_per_month, ai_used_this_month)
             if limit_msg:
-                yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
-                yield f"data: {json.dumps({'type': 'token', 'token': limit_msg})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield serialize_sse_event(build_sources_event([]))
+                yield serialize_sse_event(build_token_event(limit_msg))
+                yield serialize_sse_event(build_done_event())
                 return
 
             ctx = await _prepare_chat_context(text, message, history, catalog_ids, file)
             if ctx["early"]:
                 resp = ctx["response"]
-                yield f"data: {json.dumps({'type': 'sources', 'sources': resp.get('sources', []), 'debug_intent': resp.get('debug_intent')})}\n\n"
-                yield f"data: {json.dumps({'type': 'token', 'token': resp.get('answer', '')})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield serialize_sse_event(
+                    build_sources_event(
+                        resp.get("sources", []),
+                        debug_intent=resp.get("debug_intent"),
+                    )
+                )
+                yield serialize_sse_event(build_token_event(resp.get("answer", "")))
+                yield serialize_sse_event(build_done_event())
+                return
+
+            exact_reply = build_exact_code_reply_from_sources(
+                ctx["user_query"],
+                ctx["analysis"],
+                ctx["all_sources"],
+            )
+            if exact_reply:
+                yield serialize_sse_event(
+                    build_sources_event(
+                        ctx["all_sources"],
+                        debug_intent=ctx["analysis"],
+                    )
+                )
+                yield serialize_sse_event(build_token_event(exact_reply))
+                yield serialize_sse_event(build_done_event())
                 return
 
             # Kaynakları stream başında tek seferlik gönder
-            yield f"data: {json.dumps({'type': 'sources', 'sources': ctx['all_sources'], 'debug_intent': ctx['analysis']})}\n\n"
+            yield serialize_sse_event(
+                build_sources_event(
+                    ctx["all_sources"],
+                    debug_intent=ctx["analysis"],
+                )
+            )
 
             # Gemini streamGenerateContent çağrısı
             payload = {
@@ -1574,8 +1637,19 @@ async def chat_stream_endpoint(
             if not provider.has_credentials() or not stream_url:
                 logger.error("⚠️ GenAI credentials/config eksik. label=chat-stream")
                 fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
-                yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield serialize_sse_event(
+                    build_token_event(
+                        fallback,
+                        fallback_used=True,
+                        fallback_reason="upstream_connection_failure",
+                    )
+                )
+                yield serialize_sse_event(
+                    build_done_event(
+                        fallback_used=True,
+                        fallback_reason="upstream_connection_failure",
+                    )
+                )
                 return
             payload = provider.normalize_generate_payload(payload)
             headers = await provider.build_headers()
@@ -1589,8 +1663,19 @@ async def chat_stream_endpoint(
                             err_text = "<read-failed>"
                         logger.error(f"🤖 [GEMINI-STREAM] error body: {err_text[:500]}")
                         fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
-                        yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        yield serialize_sse_event(
+                            build_token_event(
+                                fallback,
+                                fallback_used=True,
+                                fallback_reason="upstream_non_success",
+                            )
+                        )
+                        yield serialize_sse_event(
+                            build_done_event(
+                                fallback_used=True,
+                                fallback_reason="upstream_non_success",
+                            )
+                        )
                         return
                     buffer = ""
                     done = False
@@ -1622,7 +1707,7 @@ async def chat_stream_endpoint(
                                 token = parts[0].get("text") if parts else None
                                 if token:
                                     token_count += 1
-                                    yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+                                    yield serialize_sse_event(build_token_event(token))
                             except Exception as parse_err:
                                 logger.debug(f"SSE chunk parse atlandı: {parse_err} | raw={raw[:80]}")
                                 continue
@@ -1631,13 +1716,32 @@ async def chat_stream_endpoint(
                     if token_count == 0:
                         logger.warning("🤖 [GEMINI-STREAM] 0 token üretildi. Yanıt formatı beklenenden farklı olabilir.")
                         fallback = build_deterministic_reply_from_sources(ctx["user_query"], ctx.get("all_sources", []))
-                        yield f"data: {json.dumps({'type': 'token', 'token': fallback})}\n\n"
+                        yield serialize_sse_event(
+                            build_token_event(
+                                fallback,
+                                fallback_used=True,
+                                fallback_reason="zero_tokens",
+                            )
+                        )
 
         except Exception as e:
             logger.error(f"Chat Stream Hatası: {e}")
-            yield f"data: {json.dumps({'type': 'token', 'token': 'Sistemsel bir hata oluştu ustam.'})}\n\n"
+            yield serialize_sse_event(
+                build_token_event(
+                    "Sistemsel bir hata oluştu ustam.",
+                    fallback_used=True,
+                    fallback_reason="upstream_unexpected_error",
+                )
+            )
+            yield serialize_sse_event(
+                build_done_event(
+                    fallback_used=True,
+                    fallback_reason="upstream_unexpected_error",
+                )
+            )
+            return
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        yield serialize_sse_event(build_done_event())
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

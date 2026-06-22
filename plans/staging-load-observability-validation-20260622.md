@@ -43,12 +43,16 @@ boyunca sınırsız istek üretmiyor.
 |---|---:|---:|---:|---:|---:|---:|
 | non-stream exact-code | 8 | 2 | 100% | 633.3 ms | - | 0% |
 | SSE exact-code, cold sample | 8 | 2 | 100% | 9201.9 ms | 9187.0 ms | 0% |
-| SSE exact-code, warm repeat | 8 | 2 | 100% | 1445.1 ms | 1444.0 ms | 0% |
+| SSE exact-code, warm repeat (legacy contract) | 8 | 2 | 100% | 1445.1 ms | 1444.0 ms | not observable |
 
 Cold sample `%100` başarılı olsa da 5 saniye completion ve 2 saniye first-token
 hedeflerini geçemedi. Aynı revision sıcak halde tekrarlandığında iki hedef de
 geçti. Bu nedenle Cloud Run min-instance kullanılmayan staging profilinde
-cold-start latency bilinen risk olarak korunuyor; başarısız ilk ölçüm silinmedi.
+cold-start latency bilinen risk olarak korunuyordu; başarısız ilk ölçüm silinmedi.
+Sonraki log incelemesi legacy contract'ın `Decimal` serialization fallback'ini
+işaretlemediğini gösterdiği için warm repeat fallback sonucu release kanıtı olarak
+supersede edildi. Kalıcı düzeltme ve yeni sonuçlar
+`plans/staging-sse-cold-start-remediation-20260622.md` içindedir.
 
 Ham JSON raporları `backend/reports/` altında git-ignore kapsamındadır.
 
@@ -101,7 +105,7 @@ Cloud Billing Budget API bu adımda etkinleştirildi.
 ## Kalan Release Riskleri
 
 - Production on-call notification channel seçilmeli ve doğrulanmalı.
-- Cold-start SSE hedefi için production'da min-instance veya kabul edilen daha
-  yüksek cold-path SLO kararı verilmeli.
+- Staging cold-start SSE riski AI `min-instances=1` ile kapatıldı. Production
+  deploy profilinde aynı first-token SLO korunmalı.
 - Vertex embedding quota artırımı veya cache/rate-limit stratejisi netleşmeli.
 - Production rollout/canary ve rollback tatbikatı henüz yapılmadı.

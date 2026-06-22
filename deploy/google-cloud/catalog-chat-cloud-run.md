@@ -83,7 +83,7 @@ gcloud run deploy partalog-ai-chat \
   --set-env-vars="DEBUG=false,STARTUP_SKIP_MODEL_LOADING=true,ENABLE_HOTSPOT_ENDPOINTS=false,ENABLE_CATALOG_PROCESSING_ENDPOINTS=false,GENAI_PROVIDER=vertex,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_CHAT_MODEL=gemini-2.5-flash-lite,GEMINI_ANALYSIS_MODEL=gemini-2.5-flash-lite,GENAI_REQUEST_TIMEOUT_SECONDS=30,GENAI_STREAM_TIMEOUT_SECONDS=90,GENAI_RETRY_ATTEMPTS=2,DB_CONNECTION_STRING=$DB_CONNECTION,AI_CHAT_CAPACITY_PROVIDER=redis,AI_CHAT_USE_DISTRIBUTED_LEASES=true,AI_CHAT_REDIS_URL=$REDIS_URL,AI_CHAT_GLOBAL_CONCURRENCY=100,AI_CHAT_ACQUIRE_TIMEOUT_SECONDS=0.5" \
   --memory=1Gi \
   --cpu=1 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=5
 ```
 
@@ -99,6 +99,10 @@ gcloud run services add-iam-policy-binding partalog-ai-chat \
   --member="serviceAccount:katalogcu-api-run@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/run.invoker"
 ```
+
+Public chat first-token SLO'su cold-start sırasında da korunacaksa private AI
+servisinde en az bir instance tutulur. `min-instances=0` yalnızca daha yüksek bir
+cold-path SLO açıkça kabul edildiğinde kullanılmalıdır.
 
 ## API Deploy Flag Profili
 

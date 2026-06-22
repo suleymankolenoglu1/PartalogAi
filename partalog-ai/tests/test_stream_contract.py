@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -72,6 +73,17 @@ class StreamContractTests(unittest.TestCase):
         self.assertEqual(payload["type"], "sources")
         self.assertEqual(payload["searchTrace"]["original_query"], "vida kodu")
         self.assertEqual(payload["searchTrace"]["final_decision"]["decision"], "EXACT_MATCH")
+
+    def test_sources_event_serializes_database_decimal_values(self) -> None:
+        payload = self.parse_sse_payload(
+            serialize_sse_event(
+                build_sources_event(
+                    [{"code": "70003363", "price": Decimal("12.50")}],
+                )
+            )
+        )
+
+        self.assertEqual(payload["sources"][0]["price"], 12.5)
 
 
 if __name__ == "__main__":
