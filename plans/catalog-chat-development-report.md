@@ -4,22 +4,56 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Oranlar production on-call kanalı, semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Oranlar production on-call kanalı, semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
 
-- Genel proje ilerlemesi yaklaşık **%92** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%93** seviyesine çıktı.
 - Catalog + Chat MVP kod hazırlığı yaklaşık **%96** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%95** seviyesine çıktı.
-- Staging/eval/load kanıtı yaklaşık **%97** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%96** seviyesine çıktı.
+- Staging/eval/load kanıtı yaklaşık **%98** seviyesine çıktı.
 
 Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code ve semantic eval, kontrollü browse saturation baseline, bounded chat/SSE load kapıları, aktif uptime/alert politikaları ve maliyet budget kanıtları sayesinde geldi.
 
 ### Kalan Ana Blokajlar
 
 - Vertex semantic embedding/generation quota artırımı veya cache stratejisi açık.
-- Production Monitoring notification channel ve canary/rollback tatbikatı açık.
-- Yeni `vector_db` contract düzeltmesi staging semantic gate ile doğrulandı;
-  production canary için notification channel + rollback tatbikatı sıradaki
-  ana kapı.
+- Production Monitoring notification channel açık.
+- Staging canary/rollback tatbikatı tamamlandı; production canary hâlâ kontrollü
+  şekilde uygulanmalı.
+
+## 2026-06-22 — Paket 11: Staging AI Canary / Rollback Tatbikatı
+
+### Tamamlananlar
+
+- `partalog-ai-chat-staging` için Cloud Run revision listesi doğrulandı:
+  - candidate/final: `partalog-ai-chat-staging-00012-crn`
+  - rollback target: `partalog-ai-chat-staging-00010-6rh`
+- Baseline private AI `/health/ready` geçti:
+  - DB ready
+  - Redis distributed capacity ready
+- Yüzdelik canary split denendi; Cloud Run service-level `maxScale=1` guardrail'i
+  nedeniyle iki traffic target'a split reddedildi.
+- Bunun yerine güvenli staging akışı tamamlandı:
+  - tagged canary health check
+  - `%100` rollback to `00010-6rh`
+  - rollback health check
+  - `%100` roll-forward to `00012-crn`
+  - final health check
+- Final Cloud Run durumu:
+  - active revision: `partalog-ai-chat-staging-00012-crn`
+  - traffic: `100%`
+  - service min/max: `1/1`
+  - revision max: `1`
+  - `candidate` tag: `00012-crn`
+  - `rollback` tag: `00010-6rh`
+- Tatbikat zaman aralığı Cloud Run log taramasında `ERROR`, `Exception`,
+  `Traceback` kaydı görülmedi.
+
+### Çıkarım
+
+- Production yüzdelik canary için geçici `maxScale >= 2` planlanmalı.
+- `maxScale=1` korunacaksa production stratejisi tagged canary + hızlı rollback
+  şeklinde yapılmalı.
+- Notification channel hâlâ ayrı ana açık madde.
 
 ## 2026-06-22 — Paket 10: Modular Chat Vector DB Contract Düzeltmesi
 
