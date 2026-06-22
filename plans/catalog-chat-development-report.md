@@ -4,19 +4,19 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Monitoring notification channel `info@partalog.tech` için oluşturulup staging alert policy'lere bağlandı; mailbox/Console doğrulama kontrolü açık. Vertex semantic `429` riskini azaltmak için embedding retry/cache/singleflight guardrail'i lokal testlerden geçti. Oranlar staging deploy ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Monitoring notification channel `info@partalog.tech` için oluşturulup staging alert policy'lere bağlandı; mailbox/Console doğrulama kontrolü açık. Vertex semantic `429` riskini azaltmak için embedding retry/cache/singleflight guardrail'i staging'e deploy edildi ve semantic gate geçti. Oranlar production canary ve Vertex quota kabul/iyileştirme kararı tamamlanmadığı için hâlâ konservatif tutuldu.
 
-- Genel proje ilerlemesi yaklaşık **%94** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%95** seviyesine çıktı.
 - Catalog + Chat MVP kod hazırlığı yaklaşık **%96** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%97** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%98** seviyesine çıktı.
 - Staging/eval/load kanıtı yaklaşık **%98** seviyesine çıktı.
 
 Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code ve semantic eval, kontrollü browse saturation baseline, bounded chat/SSE load kapıları, aktif uptime/alert politikaları ve maliyet budget kanıtları sayesinde geldi.
 
 ### Kalan Ana Blokajlar
 
-- Vertex semantic embedding cache/retry guardrail'i lokal geçti; staging deploy
-  ve quota limit kararı açık.
+- Vertex semantic embedding cache/retry guardrail'i staging gate'ten geçti; quota
+  kabul/artırım kararı açık.
 - Monitoring email channel bağlı; `info@partalog.tech` mailbox/Console doğrulama
   kontrolü açık.
 - Staging canary/rollback tatbikatı tamamlandı; production canary hâlâ kontrollü
@@ -46,13 +46,24 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 - Embedding retry/cache testleri geçti: `3/3`.
 - İlgili embedding + chat metric hızlı paket geçti: `23/23`.
 - Geniş chat/vector regression paketi geçti: `112/112`.
+- AI staging build/deploy geçti:
+  - Cloud Build: `ef757f50-d357-4bd7-89e7-ddcd16f1aad7`
+  - Image: `ai-staging-e74c012-embedding-guardrail`
+  - Active revision: `partalog-ai-chat-staging-00012-crn`
+  - AI `/health/ready`: `passed`
+- Gerçek public-token staging semantic gate geçti:
+  - total: `8`
+  - success: `8/8`
+  - Hit@1/Hit@3/Hit@5: `100% / 100% / 100%`
+  - MRR: `1.000`
+  - hallucination rate: `0%`
+  - latency avg/p95: `3407.8 ms / 4345.9 ms`
 
 ### Açık İşler
 
-- Yeni guardrail AI staging servisine deploy edilmeli.
-- Staging semantic gate tekrar çalıştırılmalı.
-- Vertex quota artışı veya kabul edilen quota limiti hâlâ production kararı
-  olarak netleştirilmeli.
+- Gate sırasında iki quality retry ve Cloud Logging'de `RESOURCE_EXHAUSTED`
+  kayıtları görüldü; final sonuç başarılı olsa da Vertex quota artışı veya kabul
+  edilen quota limiti hâlâ production kararı olarak netleştirilmeli.
 
 ## 2026-06-22 — Paket 12: Monitoring Notification Channel
 

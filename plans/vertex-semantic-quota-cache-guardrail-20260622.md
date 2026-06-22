@@ -2,7 +2,7 @@
 
 ## Sonuç
 
-- Status: `local_passed`
+- Status: `staging_passed_with_quota_warning`
 - Kapsam: `partalog-ai/services/embedding.py`
 - Amaç: staging semantic eval sırasında görülen Vertex `429 RESOURCE_EXHAUSTED`
   titreşimini kod seviyesinde yumuşatmak
@@ -10,6 +10,19 @@
   - Python compile: `passed`
   - Embedding retry/cache tests: `3/3 passed`
   - Chat/vector regression paketi: `112/112 passed`
+- Staging deployment:
+  - Cloud Build: `ef757f50-d357-4bd7-89e7-ddcd16f1aad7` — `SUCCESS`
+  - Image: `ai-staging-e74c012-embedding-guardrail`
+  - Image digest: `sha256:21a7b9f31c293d57dc45c684b12ec62fc33d5498b65d2b58ea6988849d34d83d`
+  - Active Cloud Run revision: `partalog-ai-chat-staging-00012-crn`
+  - Traffic: `100%`
+  - AI `/health/ready`: `passed`
+- Staging semantic gate:
+  - `8/8 passed`
+  - Hit@1/Hit@3/Hit@5: `100% / 100% / 100%`
+  - MRR: `1.000`
+  - hallucination rate: `0%`
+  - latency avg/p95: `3407.8 ms / 4345.9 ms`
 
 ## Kök Neden
 
@@ -91,8 +104,13 @@ Bu guardrail Vertex kota artışının yerine geçmez; ancak aynı sorguların t
 embedding üretmesini ve anlık `429` yanıtlarının semantic lane'i hemen düşürmesini
 azaltır.
 
+Staging semantic gate yeni image ile geçti. Gate sırasında iki quality retry
+yaşandı ve Cloud Logging'de aynı aralıkta `RESOURCE_EXHAUSTED` kayıtları görüldü.
+Bu kayıtlar final sonucu bozmadı; ancak Vertex quota riskinin tamamen kapanmadığını
+gösteriyor.
+
 Production öncesi hâlâ önerilen karar:
 
 - Vertex embedding/generation quota artırımı istenmeli veya quota limiti net
   dokümante edilmeli.
-- Staging deploy sonrası semantic gate tekrar çalıştırılmalı.
+- Eval/release gate'lerinde quota-dostu delay/retry profili korunmalı.
