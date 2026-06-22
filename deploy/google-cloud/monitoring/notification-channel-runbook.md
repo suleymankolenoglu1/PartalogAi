@@ -5,19 +5,34 @@ notification channel'a bağlamak için kullanılır.
 
 ## Mevcut Durum
 
-2026-06-22 kontrolünde `partalog` projesinde Monitoring notification channel
+2026-06-22 ilk kontrolde `partalog` projesinde Monitoring notification channel
 bulunmadı:
 
 ```text
 notification_channel_count=0
 ```
 
-Alert policy'ler aktif olduğu için incident Cloud Monitoring içinde açılır; ancak
-kanal bağlı olmadığı sürece e-posta/Slack/PagerDuty gibi dış bildirim gitmez.
+Ardından `info@partalog.tech` için email notification channel oluşturuldu ve
+mevcut staging alert policy'lere bağlandı:
+
+```text
+channel=projects/partalog/notificationChannels/542323106088939530
+recipient=info@partalog.tech
+Partalog staging public availability -> notificationChannels=1
+Partalog staging Cloud Run reliability -> notificationChannels=1
+```
+
+Google Cloud API bu kontrolde `verificationStatus` alanını döndürmedi. Mailbox
+veya Cloud Console üzerinden doğrulama durumu ayrıca kontrol edilmelidir.
 
 ## Gereken Operatör Kararı
 
-Kanal oluşturmadan önce production on-call alıcısı seçilmeli:
+Varsayılan staging/production on-call alıcısı şu an:
+
+- `info@partalog.tech`
+
+Farklı bir production-only alıcı istenirse kanal oluşturmadan önce alıcı
+seçilmeli:
 
 - ekip e-posta grubu, örn. `ops@example.com`
 - bireysel e-posta, geçici kullanım için

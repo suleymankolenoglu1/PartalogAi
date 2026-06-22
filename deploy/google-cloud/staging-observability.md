@@ -50,9 +50,14 @@ for email, verified recipient. The policies still create incidents in Cloud
 Monitoring without a channel. Add the production on-call channel before the
 production go-live gate; do not assume a personal address in automation.
 
-2026-06-22 read-back found `0` notification channels in the `partalog` project.
-Use `deploy/google-cloud/monitoring/notification-channel-runbook.md` once the
-production on-call recipient is selected. The helper script
+2026-06-22 read-back initially found `0` notification channels in the `partalog`
+project. `info@partalog.tech` was then selected as the notification recipient,
+an email channel was created, and both staging alert policies were attached to
+`projects/partalog/notificationChannels/542323106088939530`.
+
+Use `deploy/google-cloud/monitoring/notification-channel-runbook.md` for
+read-back and future changes. The helper script
 `deploy/google-cloud/monitoring/create_email_notification_channel.py` creates or
 reuses an email channel and attaches it to the staging availability/reliability
-policies.
+policies. Google Cloud may still require mailbox/Console verification for email
+delivery.

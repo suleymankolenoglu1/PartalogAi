@@ -4,11 +4,11 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Monitoring notification channel için repo/script/runbook hazırlığı yapıldı; gerçek kanal production alıcısı seçimine bağlı. Oranlar production on-call alıcısı, semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Monitoring notification channel `info@partalog.tech` için oluşturulup staging alert policy'lere bağlandı; mailbox/Console doğrulama kontrolü açık. Oranlar semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
 
-- Genel proje ilerlemesi yaklaşık **%93** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%94** seviyesine çıktı.
 - Catalog + Chat MVP kod hazırlığı yaklaşık **%96** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%96** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%97** seviyesine çıktı.
 - Staging/eval/load kanıtı yaklaşık **%98** seviyesine çıktı.
 
 Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code ve semantic eval, kontrollü browse saturation baseline, bounded chat/SSE load kapıları, aktif uptime/alert politikaları ve maliyet budget kanıtları sayesinde geldi.
@@ -16,20 +16,23 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 ### Kalan Ana Blokajlar
 
 - Vertex semantic embedding/generation quota artırımı veya cache stratejisi açık.
-- Production Monitoring notification channel için alıcı seçimi/doğrulama açık.
+- Monitoring email channel bağlı; `info@partalog.tech` mailbox/Console doğrulama
+  kontrolü açık.
 - Staging canary/rollback tatbikatı tamamlandı; production canary hâlâ kontrollü
   şekilde uygulanmalı.
 
-## 2026-06-22 — Paket 12: Monitoring Notification Channel Hazırlığı
+## 2026-06-22 — Paket 12: Monitoring Notification Channel
 
 ### Tamamlananlar
 
 - Google Cloud Monitoring API üzerinden notification channel read-back yapıldı.
-- Sonuç: `notification_channel_count=0`.
-- Mevcut alert policy'lerin aktif ama dış bildirim kanalına bağlı olmadığı
-  doğrulandı:
-  - `Partalog staging public availability`
-  - `Partalog staging Cloud Run reliability`
+- İlk sonuç: `notification_channel_count=0`.
+- Alıcı olarak `info@partalog.tech` seçildi.
+- Email notification channel oluşturuldu:
+  - `projects/partalog/notificationChannels/542323106088939530`
+- Mevcut alert policy'lere channel bağlandı:
+  - `Partalog staging public availability` -> `notificationChannels=1`
+  - `Partalog staging Cloud Run reliability` -> `notificationChannels=1`
 - E-posta notification channel oluşturup policy'lere bağlayan helper script
   eklendi:
   - `deploy/google-cloud/monitoring/create_email_notification_channel.py`
@@ -39,10 +42,10 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 
 ### Açık İşler
 
-- Production/on-call alıcısı seçilmeli.
-- E-posta channel kullanılırsa alıcı Google Cloud doğrulamasını tamamlamalı.
-- Channel doğrulandıktan sonra policy read-back ile `notificationChannels`
-  alanları dolu görülmeli.
+- `info@partalog.tech` mailbox'ında Google Cloud verification maili var mı
+  kontrol edilmeli.
+- Production policy seti oluşturulursa aynı channel'a veya ayrı production-only
+  channel'a bağlanmalı.
 
 ## 2026-06-22 — Paket 11: Staging AI Canary / Rollback Tatbikatı
 
