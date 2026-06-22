@@ -53,6 +53,8 @@ python backend/scripts/promote_public_load_baseline.py \
 ```
 
 Comparisons require matching report schema, duration, concurrency, timeout,
-scenario weights, and chat queries. By default, the workflow fails when overall
+request cap, scenario weights, and chat queries. Use `--max-requests` for a
+rate-limit-safe bounded chat lane; `0` keeps the duration-only behavior. By
+default, the workflow fails when overall
 or enabled-scenario successful RPS regresses by more than 20 percent. Set the
 `PARTALOG_MAX_THROUGHPUT_REGRESSION_RATE` Actions variable to change that limit.

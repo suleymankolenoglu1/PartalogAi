@@ -4,19 +4,52 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu artık exact-code smoke/eval/load yanında semantic/natural-language eval ile de doğrulandı. Oranlar hâlâ konservatif tutuldu; çünkü full saturation/load baseline, alert/error-budget ve maliyet budget kontrolleri tamamlanmadan canlıya alma yüzdesini çok yukarı çekmek yanıltıcı olur.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi artık aktif. Oranlar production on-call kanalı, cold-start SLO kararı, Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
 
-- Genel proje ilerlemesi yaklaşık **%88** seviyesine çıktı.
-- Catalog + Chat MVP kod hazırlığı yaklaşık **%93** seviyesine çıktı.
-- Catalog + Chat canlıya alma hazırlığı yaklaşık **%88** seviyesine çıktı.
-- Staging/eval/load kanıtı yaklaşık **%87** seviyesine çıktı.
+- Genel proje ilerlemesi yaklaşık **%90** seviyesine çıktı.
+- Catalog + Chat MVP kod hazırlığı yaklaşık **%94** seviyesine çıktı.
+- Catalog + Chat canlıya alma hazırlığı yaklaşık **%91** seviyesine çıktı.
+- Staging/eval/load kanıtı yaklaşık **%94** seviyesine çıktı.
 
-Bu artış; staging Cloud Run ortamının kurulması, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code eval baseline, kontrollü public load smoke, staging katalog embedding backfill ve semantic eval kanıtları sayesinde geldi.
+Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection wiring'i, gerçek public-token chat smoke, exact-code ve semantic eval, kontrollü browse saturation baseline, bounded chat/SSE load kapıları, aktif uptime/alert politikaları ve maliyet budget kanıtları sayesinde geldi.
 
 ### Kalan Ana Blokajlar
 
-- Semantic eval artık gerçek staging katalog içeriğine göre temizlenmiş 8-case corpus ile `100% Hit@1` veriyor. Bu gate quota-dostu yavaş profil ve sınırlı retry ile koşmalı.
-- Full saturation/load baseline ve alert/bütçe kontrolleri henüz onaylı release gate seviyesinde değil.
+- Production Monitoring notification channel henüz seçilip doğrulanmadı.
+- SSE cold-start ölçümü first-token p95 hedefini aşıyor; min-instance veya cold-path SLO kararı gerekli.
+- Vertex embedding quota artırımı/cache stratejisi ve production canary/rollback tatbikatı açık.
+
+## 2026-06-22 — Paket 8: Staging Load Baseline, Alerting ve Maliyet Guardrail
+
+### Tamamlananlar
+
+- Public browse saturation eğrisi concurrency `1/2/4` ile çalıştırıldı:
+  - başarı: tüm adımlarda `100%`
+  - successful throughput: `2.53 / 5.15 / 9.26 rps`
+  - p95: `557.5 / 570.0 / 926.8 ms`
+  - analiz: `scaling`, ilk saturation noktası gözlenmedi
+- `staging-public-browse-baseline.json` üretildi ve baseline validator'dan geçti.
+- Public load aracına distributed `--max-requests` sınırı eklendi; baseline profil karşılaştırması request cap'i de kontrol ediyor.
+- Bounded exact-code chat kapıları çalıştırıldı:
+  - non-stream: `8/8`, p95 `633.3 ms`
+  - SSE cold sample: `8/8`, first-token p95 `9187.0 ms`, latency gate failed
+  - SSE warm repeat: `8/8`, first-token p95 `1444.0 ms`, gate passed
+  - tüm chat ölçümlerinde degraded fallback `0%`
+- Cloud Monitoring kaynakları oluşturuldu:
+  - `2` uptime check
+  - `2` alert policy / toplam `5` condition
+- Cloud Billing Budget API etkinleştirildi.
+- `Partalog project monthly guardrail` bütçesi oluşturuldu:
+  - önceki ay harcaması bazlı
+  - current spend `50/80/100%`
+  - forecasted spend `100%`
+- Reproducible policy JSON'ları ve staging observability runbook'u eklendi.
+
+### Açık İşler
+
+- Production on-call notification channel bağlanmalı.
+- Cold-start SSE için min-instance veya ayrı cold-path SLO kararı alınmalı.
+- Vertex quota/caching ve production canary/rollback adımına geçilmeli.
 
 ## 2026-06-22 — Paket 7: Temiz Staging Semantic Corpus ve Quota-Dostu Eval Gate
 

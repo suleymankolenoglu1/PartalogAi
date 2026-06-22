@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 
-PROFILE_FIELDS = ("duration_seconds", "timeout_seconds", "weights", "chat_queries")
+PROFILE_FIELDS = (
+    "duration_seconds",
+    "timeout_seconds",
+    "max_requests",
+    "weights",
+    "chat_queries",
+)
 
 
 def throughput_point(concurrency: int, summary: dict[str, Any]) -> dict[str, Any]:

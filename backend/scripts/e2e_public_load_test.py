@@ -560,6 +560,9 @@ async def worker(
     sequence: list[int],
     results: dict[str, list[ScenarioOutcome]],
     weights: list[tuple[str, int]],
+    request_counter: list[int],
+    request_counter_lock: asyncio.Lock,
+    max_requests: int,
 ) -> None:
     effective_weights = []
     for name, weight in weights:
@@ -572,6 +575,10 @@ async def worker(
     client_ip = f"198.51.100.{10 + (worker_id % 200)}"
     request_headers = {"X-Forwarded-For": client_ip}
     while time.monotonic() < end_time:
+        async with request_counter_lock:
+            if max_requests > 0 and request_counter[0] >= max_requests:
+                return
+            request_counter[0] += 1
         scenario = random.choice(population)
         query = random.choice(queries)
         if scenario == "browse":
@@ -674,6 +681,7 @@ def compare_throughput_baseline(
         "duration_seconds",
         "concurrency",
         "timeout_seconds",
+        "max_requests",
         "weights",
         "chat_queries",
     )
@@ -805,6 +813,12 @@ async def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=30.0, help="HTTP timeout per request")
     parser.add_argument("--duration-seconds", type=int, default=60, help="Test duration")
     parser.add_argument("--concurrency", type=int, default=8, help="Number of concurrent workers")
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=0,
+        help="Optional total request cap across all workers; 0 means duration-only",
+    )
     parser.add_argument("--min-success-rate", type=float, default=0.90, help="Per-scenario minimum success rate")
     parser.add_argument("--max-latency-p95-ms", type=float, default=8000.0, help="Per-scenario max p95 latency")
     for scenario in ("browse", "chat", "stream", "checkout"):
@@ -859,6 +873,8 @@ async def main() -> int:
         raise SystemExit("concurrency must be > 0")
     if args.duration_seconds <= 0:
         raise SystemExit("duration-seconds must be > 0")
+    if args.max_requests < 0:
+        raise SystemExit("max-requests must be >= 0")
     if args.min_samples_per_scenario <= 0:
         raise SystemExit("min-samples-per-scenario must be > 0")
     if args.max_latency_p95_ms <= 0 or any(
@@ -884,6 +900,8 @@ async def main() -> int:
     limits = httpx.Limits(max_connections=max(args.concurrency * 2, 20), max_keepalive_connections=max(args.concurrency, 8))
     results: dict[str, list[ScenarioOutcome]] = defaultdict(list)
     sequence = [0]
+    request_counter = [0]
+    request_counter_lock = asyncio.Lock()
     weights = [
         ("browse", args.browse_weight),
         ("chat", args.chat_weight),
@@ -896,14 +914,28 @@ async def main() -> int:
 
     print(
         f"Running e2e public load test: duration={args.duration_seconds}s concurrency={args.concurrency} "
-        f"catalogId={fixture.catalog_id} productId={fixture.product_id or 'none'}"
+        f"maxRequests={args.max_requests or 'unlimited'} catalogId={fixture.catalog_id} "
+        f"productId={fixture.product_id or 'none'}"
     )
 
     load_started = time.monotonic()
     end_time = load_started + args.duration_seconds
     async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
         await asyncio.gather(*[
-            worker(worker_id, client, base_url, fixture, queries, end_time, sequence, results, weights)
+            worker(
+                worker_id,
+                client,
+                base_url,
+                fixture,
+                queries,
+                end_time,
+                sequence,
+                results,
+                weights,
+                request_counter,
+                request_counter_lock,
+                args.max_requests,
+            )
             for worker_id in range(args.concurrency)
         ])
     elapsed_seconds = time.monotonic() - load_started
@@ -924,6 +956,7 @@ async def main() -> int:
             "duration_seconds": args.duration_seconds,
             "elapsed_seconds": elapsed_seconds,
             "concurrency": args.concurrency,
+            "max_requests": args.max_requests,
             "timeout_seconds": args.timeout_seconds,
             "catalog_id": fixture.catalog_id,
             "product_id": fixture.product_id,

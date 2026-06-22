@@ -28,6 +28,7 @@ def report(concurrency: int = 8, status: str = "passed", base_url: str = "https:
             "duration_seconds": 60,
             "elapsed_seconds": 61.2,
             "concurrency": concurrency,
+            "max_requests": 0,
             "timeout_seconds": 30.0,
             "weights": weights,
             "chat_queries": ["conta", "160000"],
@@ -76,6 +77,7 @@ class BaselinePromotionTests(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["config"]["concurrency"], 8)
+        self.assertEqual(payload["config"]["max_requests"], 0)
         self.assertNotIn("elapsed_seconds", payload["config"])
         self.assertNotIn("base_url", payload["config"])
         self.assertEqual(payload["baseline_metadata"]["source"], "report")

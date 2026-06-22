@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "baseline_metadata": {
+    "source": "saturation",
+    "saturation_summary_json": "backend/reports/staging-public-saturation-20260622/public-e2e-saturation-summary.json",
+    "recommended_concurrency": 4,
+    "saturation_status": "scaling",
+    "bottleneck_scenario": null
+  },
+  "config": {
+    "duration_seconds": 15,
+    "concurrency": 4,
+    "max_requests": 0,
+    "timeout_seconds": 30.0,
+    "weights": {
+      "browse": 1,
+      "chat": 0,
+      "stream": 0,
+      "checkout": 0
+    },
+    "chat_queries": [
+      "Yamato VG2500-8F için yağ deposu contası var mı?",
+      "160000 parça kodu hangi makinelerde kullanılıyor?",
+      "Bu makine için uygun conta kodunu söyler misin?"
+    ],
+    "thresholds": {
+      "min_success_rate": 0.99,
+      "max_latency_p95_ms": 8000.0,
+      "max_latency_p95_ms_by_scenario": {
+        "browse": 5000.0,
+        "chat": 8000.0,
+        "stream": 8000.0,
+        "checkout": 8000.0
+      },
+      "min_samples_per_scenario": 5,
+      "max_stream_degraded_rate": 0.05,
+      "max_stream_first_token_p95_ms": 5000.0
+    }
+  },
+  "overall": {
+    "total": 142,
+    "ok_count": 142,
+    "failed_count": 0,
+    "success_rate": 1.0,
+    "error_rate": 0.0,
+    "throughput_rps": 9.258005118309578,
+    "successful_throughput_rps": 9.258005118309578,
+    "latency_avg_ms": 428.1527080612493,
+    "latency_p95_ms": 926.7630837624887,
+    "event_count_avg": 0,
+    "first_token_sample_count": 0,
+    "first_token_latency_avg_ms": 0.0,
+    "first_token_latency_p95_ms": 0.0,
+    "status_counts": {
+      "200": 142
+    },
+    "error_kind_counts": {},
+    "fallback_case_count": 0,
+    "fallback_rate": 0.0,
+    "degraded_fallback_case_count": 0,
+    "degraded_fallback_rate": 0.0,
+    "fallback_reason_counts": {},
+    "top_errors": []
+  },
+  "scenarios": {
+    "browse": {
+      "total": 142,
+      "ok_count": 142,
+      "failed_count": 0,
+      "success_rate": 1.0,
+      "error_rate": 0.0,
+      "throughput_rps": 9.258005118309578,
+      "successful_throughput_rps": 9.258005118309578,
+      "latency_avg_ms": 428.1527080612493,
+      "latency_p95_ms": 926.7630837624887,
+      "event_count_avg": 0,
+      "first_token_sample_count": 0,
+      "first_token_latency_avg_ms": 0.0,
+      "first_token_latency_p95_ms": 0.0,
+      "status_counts": {
+        "200": 142
+      },
+      "error_kind_counts": {},
+      "fallback_case_count": 0,
+      "fallback_rate": 0.0,
+      "degraded_fallback_case_count": 0,
+      "degraded_fallback_rate": 0.0,
+      "fallback_reason_counts": {},
+      "top_errors": []
+    },
+    "chat": {
+      "total": 0,
+      "ok_count": 0,
+      "failed_count": 0,
+      "success_rate": 0.0,
+      "error_rate": 0.0,
+      "throughput_rps": 0.0,
+      "successful_throughput_rps": 0.0,
+      "latency_avg_ms": 0.0,
+      "latency_p95_ms": 0.0,
+      "event_count_avg": 0.0,
+      "first_token_sample_count": 0,
+      "first_token_latency_avg_ms": 0.0,
+      "first_token_latency_p95_ms": 0.0,
+      "status_counts": {},
+      "error_kind_counts": {},
+      "fallback_case_count": 0,
+      "fallback_rate": 0.0,
+      "degraded_fallback_case_count": 0,
+      "degraded_fallback_rate": 0.0,
+      "fallback_reason_counts": {},
+      "top_errors": []
+    },
+    "stream": {
+      "total": 0,
+      "ok_count": 0,
+      "failed_count": 0,
+      "success_rate": 0.0,
+      "error_rate": 0.0,
+      "throughput_rps": 0.0,
+      "successful_throughput_rps": 0.0,
+      "latency_avg_ms": 0.0,
+      "latency_p95_ms": 0.0,
+      "event_count_avg": 0.0,
+      "first_token_sample_count": 0,
+      "first_token_latency_avg_ms": 0.0,
+      "first_token_latency_p95_ms": 0.0,
+      "status_counts": {},
+      "error_kind_counts": {},
+      "fallback_case_count": 0,
+      "fallback_rate": 0.0,
+      "degraded_fallback_case_count": 0,
+      "degraded_fallback_rate": 0.0,
+      "fallback_reason_counts": {},
+      "top_errors": []
+    },
+    "checkout": {
+      "total": 0,
+      "ok_count": 0,
+      "failed_count": 0,
+      "success_rate": 0.0,
+      "error_rate": 0.0,
+      "throughput_rps": 0.0,
+      "successful_throughput_rps": 0.0,
+      "latency_avg_ms": 0.0,
+      "latency_p95_ms": 0.0,
+      "event_count_avg": 0.0,
+      "first_token_sample_count": 0,
+      "first_token_latency_avg_ms": 0.0,
+      "first_token_latency_p95_ms": 0.0,
+      "status_counts": {},
+      "error_kind_counts": {},
+      "fallback_case_count": 0,
+      "fallback_rate": 0.0,
+      "degraded_fallback_case_count": 0,
+      "degraded_fallback_rate": 0.0,
+      "fallback_reason_counts": {},
+      "top_errors": []
+    }
+  },
+  "threshold_failures": [],
+  "source_baseline_comparison": {
+    "status": "skipped",
+    "reason": "baseline_disabled",
+    "path": "",
+    "max_regression_rate": 0.2,
+    "metrics": {}
+  }
+}

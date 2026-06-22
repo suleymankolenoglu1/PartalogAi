@@ -64,6 +64,7 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
             "config": {
                 "duration_seconds": 30,
                 "concurrency": concurrency,
+                "max_requests": 0,
                 "timeout_seconds": 30.0,
                 "weights": weights,
                 "chat_queries": ["conta", "160000"],
@@ -469,6 +470,17 @@ class PublicLoadTestHelpersTests(unittest.TestCase):
         self.assertEqual(comparison["status"], "profile_mismatch")
         self.assertEqual(comparison["profile_mismatches"], ["concurrency"])
         self.assertEqual(failures, ["baseline profile mismatch: concurrency"])
+
+    def test_compare_throughput_baseline_rejects_request_cap_mismatch(self) -> None:
+        current = self.load_report(10.0)
+        baseline = self.load_report(10.0)
+        current["config"]["max_requests"] = 8
+
+        comparison, failures = compare_throughput_baseline(current, baseline, 0.20)
+
+        self.assertEqual(comparison["status"], "profile_mismatch")
+        self.assertEqual(comparison["profile_mismatches"], ["max_requests"])
+        self.assertEqual(failures, ["baseline profile mismatch: max_requests"])
 
     def test_evaluate_throughput_baseline_skips_missing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

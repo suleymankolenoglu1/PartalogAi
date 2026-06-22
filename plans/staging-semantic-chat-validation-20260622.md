@@ -74,4 +74,5 @@
 - Embedding backfill sırasında Vertex embedding quota `429` verdi; düşük batch ve daha uzun sleep ile kalan kayıtlar başarıyla tamamlandı.
 - Public semantic eval sırasında da Vertex `gemini-embedding` quota `429` kayıtları görüldü. Bu yüzden staging semantic gate yavaş profil ve kalite-issue retry ile koşulmalı.
 - `backend/reports/` git ignore altında olduğu için ham eval JSON/MD artifact'leri repoya alınmadı; bu dosya kalıcı özet rapordur.
-- Sıradaki release gate işi: full saturation/load + alert/maliyet budget doğrulaması.
+- Public load/saturation, alert ve maliyet budget doğrulaması
+  `plans/staging-load-observability-validation-20260622.md` içinde tamamlandı.

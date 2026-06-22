@@ -109,6 +109,7 @@ def baseline_payload(report: dict[str, Any], source: dict[str, Any]) -> dict[str
         "config": {
             "duration_seconds": config["duration_seconds"],
             "concurrency": config["concurrency"],
+            "max_requests": config.get("max_requests", 0),
             "timeout_seconds": config["timeout_seconds"],
             "weights": config["weights"],
             "chat_queries": config["chat_queries"],
