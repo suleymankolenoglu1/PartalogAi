@@ -1488,6 +1488,9 @@ def _plan_limit_message(
     ai_limit_per_month: int | None,
     ai_used_this_month: int | None,
 ) -> str | None:
+    if settings.DEBUG and settings.DEV_AI_QUOTA_BYPASS:
+        return None
+
     plan_text = (user_plan or "").strip().lower()
     if plan_text in {"catalogonly", "catalog", "1"}:
         return "AI sorgu limitinize ulaştınız, planınızı yükseltin"

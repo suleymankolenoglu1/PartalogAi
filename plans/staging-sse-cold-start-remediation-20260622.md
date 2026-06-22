@@ -77,12 +77,10 @@ Lokal doğrulama:
 - Python compile: `passed`
 - Staging bootstrap shell syntax: `passed`
 
-Full modular `test_chat_behavior.py` discovery currently has a pre-existing
-import blocker: `services.chat_retrieval` expects vector DB APIs such as
-`hybrid_search_vector_db` that are absent from the active `services.vector_db`
-module. The deployed runtime uses `api.chat` and passed the staging integration
-gates above, but this module-contract drift should be repaired before the
-production canary.
+The modular `test_chat_behavior.py` discovery blocker that existed at this
+point was repaired in `modular-chat-vector-db-contract-remediation-20260622.md`.
+The follow-up contract remediation restored the missing `services.vector_db`
+hybrid/lexical/visual APIs and passed the local modular chat regression gates.
 
 ## Maliyet ve Release Kararı
 

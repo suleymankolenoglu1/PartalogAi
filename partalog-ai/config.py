@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Partalog AI Service"
     APP_VERSION: str = "2.1.0"
     DEBUG: bool = Field(default=True)
+    DEV_AI_QUOTA_BYPASS: bool = Field(default=False)
     
     # SUNUCU
     HOST: str = Field(default="0.0.0.0")
@@ -151,6 +152,12 @@ class Settings(BaseSettings):
     AI_CHAT_DISTRIBUTED_LEASE_TTL_SECONDS: int = Field(default=180)
     AI_CHAT_DISTRIBUTED_POOL_NAME: str = Field(default="python-chat")
     DB_STATEMENT_CACHE_SIZE: int = Field(default=0)
+    DB_POOL_MIN_SIZE: int = Field(default=2)
+    DB_POOL_MAX_SIZE: int = Field(default=10)
+    DB_POOL_COMMAND_TIMEOUT_SECONDS: float = Field(default=15.0)
+    DB_POOL_HEALTHCHECK_TIMEOUT_SECONDS: float = Field(default=3.0)
+    DB_POOL_MAX_INACTIVE_CONNECTION_LIFETIME_SECONDS: float = Field(default=300.0)
+    DB_ALLOW_EPHEMERAL_FALLBACK: bool = Field(default=True)
 
     # --- VERİTABANI (YENİ EKLENDİ) ---
     # train_dictionary.py artık şifreyi buradan okuyacak.
