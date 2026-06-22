@@ -4,7 +4,7 @@ Bu dosya Catalog + Grounded Chat MVP için yapılan değişikliklerin yaşayan k
 
 ## 2026-06-22 — Güncel İlerleme Notu
 
-Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Monitoring notification channel `info@partalog.tech` için oluşturulup staging alert policy'lere bağlandı; mailbox/Console doğrulama kontrolü açık. Oranlar semantic Vertex quota planı ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
+Staging ortamı Google Cloud üzerinde çalışıyor; gerçek public-token chat yolu exact-code ve semantic eval yanında bounded non-stream/SSE load kapılarıyla da doğrulandı. Public browse saturation baseline, uptime kontrolleri, Cloud Run alarm politikaları ve proje maliyet bütçesi aktif. Private AI cold-start kök nedeni giderildi, SSE fallback contract'ı gerçek upstream bozulmalarını görünür hale getirildi ve exact-code yolu Vertex kotasından ayrıldı. Modular chat davranış testlerini bloklayan `services.chat_retrieval` ↔ `services.vector_db` API drift'i kapatıldı ve yeni AI staging revision üzerinde gerçek Cloud SQL verisiyle semantic gate tekrar geçti. Staging AI canary/rollback tatbikatı da tamamlandı. Monitoring notification channel `info@partalog.tech` için oluşturulup staging alert policy'lere bağlandı; mailbox/Console doğrulama kontrolü açık. Vertex semantic `429` riskini azaltmak için embedding retry/cache/singleflight guardrail'i lokal testlerden geçti. Oranlar staging deploy ve production canary tamamlanmadığı için hâlâ konservatif tutuldu.
 
 - Genel proje ilerlemesi yaklaşık **%94** seviyesine çıktı.
 - Catalog + Chat MVP kod hazırlığı yaklaşık **%96** seviyesine çıktı.
@@ -15,11 +15,44 @@ Bu artış; staging Cloud Run ortamı, Redis rate-limit/capacity/DataProtection 
 
 ### Kalan Ana Blokajlar
 
-- Vertex semantic embedding/generation quota artırımı veya cache stratejisi açık.
+- Vertex semantic embedding cache/retry guardrail'i lokal geçti; staging deploy
+  ve quota limit kararı açık.
 - Monitoring email channel bağlı; `info@partalog.tech` mailbox/Console doğrulama
   kontrolü açık.
 - Staging canary/rollback tatbikatı tamamlandı; production canary hâlâ kontrollü
   şekilde uygulanmalı.
+
+## 2026-06-22 — Paket 13: Vertex Semantic Quota / Cache Guardrail
+
+### Tamamlananlar
+
+- Embedding çağrıları için bounded retry eklendi:
+  - retryable status: `408`, `429`, `500`, `502`, `503`, `504`
+  - `Retry-After` header desteği
+  - `GENAI_RETRY_MAX_DELAY_SECONDS`
+- Embedding cache config'e taşındı:
+  - `GENAI_EMBEDDING_CACHE_TTL_SECONDS`
+  - `GENAI_EMBEDDING_CACHE_MAX_ITEMS`
+- Default cache profili güçlendirildi:
+  - TTL `900s`
+  - max item `1000`
+- Türkçe/Unicode normalize edilmiş cache key eklendi.
+- Eşzamanlı aynı embedding sorguları için singleflight eklendi.
+- Embedding cache state helper eklendi.
+
+### Doğrulama Durumu
+
+- Python compile geçti.
+- Embedding retry/cache testleri geçti: `3/3`.
+- İlgili embedding + chat metric hızlı paket geçti: `23/23`.
+- Geniş chat/vector regression paketi geçti: `112/112`.
+
+### Açık İşler
+
+- Yeni guardrail AI staging servisine deploy edilmeli.
+- Staging semantic gate tekrar çalıştırılmalı.
+- Vertex quota artışı veya kabul edilen quota limiti hâlâ production kararı
+  olarak netleştirilmeli.
 
 ## 2026-06-22 — Paket 12: Monitoring Notification Channel
 

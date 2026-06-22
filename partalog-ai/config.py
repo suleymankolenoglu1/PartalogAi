@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     GENAI_STREAM_TIMEOUT_SECONDS: float = Field(default=90.0)
     GENAI_RETRY_ATTEMPTS: int = Field(default=2)
     GENAI_RETRY_BASE_DELAY_SECONDS: float = Field(default=0.5)
+    GENAI_RETRY_MAX_DELAY_SECONDS: float = Field(default=8.0)
+    GENAI_EMBEDDING_CACHE_TTL_SECONDS: int = Field(default=900)
+    GENAI_EMBEDDING_CACHE_MAX_ITEMS: int = Field(default=1000)
 
     # --- CHAT CAPACITY / RATE SAFETY ---
     AI_CHAT_GLOBAL_CONCURRENCY: int = Field(default=100)
