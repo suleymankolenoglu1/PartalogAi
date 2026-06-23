@@ -2,7 +2,6 @@ using FluentValidation;
 using Katalogcu.API.Services;
 using Katalogcu.Application.Features.Auth.Commands.CancelPlan;
 using Katalogcu.Application.Features.Auth.Commands.Login;
-using Katalogcu.Application.Features.Auth.Commands.Register;
 using Katalogcu.Application.Features.Auth.Commands.SelectPlan;
 using Katalogcu.Application.Features.Auth.Commands.UpdateMe;
 using Katalogcu.Application.Features.Auth.Queries.GetMe;
@@ -26,7 +25,6 @@ namespace Katalogcu.API.Controllers
         }
 
         public record LoginRequest(string Email, string Password);
-        public record RegisterRequest(string FullName, string Email, string Password);
         public sealed class UpdateMeRequest
         {
             public string FirstName { get; set; } = string.Empty;
@@ -93,27 +91,12 @@ namespace Katalogcu.API.Controllers
         }
 
         [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        public IActionResult Register()
         {
-            try
+            return StatusCode(403, new
             {
-                var result = await _sender.Send(new RegisterCommand(request.FullName, request.Email, request.Password));
-                if (!result.IsSuccess)
-                {
-                    return result.ErrorCode switch
-                    {
-                        "duplicate" => BadRequest(new { message = result.ErrorMessage }),
-                        "validation" => BadRequest(result.ErrorMessage),
-                        _ => StatusCode(500, result.ErrorMessage ?? "Kayıt işlemi başarısız.")
-                    };
-                }
-
-                return Ok(new { message = result.Value!.Message });
-            }
-            catch (ValidationException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+                message = "Panel hesabı self-service kayıt ile açılamaz. İşletme hesabı platform yöneticisi tarafından tanımlanmalıdır."
+            });
         }
 
         [Authorize]

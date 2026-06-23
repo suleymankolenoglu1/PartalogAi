@@ -73,10 +73,6 @@ export class AuthService {
     );
   }
 
-  register(userData: { fullName: string; email: string; password: string }) {
-    return this.http.post<any>(`${this.apiUrl}/auth/register`, userData);
-  }
-
   // Çıkış Yap
   logout() {
     localStorage.removeItem('auth_token');

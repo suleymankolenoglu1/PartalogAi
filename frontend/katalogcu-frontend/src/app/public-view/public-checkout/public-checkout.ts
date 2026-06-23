@@ -349,33 +349,9 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
   }
 
   saveGuestInfo() {
-    if (!this.publicToken) return;
-    if (!this.guestForm.name || !this.guestForm.phone) {
-      this.guestError = 'Ad soyad ve telefon zorunlu.';
-      this.guestMessage = null;
-      return;
-    }
-
-    this.isSavingGuest = true;
-    this.guestError = null;
+    this.isSavingGuest = false;
     this.guestMessage = null;
-
-    this.customerService.registerFromPublic({
-      publicToken: this.publicToken,
-      name: this.guestForm.name,
-      phone: this.guestForm.phone,
-      email: this.guestForm.email || undefined,
-      note: this.guestForm.note || undefined
-    }).subscribe({
-      next: (res) => {
-        this.isSavingGuest = false;
-        this.guestMessage = res?.message || 'Misafir bilgisi kaydedildi.';
-      },
-      error: (err) => {
-        this.isSavingGuest = false;
-        this.guestError = err?.error?.message || err?.error || 'Bilgi kaydedilemedi.';
-      }
-    });
+    this.guestError = 'Misafir kayıt kapalı. Portal erişimi panelden tanımlanan müşterilerle sınırlıdır.';
   }
 
   submitOrderAsMember() {

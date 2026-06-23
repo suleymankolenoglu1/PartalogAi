@@ -3,7 +3,7 @@
 Public-view checkout smoke test.
 
 Flow:
-1) Resolve public token (from arg/env or auto bootstrap)
+1) Resolve public token (from arg/env)
 2) Get public catalogs by token
 3) Pick a catalog and product
 4) Register/login public customer account
@@ -37,14 +37,6 @@ class SmokeError(RuntimeError):
 class HttpResponse:
     status: int
     body: Any
-
-
-@dataclass
-class BootstrapResult:
-    public_token: str
-    admin_token: str
-    catalog_id: str
-    product_id: str
 
 
 def _trim_slash(value: str) -> str:
@@ -103,119 +95,6 @@ def _first_non_empty(*values: Any) -> Any:
     return None
 
 
-def _bootstrap_public_fixture(
-    api: str,
-    *,
-    timeout: int,
-    admin_email: str,
-    admin_password: str,
-    admin_name: str,
-    company_name: str,
-) -> BootstrapResult:
-    register_payload = {
-        "fullName": admin_name,
-        "email": admin_email,
-        "password": admin_password,
-    }
-    register_resp = _request_json("POST", f"{api}/auth/register", payload=register_payload, timeout=timeout)
-    if register_resp.status not in (200, 400):
-        raise SmokeError(f"Bootstrap register başarısız: {register_resp.status} {register_resp.body}")
-
-    login_payload = {"email": admin_email, "password": admin_password}
-    login_resp = _request_json("POST", f"{api}/auth/login", payload=login_payload, timeout=timeout)
-    _require(login_resp.status == 200, f"Bootstrap login başarısız: {login_resp.status} {login_resp.body}")
-    admin_token = login_resp.body.get("token", "")
-    _require(bool(admin_token), f"Bootstrap login token dönmedi: {login_resp.body}")
-    auth_headers = {"Authorization": f"Bearer {admin_token}"}
-
-    me = login_resp.body.get("user", {}) if isinstance(login_resp.body, dict) else {}
-    first_name = _first_non_empty(me.get("firstName"), "Smoke")
-    last_name = _first_non_empty(me.get("lastName"), "Admin")
-    _request_json(
-        "PUT",
-        f"{api}/auth/me",
-        payload={
-            "firstName": first_name,
-            "lastName": last_name,
-            "companyName": company_name,
-            "phoneNumber": "+905550000000",
-        },
-        headers=auth_headers,
-        timeout=timeout,
-    )
-
-    suffix = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    catalog_payload = {
-        "name": f"Smoke Catalog {suffix}",
-        "description": "smoke generated catalog",
-        "imageUrl": None,
-        "pdfUrl": None,
-        "folderId": None,
-    }
-    create_catalog_resp = _request_json(
-        "POST",
-        f"{api}/catalogs",
-        payload=catalog_payload,
-        headers=auth_headers,
-        timeout=timeout,
-    )
-    _require(
-        create_catalog_resp.status in (200, 201),
-        f"Bootstrap catalog create başarısız: {create_catalog_resp.status} {create_catalog_resp.body}",
-    )
-    catalog_id = create_catalog_resp.body.get("id")
-    _require(bool(catalog_id), f"Bootstrap catalog id dönmedi: {create_catalog_resp.body}")
-
-    publish_resp = _request_json(
-        "POST",
-        f"{api}/catalogs/{catalog_id}/publish",
-        payload={},
-        headers=auth_headers,
-        timeout=timeout,
-    )
-    _require(publish_resp.status == 200, f"Bootstrap catalog publish başarısız: {publish_resp.status} {publish_resp.body}")
-
-    product_code = f"SMOKE-{suffix[-6:]}"
-    create_product_resp = _request_json(
-        "POST",
-        f"{api}/products",
-        payload={
-            "catalogId": catalog_id,
-            "name": f"Smoke Product {suffix}",
-            "code": product_code,
-            "price": 10,
-            "stockQuantity": 10,
-            "category": "Smoke",
-            "description": "smoke generated product",
-            "pageNumber": "1",
-            "refNo": 1,
-        },
-        headers=auth_headers,
-        timeout=timeout,
-    )
-    _require(create_product_resp.status == 200, f"Bootstrap product create başarısız: {create_product_resp.status} {create_product_resp.body}")
-    product_id = create_product_resp.body.get("id")
-    _require(bool(product_id), f"Bootstrap product id dönmedi: {create_product_resp.body}")
-
-    q = urlencode({"catalogIds": json.dumps([catalog_id])})
-    rotate_resp = _request_json(
-        "POST",
-        f"{api}/catalogs/public-token/rotate?{q}",
-        headers=auth_headers,
-        timeout=timeout,
-    )
-    _require(rotate_resp.status == 200, f"Bootstrap public-token başarısız: {rotate_resp.status} {rotate_resp.body}")
-    public_token = rotate_resp.body.get("token", "")
-    _require(bool(public_token), f"Bootstrap public token dönmedi: {rotate_resp.body}")
-
-    return BootstrapResult(
-        public_token=public_token,
-        admin_token=admin_token,
-        catalog_id=str(catalog_id),
-        product_id=str(product_id),
-    )
-
-
 def run(args: argparse.Namespace) -> None:
     base = _trim_slash(args.base_url)
     api = f"{base}/api"
@@ -224,27 +103,11 @@ def run(args: argparse.Namespace) -> None:
     public_token = args.public_token or os.getenv("PARTALOG_PUBLIC_TOKEN", "")
     admin_token = args.admin_token or os.getenv("PARTALOG_ADMIN_TOKEN", "")
 
-    bootstrap_catalog_id = ""
-    bootstrap_product_id = ""
     if not public_token:
-        if args.no_bootstrap:
-            raise SmokeError("Public token gerekli (--public-token veya PARTALOG_PUBLIC_TOKEN).")
-
-        admin_email = args.bootstrap_admin_email or f"smoke.admin.{now}@example.com"
-        print("[bootstrap] Public token yok, fixture hazırlanıyor...")
-        bootstrap = _bootstrap_public_fixture(
-            api,
-            timeout=args.timeout,
-            admin_email=admin_email,
-            admin_password=args.bootstrap_admin_password,
-            admin_name=args.bootstrap_admin_name,
-            company_name=args.bootstrap_company_name,
+        raise SmokeError(
+            "Public token gerekli (--public-token veya PARTALOG_PUBLIC_TOKEN). "
+            "Self-service owner bootstrap kapalıdır; portal linkini panelden üretin."
         )
-        public_token = bootstrap.public_token
-        admin_token = admin_token or bootstrap.admin_token
-        bootstrap_catalog_id = bootstrap.catalog_id
-        bootstrap_product_id = bootstrap.product_id
-        print(f"[bootstrap] catalogId={bootstrap_catalog_id} productId={bootstrap_product_id}")
 
     phone = args.phone or f"90555{now[-7:]}"
     email = args.email or f"smoke+{now}@example.com"
@@ -259,7 +122,7 @@ def run(args: argparse.Namespace) -> None:
     catalogs = catalogs_resp.body if isinstance(catalogs_resp.body, list) else []
     _require(len(catalogs) > 0, "Public token için katalog bulunamadı.")
 
-    catalog_id = args.catalog_id or bootstrap_catalog_id or catalogs[0].get("id")
+    catalog_id = args.catalog_id or catalogs[0].get("id")
     _require(bool(catalog_id), "Katalog ID alınamadı.")
     print(f"      seçilen catalogId={catalog_id}")
 
@@ -272,7 +135,7 @@ def run(args: argparse.Namespace) -> None:
     _require(len(products) > 0, "Seçilen katalogda ürün bulunamadı.")
 
     selected_product = None
-    wanted_product = args.product_id or bootstrap_product_id
+    wanted_product = args.product_id
     if wanted_product:
         selected_product = next((p for p in products if str(p.get("id")) == wanted_product), None)
     if selected_product is None:
@@ -438,11 +301,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--email", default="", help="Customer email; boşsa otomatik üretilir")
     parser.add_argument("--password", default="SmokeP@ssw0rd!", help="Customer password")
     parser.add_argument("--timeout", type=int, default=25, help="HTTP timeout seconds")
-    parser.add_argument("--no-bootstrap", action="store_true", help="Do not auto-bootstrap admin/catalog/product when public token is missing")
-    parser.add_argument("--bootstrap-admin-email", default="", help="Bootstrap admin email (optional, auto-generated if empty)")
-    parser.add_argument("--bootstrap-admin-password", default="SmokeAdm1nP@ss!", help="Bootstrap admin password")
-    parser.add_argument("--bootstrap-admin-name", default="Smoke Admin", help="Bootstrap admin full name")
-    parser.add_argument("--bootstrap-company-name", default="Smoke Machine", help="Company name written to admin profile for storefront")
     return parser.parse_args()
 
 

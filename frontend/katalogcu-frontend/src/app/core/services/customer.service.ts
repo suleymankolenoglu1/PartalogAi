@@ -21,15 +21,6 @@ export interface Customer {
   createdDate: string;
 }
 
-export interface PublicCustomerRegisterRequest {
-  publicToken: string;
-  name: string;
-  phone: string;
-  email?: string;
-  companyName?: string;
-  note?: string;
-}
-
 export interface UpsertPortalCustomerRequest {
   name: string;
   phone: string;
@@ -38,13 +29,6 @@ export interface UpsertPortalCustomerRequest {
   note?: string;
   initialPassword?: string;
   isActive: boolean;
-}
-
-export interface PublicCustomerRegisterResponse {
-  success: boolean;
-  created: boolean;
-  customerId: string;
-  message: string;
 }
 
 export interface PublicCustomerLoginRequest {
@@ -173,10 +157,6 @@ export class CustomerService {
 
   setPortalCustomerAccess(id: string, isActive: boolean): Observable<Customer> {
     return this.http.patch<Customer>(`${this.apiUrl}/customers/portal-users/${id}/access`, { isActive });
-  }
-
-  registerFromPublic(payload: PublicCustomerRegisterRequest): Observable<PublicCustomerRegisterResponse> {
-    return this.http.post<PublicCustomerRegisterResponse>(`${this.apiUrl}/customers/public-register`, payload);
   }
 
   loginPublicCustomer(payload: PublicCustomerLoginRequest): Observable<PublicCustomerSessionResponse> {

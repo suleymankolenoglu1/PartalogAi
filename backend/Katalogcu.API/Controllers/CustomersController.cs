@@ -2,7 +2,6 @@ using Katalogcu.API.Services;
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Features.Customers.Commands.ConfirmPasswordReset;
 using Katalogcu.Application.Features.Customers.Commands.PublicLogin;
-using Katalogcu.Application.Features.Customers.Commands.PublicRegister;
 using Katalogcu.Application.Features.Customers.Commands.PublicRegisterAccount;
 using Katalogcu.Application.Features.Customers.Commands.RequestPasswordReset;
 using Katalogcu.Application.Features.Customers.Commands.SetPortalCustomerAccess;
@@ -182,39 +181,12 @@ namespace Katalogcu.API.Controllers
         [AllowAnonymous]
         [EnableRateLimiting("public-feedback")]
         [HttpPost("public-register")]
-        public async Task<IActionResult> PublicRegister([FromBody] PublicCustomerRegisterRequest request)
+        public IActionResult PublicRegister()
         {
-            if (string.IsNullOrWhiteSpace(request.PublicToken))
-                return BadRequest("Public token zorunludur.");
-
-            var payload = _publicAccessTokenService.Validate(request.PublicToken);
-            if (payload == null) return BadRequest("Geçersiz public link.");
-
-            try
+            return StatusCode(403, new
             {
-                var result = await _sender.Send(new PublicRegisterCustomerCommand(
-                    payload.UserId,
-                    request.Name,
-                    request.Phone,
-                    request.Email,
-                    request.CompanyName,
-                    request.Note));
-
-                if (!result.IsSuccess)
-                {
-                    return result.ErrorCode switch
-                    {
-                        "validation" => BadRequest(result.ErrorMessage),
-                        _ => StatusCode(500, result.ErrorMessage ?? "Müşteri kaydı oluşturulamadı.")
-                    };
-                }
-
-                return Ok(result.Value);
-            }
-            catch (ValidationException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+                message = "Müşteri kaydı public link ile açılamaz. Portal erişimi panelden tanımlanan müşterilerle sınırlıdır."
+            });
         }
 
         [AllowAnonymous]
@@ -465,16 +437,6 @@ namespace Katalogcu.API.Controllers
                 return BadRequest(ex.Message);
             }
         }
-    }
-
-    public class PublicCustomerRegisterRequest
-    {
-        public string PublicToken { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string Phone { get; set; } = string.Empty;
-        public string? Email { get; set; }
-        public string? CompanyName { get; set; }
-        public string? Note { get; set; }
     }
 
     public sealed class UpsertPortalCustomerRequest
