@@ -7,7 +7,7 @@
                 <img src="assets/brand/partalog-logo-light.svg" alt="partalog.tech" class="pv-brand-logo">
                 <div class="pv-storefront-meta">
                     <div class="pv-storefront-name">{{ storefront.businessName }}</div>
-                    <div class="pv-storefront-sub">Public Vitrin</div>
+                    <div class="pv-storefront-sub">Müşteri Portalı</div>
                 </div>
             </div>
 
@@ -18,7 +18,7 @@
                     AI Chat
                 </div>
                 }
-                @if(canUseEcommerce) {
+                @if(canUseEcommerce && isPortalUnlocked) {
                 <div class="feature-pill feature-pill-on">
                     <span class="material-symbols-outlined">shopping_bag</span>
                     E-Ticaret
@@ -26,7 +26,7 @@
                 }
                 <div class="feature-pill feature-pill-plan">{{ storefrontPlanLabel }}</div>
 
-                @if(canUseEcommerce) {
+                @if(canUseEcommerce && isPortalUnlocked) {
                     <div class="pv-header-separator h-4 w-px"></div>
                     <button (click)="isCartOpen = true" class="pv-cart-trigger relative group p-2 rounded-full transition-colors">
                         <span class="material-symbols-outlined transition-colors">shopping_cart</span>
@@ -48,9 +48,88 @@
                         İletişim
                     </a>
                 }
+                @if(isPortalUnlocked) {
+                    <button (click)="logoutPortal()" class="pv-btn-secondary text-xs font-medium px-3 py-1.5 rounded-md transition-colors">
+                        Çıkış
+                    </button>
+                }
             </div>
         </div>
     </header>
+
+    @if(!isPortalUnlocked) {
+        <section class="flex-1 px-6 py-12 flex items-center justify-center bg-[#F5F5F7]">
+            <div class="w-full max-w-[980px] grid gap-6 md:grid-cols-[minmax(0,1fr)_420px]">
+                <div class="rounded-[18px] border border-[#E5E5EA] bg-white shadow-sm p-8 flex flex-col justify-center">
+                    <div class="pv-section-kicker">Müşteri Portalı</div>
+                    <h1 class="mt-3 mb-3 text-[32px] md:text-[46px] leading-tight font-extrabold text-[#1D1D1F]">{{ storefront.businessName }} katalog ve parça asistanı</h1>
+                    <p class="text-[#6E6E73] leading-7">
+                        Bu portal davet ile kullanılabilir. Chat ve kataloglara erişmek için müşteri hesabınızla giriş yapın.
+                    </p>
+                </div>
+
+                <div class="rounded-[18px] border border-[#E5E5EA] bg-white shadow-sm p-5">
+                    <div class="grid grid-cols-2 gap-2 mb-5 rounded-xl bg-[#F5F5F7] p-1">
+                        <button type="button" class="min-h-10 rounded-[10px] font-extrabold text-sm text-[#6E6E73]" [ngClass]="authMode === 'login' ? 'bg-white text-[#1D1D1F]' : ''" (click)="setAuthMode('login')">Giriş</button>
+                        <button type="button" class="min-h-10 rounded-[10px] font-extrabold text-sm text-[#6E6E73]" [ngClass]="authMode === 'register' ? 'bg-white text-[#1D1D1F]' : ''" (click)="setAuthMode('register')">Hesabı Tamamla</button>
+                    </div>
+
+                    @if(authMode === 'login') {
+                        <form class="grid gap-3" (ngSubmit)="loginPortal()">
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>Telefon</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="loginPhone" [(ngModel)]="authLoginForm.phone" type="tel" autocomplete="tel">
+                            </label>
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>E-posta</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="loginEmail" [(ngModel)]="authLoginForm.email" type="email" autocomplete="email">
+                            </label>
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>Şifre</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="loginPassword" [(ngModel)]="authLoginForm.password" type="password" autocomplete="current-password">
+                            </label>
+                            <button type="submit" class="mt-1 min-h-11 rounded-xl bg-[#0A2540] text-white font-black disabled:opacity-60" [disabled]="isAuthenticating">
+                                {{ isAuthenticating ? 'Giriş yapılıyor...' : 'Portala Gir' }}
+                            </button>
+                        </form>
+                    } @else {
+                        <form class="grid gap-3" (ngSubmit)="registerPortal()">
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>Ad Soyad</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="registerName" [(ngModel)]="authRegisterForm.name" type="text" autocomplete="name">
+                            </label>
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>Telefon</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="registerPhone" [(ngModel)]="authRegisterForm.phone" type="tel" autocomplete="tel">
+                            </label>
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>E-posta</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="registerEmail" [(ngModel)]="authRegisterForm.email" type="email" autocomplete="email">
+                            </label>
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>Şifre</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="registerPassword" [(ngModel)]="authRegisterForm.password" type="password" autocomplete="new-password">
+                            </label>
+                            <label class="grid gap-1.5 text-xs font-extrabold text-[#6E6E73]">
+                                <span>Şifre Tekrar</span>
+                                <input class="min-h-11 rounded-[10px] border border-[#E5E5EA] px-3 outline-none focus:border-[#0066CC]" name="registerConfirmPassword" [(ngModel)]="authRegisterForm.confirmPassword" type="password" autocomplete="new-password">
+                            </label>
+                            <button type="submit" class="mt-1 min-h-11 rounded-xl bg-[#0A2540] text-white font-black disabled:opacity-60" [disabled]="isAuthenticating">
+                                {{ isAuthenticating ? 'Hesap tamamlanıyor...' : 'Hesabı Tamamla' }}
+                            </button>
+                        </form>
+                    }
+
+                    @if(authMessage) {
+                        <div class="mt-3 rounded-[10px] bg-green-50 px-3 py-2 text-sm font-bold text-green-700">{{ authMessage }}</div>
+                    }
+                    @if(authError) {
+                        <div class="mt-3 rounded-[10px] bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{{ authError }}</div>
+                    }
+                </div>
+            </div>
+        </section>
+    } @else {
 
     <section class="pv-hero py-12 px-6 relative overflow-hidden transition-all duration-500"
              [class.py-8]="canUseAiChat && aiState.isActive"> 
@@ -560,4 +639,5 @@
             </a>
         }
     </nav>
+    }
 </div>

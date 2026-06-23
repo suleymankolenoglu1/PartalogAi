@@ -50,6 +50,34 @@ public sealed class ModuleFeatureGateMiddlewareTests
         Assert.True(nextCalled());
     }
 
+    [Fact]
+    public async Task InvokeAsync_AllowsCustomerPortalPaths_WhenEcommerceIsDisabled()
+    {
+        var (context, nextCalled) = await InvokeAsync(
+            "/api/customers/portal-users",
+            new TestFeaturePolicy(
+                chatbotEnabled: false,
+                catalogAnalysisEnabled: false,
+                ecommerceEnabled: false));
+
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.True(nextCalled());
+    }
+
+    [Fact]
+    public async Task InvokeAsync_BlocksOrderPaths_WhenEcommerceIsDisabled()
+    {
+        var (context, nextCalled) = await InvokeAsync(
+            "/api/orders",
+            new TestFeaturePolicy(
+                chatbotEnabled: false,
+                catalogAnalysisEnabled: false,
+                ecommerceEnabled: false));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.False(nextCalled());
+    }
+
     private static async Task<(DefaultHttpContext Context, Func<bool> NextCalled)> InvokeAsync(
         string path,
         IProductFeaturePolicy featurePolicy)
@@ -71,13 +99,16 @@ public sealed class ModuleFeatureGateMiddlewareTests
         return (context, () => called);
     }
 
-    private sealed class TestFeaturePolicy(bool chatbotEnabled, bool catalogAnalysisEnabled)
+    private sealed class TestFeaturePolicy(
+        bool chatbotEnabled,
+        bool catalogAnalysisEnabled,
+        bool ecommerceEnabled = false)
         : IProductFeaturePolicy
     {
         public bool AiEnabled => ChatbotEnabled || CatalogAnalysisEnabled;
         public bool ChatbotEnabled { get; } = chatbotEnabled;
         public bool CatalogAnalysisEnabled { get; } = catalogAnalysisEnabled;
-        public bool EcommerceEnabled => false;
+        public bool EcommerceEnabled { get; } = ecommerceEnabled;
         public bool UpgradePromptsEnabled => false;
         public bool PlanManagementEnabled => false;
     }

@@ -29,6 +29,11 @@ public sealed class ConfirmCustomerPasswordResetCommandHandler : IRequestHandler
             return OperationResult<PublicCustomerAuthResponse>.Failure("validation", "Sıfırlama doğrulanamadı.");
         }
 
+        if (!customer.IsActive)
+        {
+            return OperationResult<PublicCustomerAuthResponse>.Failure("validation", "Bu portal kullanıcısının erişimi pasif durumda.");
+        }
+
         if (string.IsNullOrWhiteSpace(customer.LoginCode) || customer.LoginCodeExpiresAt == null || customer.LoginCodeExpiresAt <= DateTime.UtcNow)
         {
             return OperationResult<PublicCustomerAuthResponse>.Failure("validation", "Doğrulama kodu geçersiz veya süresi dolmuş.");
@@ -48,7 +53,6 @@ public sealed class ConfirmCustomerPasswordResetCommandHandler : IRequestHandler
         customer.LoginLockoutUntil = null;
         customer.LastLoginDate = DateTime.UtcNow;
         customer.LastVisitDate = DateTime.UtcNow;
-        customer.IsActive = true;
         customer.PublicSessionToken = CustomerAuthHelpers.CreateSessionToken();
         customer.PublicSessionExpiresAt = DateTime.UtcNow.AddDays(30);
         customer.UpdatedDate = DateTime.UtcNow;

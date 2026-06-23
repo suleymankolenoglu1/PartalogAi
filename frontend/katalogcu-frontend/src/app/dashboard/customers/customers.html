@@ -1,10 +1,50 @@
 <div class="apple-page-wrapper">
     <header class="page-header">
         <div class="header-content">
-            <h1>Müşteriler</h1>
-            <p>Public view üzerinden toplanan müşteri kayıtları.</p>
+            <h1>Portal Erişimleri</h1>
+            <p>Chat ve katalog portalını kullanabilecek firma/kullanıcıları yönetin.</p>
         </div>
+        <button class="btn-primary" (click)="openCreateForm()">
+            <span class="material-symbols-outlined icon">person_add</span>
+            Portal Kullanıcısı Ekle
+        </button>
     </header>
+
+    @if (successMsg) {
+        <div class="alert success">{{ successMsg }}</div>
+    }
+
+    <section class="portal-link-card">
+        <div class="portal-link-copy">
+            <div class="portal-link-kicker">Davet Linki</div>
+            <h2>Müşterilerin portala giriş kapısı</h2>
+            <p>Bu linki erişim verdiğiniz firma/kullanıcılara gönderin. Link tek başına katalogları açmaz; kullanıcı listede aktif olmalı ve giriş yapmalıdır.</p>
+        </div>
+
+        <div class="portal-link-actions">
+            <span class="status-badge" [ngClass]="publicTokenStatus?.enabled ? getStatusBadge('active') : getStatusBadge('inactive')">
+                {{ publicTokenStatus?.enabled ? 'Link aktif' : 'Link pasif' }}
+            </span>
+
+            @if (publicToken) {
+                <div class="portal-link-row">
+                    <input [value]="'/p/' + publicToken" readonly>
+                    <button type="button" class="btn-secondary" (click)="copyPortalLink()" [disabled]="publicActionLoading">Kopyala</button>
+                </div>
+                <p class="portal-link-hint">Davet mesajı göndermek için kullanıcı satırındaki “Daveti Kopyala” butonunu kullanın.</p>
+                <button type="button" class="btn-secondary danger" (click)="rotatePortalLink()" [disabled]="publicActionLoading">
+                    {{ publicActionLoading ? 'İşleniyor...' : 'Linki Yenile' }}
+                </button>
+            } @else {
+                <div class="portal-link-warning">
+                    Davet mesajı göndermeden önce portal linki üretin.
+                </div>
+                <button type="button" class="btn-primary" (click)="generatePortalLink()" [disabled]="publicActionLoading">
+                    {{ publicActionLoading ? 'Üretiliyor...' : 'Portal Linki Üret' }}
+                </button>
+            }
+        </div>
+    </section>
 
     <div class="toolbar">
         <div class="search-wrapper">
@@ -21,10 +61,63 @@
             <select class="filter-select" [ngModel]="statusFilter" (ngModelChange)="onStatusFilterChange($event)">
                 <option value="all">Tüm Durumlar</option>
                 <option value="active">Aktif</option>
+                <option value="pending">Hesap Bekliyor</option>
                 <option value="inactive">Pasif</option>
             </select>
         </div>
     </div>
+
+    @if (isFormOpen) {
+        <section class="form-card">
+            <div class="form-card-head">
+                <div>
+                    <h2>{{ editingCustomer ? 'Portal kullanıcısını düzenle' : 'Yeni portal kullanıcısı' }}</h2>
+                    <p>Bu kişi/firma davet linki üzerinden hesap oluşturup ana işletmenin chat ve katalog ekranına erişebilir.</p>
+                </div>
+                <button type="button" class="action-icon" (click)="closeForm()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <form class="portal-form" (ngSubmit)="savePortalCustomer()">
+                <label>
+                    <span>Ad Soyad</span>
+                    <input name="name" [(ngModel)]="form.name" type="text" autocomplete="name">
+                </label>
+                <label>
+                    <span>Firma</span>
+                    <input name="companyName" [(ngModel)]="form.companyName" type="text" autocomplete="organization">
+                </label>
+                <label>
+                    <span>Telefon</span>
+                    <input name="phone" [(ngModel)]="form.phone" type="tel" autocomplete="tel">
+                </label>
+                <label>
+                    <span>E-posta</span>
+                    <input name="email" [(ngModel)]="form.email" type="email" autocomplete="email">
+                </label>
+                <label>
+                    <span>{{ editingCustomer ? 'Yeni şifre (opsiyonel)' : 'İlk şifre (opsiyonel)' }}</span>
+                    <input name="initialPassword" [(ngModel)]="form.initialPassword" type="password" autocomplete="new-password">
+                </label>
+                <label>
+                    <span>Not</span>
+                    <input name="note" [(ngModel)]="form.note" type="text">
+                </label>
+                <label class="checkbox-row">
+                    <input name="isActive" [(ngModel)]="form.isActive" type="checkbox">
+                    <span>Portal erişimi aktif</span>
+                </label>
+
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" (click)="closeForm()">Vazgeç</button>
+                    <button type="submit" class="btn-primary" [disabled]="isSaving">
+                        {{ isSaving ? 'Kaydediliyor...' : 'Kaydet' }}
+                    </button>
+                </div>
+            </form>
+        </section>
+    }
 
     @if (isLoading) {
         <div class="table-card">
@@ -40,12 +133,12 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th class="col-profile">MÜŞTERİ / FİRMA</th>
+                            <th class="col-profile">PORTAL KULLANICISI / FİRMA</th>
                             <th>İLETİŞİM</th>
-                            <th>SİPARİŞ</th>
-                            <th>TOPLAM HARCAMA</th>
-                            <th>DURUM</th>
-                            <th>SON İŞLEM</th>
+                            <th>ERİŞİM</th>
+                            <th>KULLANIM</th>
+                            <th>SON AKTİVİTE</th>
+                            <th class="text-right">AKSİYON</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -76,30 +169,63 @@
                                 </td>
 
                                 <td>
-                                    <span class="date-text">{{ customer.orderCount }}</span>
+                                    <div class="access-state">
+                                        <span class="status-badge" [ngClass]="getStatusBadge(getPortalState(customer))">
+                                            {{ getPortalStateLabel(customer) }}
+                                        </span>
+                                        <small>{{ getPortalStateHint(customer) }}</small>
+                                    </div>
                                 </td>
 
                                 <td>
-                                    <span class="balance-text text-green-600 font-bold">
-                                        {{ customer.totalSpent | currency:'TRY':'symbol-narrow' }}
-                                    </span>
+                                    <div class="usage-stack">
+                                        <span>{{ customer.hasPassword ? 'Şifre tanımlı' : 'Şifre bekliyor' }}</span>
+                                        <small>{{ customer.orderCount }} sipariş</small>
+                                    </div>
                                 </td>
 
                                 <td>
-                                    <span class="status-badge" [ngClass]="getStatusBadge(customer.status)">
-                                        {{ customer.status === 'active' ? 'Aktif' : 'Pasif' }}
-                                    </span>
+                                    <div class="activity-stack">
+                                        <span>{{ formatDateTime(customer.lastLoginDate || customer.lastActivityDate) }}</span>
+                                        <small>
+                                            @if (customer.lastLoginDate) {
+                                                Son giriş
+                                            } @else {
+                                                Henüz giriş yok
+                                            }
+                                        </small>
+                                    </div>
                                 </td>
 
-                                <td class="date-text">
-                                    {{ formatDate(customer.lastOrderDate || customer.lastVisitDate) }}
+                                <td>
+                                    <div class="row-actions always-visible">
+                                        <button
+                                            class="access-button neutral"
+                                            type="button"
+                                            title="Davet mesajını kopyala"
+                                            [disabled]="!publicToken"
+                                            (click)="copyInviteMessage(customer)">
+                                            Daveti Kopyala
+                                        </button>
+                                        <button class="action-icon edit" type="button" title="Düzenle" (click)="openEditForm(customer)">
+                                            <span class="material-symbols-outlined">edit</span>
+                                        </button>
+                                        <button
+                                            class="access-button"
+                                            type="button"
+                                            [disabled]="actionCustomerId === customer.id"
+                                            [class.deactivate]="customer.status === 'active'"
+                                            (click)="toggleAccess(customer)">
+                                            {{ customer.status === 'active' ? 'Pasifleştir' : 'Aktifleştir' }}
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         }
 
                         @if (filteredCustomers.length === 0) {
                             <tr>
-                                <td colspan="6" class="p-8 text-center text-[#86868B]">Kayıt bulunamadı.</td>
+                                <td colspan="6" class="p-8 text-center text-[#86868B]">Portal kullanıcısı bulunamadı.</td>
                             </tr>
                         }
                     </tbody>
@@ -107,7 +233,7 @@
             </div>
 
             <div class="pagination-bar">
-                <span class="pagination-info">Toplam {{ filteredCustomers.length }} müşteri</span>
+                <span class="pagination-info">Toplam {{ filteredCustomers.length }} portal kullanıcısı</span>
             </div>
         </div>
     }

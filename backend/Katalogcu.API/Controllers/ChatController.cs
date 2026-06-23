@@ -32,19 +32,25 @@ namespace Katalogcu.API.Controllers
         private readonly ILogger<ChatController> _logger;
         private readonly IChatStreamProxyService _chatStreamProxyService;
         private readonly IAiUsageQuotaService _aiUsageQuotaService;
+        private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly ICustomerRepository _customerRepository;
 
         public ChatController(
             IPartalogAiService aiService,
             ISender sender,
             ILogger<ChatController> logger,
             IChatStreamProxyService chatStreamProxyService,
-            IAiUsageQuotaService aiUsageQuotaService)
+            IAiUsageQuotaService aiUsageQuotaService,
+            IPublicAccessTokenService publicAccessTokenService,
+            ICustomerRepository customerRepository)
         {
             _aiService = aiService;
             _sender = sender;
             _logger = logger;
             _chatStreamProxyService = chatStreamProxyService;
             _aiUsageQuotaService = aiUsageQuotaService;
+            _publicAccessTokenService = publicAccessTokenService;
+            _customerRepository = customerRepository;
         }
 
         private Guid GetCurrentUserId()
@@ -52,6 +58,33 @@ namespace Katalogcu.API.Controllers
             var idString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (Guid.TryParse(idString, out var guid)) return guid;
             return Guid.Empty;
+        }
+
+        private string? ResolvePublicSessionToken()
+        {
+            var sessionTokenFromHeader = Request.Headers["X-Public-Session"].ToString();
+            return string.IsNullOrWhiteSpace(sessionTokenFromHeader)
+                ? null
+                : sessionTokenFromHeader.Trim();
+        }
+
+        private async Task<bool> HasValidPublicCustomerSessionAsync(string? publicToken, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(publicToken)) return false;
+
+            var payload = _publicAccessTokenService.Validate(publicToken);
+            if (payload == null) return false;
+
+            var sessionToken = ResolvePublicSessionToken();
+            if (string.IsNullOrWhiteSpace(sessionToken)) return false;
+
+            var customer = await _customerRepository.GetByPublicSessionAsync(
+                payload.UserId,
+                sessionToken,
+                DateTime.UtcNow,
+                cancellationToken);
+
+            return customer is { IsActive: true };
         }
 
         private static List<Guid> ParseCatalogIds(string? json)
@@ -112,6 +145,11 @@ namespace Katalogcu.API.Controllers
             try
             {
                 var tokenUserId = GetCurrentUserId();
+                if (tokenUserId == Guid.Empty &&
+                    !await HasValidPublicCustomerSessionAsync(request.PublicToken, HttpContext.RequestAborted))
+                {
+                    return Unauthorized(new { message = "Müşteri oturumu gerekli." });
+                }
 
                 var catalogIdsJson = Request.HasFormContentType ? Request.Form["catalog_ids"].ToString() : null;
                 var requestedCatalogIds = ParseCatalogIds(catalogIdsJson);
@@ -254,6 +292,13 @@ namespace Katalogcu.API.Controllers
             }
 
             var tokenUserId = GetCurrentUserId();
+            if (tokenUserId == Guid.Empty &&
+                !await HasValidPublicCustomerSessionAsync(request.PublicToken, HttpContext.RequestAborted))
+            {
+                Response.StatusCode = 401;
+                await WriteStreamMessageAsync("Müşteri oturumu gerekli.");
+                return;
+            }
 
             var catalogIdsJson = Request.HasFormContentType ? Request.Form["catalog_ids"].ToString() : null;
             var requestedCatalogIds = ParseCatalogIds(catalogIdsJson);

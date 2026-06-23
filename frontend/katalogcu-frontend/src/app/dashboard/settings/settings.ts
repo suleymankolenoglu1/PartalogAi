@@ -239,14 +239,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
           next: (res) => { this.publicToken = res.token; },
           error: () => {
             this.publicToken = null;
-            this.publicActionError = 'Public link alınamadı.';
+            this.publicActionError = 'Portal davet linki alınamadı.';
           }
         });
       },
       error: () => {
         this.publicTokenStatus = null;
         this.publicToken = null;
-        this.publicActionError = 'Public link durumu okunamadı.';
+        this.publicActionError = 'Portal davet linki durumu okunamadı.';
       }
     });
   }
@@ -276,11 +276,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.publicToken = res.token;
           this.publicTokenStatus = { enabled: res.enabled, version: res.version };
-          this.publicActionMessage = 'Public link yeniden aktif edildi ve üretildi.';
+          this.publicActionMessage = 'Portal davet linki yeniden aktif edildi ve üretildi.';
           this.publicActionLoading = false;
         },
         error: () => {
-          this.publicActionError = 'Public link üretilemedi.';
+          this.publicActionError = 'Portal davet linki üretilemedi.';
           this.publicActionLoading = false;
         }
       });
@@ -293,11 +293,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
         if (!this.publicTokenStatus) {
           this.publicTokenStatus = { enabled: true, version: 1 };
         }
-        this.publicActionMessage = 'Yeni public link üretildi.';
+        this.publicActionMessage = 'Yeni portal davet linki üretildi.';
         this.publicActionLoading = false;
       },
       error: () => {
-        this.publicActionError = 'Public link üretilemedi.';
+        this.publicActionError = 'Portal davet linki üretilemedi.';
         this.publicActionLoading = false;
       }
     });
@@ -314,11 +314,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
       next: (res) => {
         this.publicToken = res.token;
         this.publicTokenStatus = { enabled: res.enabled, version: res.version };
-        this.publicActionMessage = 'Public link yenilendi. Eski linkler iptal edildi.';
+        this.publicActionMessage = 'Portal davet linki yenilendi. Eski linkler iptal edildi.';
         this.publicActionLoading = false;
       },
       error: () => {
-        this.publicActionError = 'Public link yenilenemedi.';
+        this.publicActionError = 'Portal davet linki yenilenemedi.';
         this.publicActionLoading = false;
       }
     });
@@ -333,11 +333,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
       next: (res) => {
         this.publicToken = null;
         this.publicTokenStatus = res;
-        this.publicActionMessage = 'Public link iptal edildi.';
+        this.publicActionMessage = 'Portal davet linki iptal edildi.';
         this.publicActionLoading = false;
       },
       error: () => {
-        this.publicActionError = 'Public link iptal edilemedi.';
+        this.publicActionError = 'Portal davet linki iptal edilemedi.';
         this.publicActionLoading = false;
       }
     });
@@ -348,7 +348,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const url = `${window.location.origin}/p/${this.publicToken}`;
     try {
       await navigator.clipboard.writeText(url);
-      this.publicActionMessage = 'Public link panoya kopyalandı.';
+      this.publicActionMessage = 'Portal davet linki panoya kopyalandı.';
       this.publicActionError = null;
     } catch {
       this.publicActionMessage = null;

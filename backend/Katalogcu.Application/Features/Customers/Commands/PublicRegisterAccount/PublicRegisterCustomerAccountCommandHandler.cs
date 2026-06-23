@@ -1,7 +1,6 @@
 using Katalogcu.Application.Common.Interfaces;
 using Katalogcu.Application.Common.Models;
 using Katalogcu.Application.Features.Customers.Common;
-using Katalogcu.Domain.Entities;
 using MediatR;
 
 namespace Katalogcu.Application.Features.Customers.Commands.PublicRegisterAccount;
@@ -26,19 +25,28 @@ public sealed class PublicRegisterCustomerAccountCommandHandler : IRequestHandle
             normalizedEmail,
             cancellationToken);
 
-        if (existing != null && !string.IsNullOrWhiteSpace(existing.PasswordHash) && !string.IsNullOrWhiteSpace(existing.PasswordSalt))
+        if (existing == null)
+        {
+            return OperationResult<PublicCustomerAuthResponse>.Failure(
+                "not_found",
+                "Bu telefon/e-posta için portal daveti bulunamadı. Lütfen işletme ile iletişime geçin.");
+        }
+
+        if (!existing.IsActive)
+        {
+            return OperationResult<PublicCustomerAuthResponse>.Failure(
+                "inactive",
+                "Bu portal kullanıcısının erişimi pasif durumda.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.PasswordHash) && !string.IsNullOrWhiteSpace(existing.PasswordSalt))
         {
             return OperationResult<PublicCustomerAuthResponse>.Failure(
                 "conflict",
                 "Bu telefon/e-posta ile kayıtlı hesap zaten var. Lütfen giriş yapın.");
         }
 
-        var customer = existing ?? new Customer
-        {
-            Id = Guid.NewGuid(),
-            UserId = request.OwnerUserId,
-            CreatedDate = DateTime.UtcNow
-        };
+        var customer = existing;
 
         customer.FullName = request.Name.Trim();
         customer.Phone = request.Phone.Trim();
@@ -58,11 +66,6 @@ public sealed class PublicRegisterCustomerAccountCommandHandler : IRequestHandle
         customer.LoginCodeExpiresAt = null;
         customer.PublicSessionToken = CustomerAuthHelpers.CreateSessionToken();
         customer.PublicSessionExpiresAt = DateTime.UtcNow.AddDays(30);
-
-        if (existing == null)
-        {
-            await _customerRepository.AddCustomerAsync(customer, cancellationToken);
-        }
 
         await _customerRepository.SaveChangesAsync(cancellationToken);
 

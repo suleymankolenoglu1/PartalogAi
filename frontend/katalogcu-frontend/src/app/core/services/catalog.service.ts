@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
@@ -251,6 +251,14 @@ export class CatalogService {
 
   constructor() { }
 
+  private getPublicSessionHeaders(publicToken?: string): HttpHeaders | undefined {
+    if (!publicToken) return undefined;
+    const sessionToken = localStorage.getItem(`public_customer_session_${publicToken}`);
+    return sessionToken
+      ? new HttpHeaders({ 'X-Public-Session': sessionToken })
+      : undefined;
+  }
+
   // ==========================================
   // 📂 KLASÖR YÖNETİMİ
   // ==========================================
@@ -291,7 +299,8 @@ export class CatalogService {
 
   getPublicCatalogsByToken(token: string): Observable<Catalog[]> {
     const params = new HttpParams().set('token', token);
-    return this.http.get<Catalog[]>(`${this.apiUrl}/catalogs/public-by-token`, { params });
+    const headers = this.getPublicSessionHeaders(token);
+    return this.http.get<Catalog[]>(`${this.apiUrl}/catalogs/public-by-token`, { params, headers });
   }
 
   getPublicStorefront(token: string): Observable<PublicStorefront> {
@@ -301,7 +310,8 @@ export class CatalogService {
 
   getPublicFoldersByToken(token: string): Observable<PublicFolderSummary[]> {
     const params = new HttpParams().set('token', token);
-    return this.http.get<PublicFolderSummary[]>(`${this.apiUrl}/catalogs/public-folders-by-token`, { params });
+    const headers = this.getPublicSessionHeaders(token);
+    return this.http.get<PublicFolderSummary[]>(`${this.apiUrl}/catalogs/public-folders-by-token`, { params, headers });
   }
 
   getPublicToken(catalogIds?: string[]): Observable<{ token: string }> {
@@ -331,7 +341,8 @@ export class CatalogService {
   getCatalogById(id: string, options?: { publicToken?: string }): Observable<Catalog> {
     let params = new HttpParams();
     if (options?.publicToken) params = params.set('token', options.publicToken);
-    return this.http.get<Catalog>(`${this.apiUrl}/catalogs/${id}`, { params });
+    const headers = this.getPublicSessionHeaders(options?.publicToken);
+    return this.http.get<Catalog>(`${this.apiUrl}/catalogs/${id}`, { params, headers });
   }
 
   createCatalog(catalogData: any): Observable<Catalog> {
@@ -354,7 +365,8 @@ export class CatalogService {
     let params = new HttpParams();
     if (options?.publicToken) params = params.set('token', options.publicToken);
     if (options?.strictPage) params = params.set('strict', 'true');
-    return this.http.get<CatalogPageItem[]>(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageNumber}/items`, { params });
+    const headers = this.getPublicSessionHeaders(options?.publicToken);
+    return this.http.get<CatalogPageItem[]>(`${this.apiUrl}/catalogs/${catalogId}/pages/${pageNumber}/items`, { params, headers });
   }
 
   startAiProcess(catalogId: string): Observable<any> {

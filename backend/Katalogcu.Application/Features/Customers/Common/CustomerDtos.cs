@@ -11,6 +11,9 @@ public sealed class CustomerListItemDto
     public decimal TotalSpent { get; init; }
     public DateTime LastVisitDate { get; init; }
     public DateTime? LastOrderDate { get; init; }
+    public DateTime? LastLoginDate { get; init; }
+    public DateTime LastActivityDate { get; init; }
+    public bool HasPassword { get; init; }
     public string Status { get; init; } = "inactive";
     public string? Note { get; init; }
     public DateTime CreatedDate { get; init; }

@@ -252,12 +252,12 @@ export class PublicCheckoutComponent implements OnInit, OnDestroy {
         this.guestForm.name = res.customer?.name || '';
         this.guestForm.phone = res.customer?.phone || '';
         this.guestForm.email = res.customer?.email || '';
-        this.registerMessage = 'Kayıt tamamlandı ve giriş yapıldı.';
+        this.registerMessage = 'Hesap tamamlandı ve giriş yapıldı.';
         this.loadMyOrders();
       },
       error: (err) => {
         this.isRegistering = false;
-        this.registerError = err?.error?.message || err?.error || 'Kayıt oluşturulamadı.';
+        this.registerError = err?.error?.message || err?.error || 'Hesap tamamlanamadı.';
       }
     });
   }

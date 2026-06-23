@@ -59,7 +59,14 @@ export class AiService {
    * @param image Seçilen resim (opsiyonel)
    * @param history Önceki konuşmalar (bağlam için)
    */
-  sendMessage(text: string, image: File | null, history: any[] = [], catalogIds?: string[], publicToken?: string): Observable<AiChatResponse> {
+  sendMessage(
+    text: string,
+    image: File | null,
+    history: any[] = [],
+    catalogIds?: string[],
+    publicToken?: string,
+    publicSessionToken?: string
+  ): Observable<AiChatResponse> {
     const formData = new FormData();
     
     // 1. Metin (Varsa)
@@ -77,7 +84,11 @@ export class AiService {
     // ✅ catalog_ids ekle (arama kapsamını bu kataloglarla sınırla)
     formData.append('catalog_ids', JSON.stringify(catalogIds ?? []));
 
-    return this.http.post<AiChatResponse>(this.apiUrl, formData);
+    const options = publicSessionToken
+      ? { headers: { 'X-Public-Session': publicSessionToken } }
+      : undefined;
+
+    return this.http.post<AiChatResponse>(this.apiUrl, formData, options);
   }
 
   saveVisualFeedback(payload: VisualFeedbackRequest): Observable<VisualFeedbackResponse> {
@@ -103,7 +114,8 @@ export class AiService {
     image: File | null,
     history: any[],
     catalogIds?: string[],
-    publicToken?: string
+    publicToken?: string,
+    publicSessionToken?: string
   ): Observable<AiStreamEvent> {
     return new Observable(observer => {
       const abortController = new AbortController();
@@ -119,6 +131,7 @@ export class AiService {
       const token = localStorage.getItem('auth_token') ?? '';
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (publicSessionToken) headers['X-Public-Session'] = publicSessionToken;
       const emitLine = (rawLine: string): boolean => {
         const event = parseAiStreamSseLine(rawLine);
         if (!event) return false;

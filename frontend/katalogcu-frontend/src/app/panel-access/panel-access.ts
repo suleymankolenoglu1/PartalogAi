@@ -1,17 +1,16 @@
-import { Component, inject } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { AuthService } from '../core/services/auth.service';
 import { PlanId } from '../core/models/plan.model';
 
 @Component({
-  selector: 'app-prices',
+  selector: 'app-panel-access',
   standalone: true,
   imports: [CommonModule],
-  templateUrl: './prices.html',
-  styleUrl: './prices.css'
+  templateUrl: './panel-access.html'
 })
-export class PricesComponent {
+export class PanelAccessComponent implements OnInit {
   private authService = inject(AuthService);
   private router = inject(Router);
 
@@ -31,15 +30,22 @@ export class PricesComponent {
     return this.authService.isPlanSelected();
   }
 
+  ngOnInit(): void {
+    if (!this.isLoggedIn) {
+      this.router.navigate(['/login']);
+    }
+  }
+
   isCurrentPlan(plan: PlanId): boolean {
     return this.currentPlan === plan;
   }
 
   getPlanActionLabel(plan: PlanId): string {
-    if (!this.isLoggedIn) return 'Giriş Yap ve Seç';
+    if (!this.isLoggedIn) return 'Panel Girişi Gerekli';
     if (this.isCurrentPlan(plan)) return 'Mevcut Plan';
+    if (plan > 1) return 'Platformdan Açılır';
     if (plan < this.currentPlan) return 'Bu Plana Düşür';
-    return 'Bu Plana Yükselt';
+    return 'Bu Modu Seç';
   }
 
   selectPlan(plan: PlanId) {
@@ -49,6 +55,11 @@ export class PricesComponent {
     }
 
     if (this.isCurrentPlan(plan)) return;
+
+    if (plan > 1) {
+      this.submitError = 'AI ve e-ticaret modülleri platform yöneticisi tarafından açılır.';
+      return;
+    }
 
     if (plan < this.currentPlan) {
       const approve = confirm('Planı düşürmek istediğine emin misin? Bu planın dışındaki modüller kapanacak.');

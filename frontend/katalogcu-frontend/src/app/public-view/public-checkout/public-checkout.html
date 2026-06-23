@@ -54,7 +54,7 @@
         @if (!loggedCustomer) {
           <div class="tabs">
             <button [class.active]="authTab === 'login'" (click)="setAuthTab('login')">Giriş Yap</button>
-            <button [class.active]="authTab === 'register'" (click)="setAuthTab('register')">Kayıt Ol</button>
+            <button [class.active]="authTab === 'register'" (click)="setAuthTab('register')">Hesabı Tamamla</button>
           </div>
 
           @if (authTab === 'login') {
@@ -105,7 +105,7 @@
               <button (click)="register()"
                       [disabled]="isRegistering || !registerForm.name || !registerForm.phone || !registerForm.password || !registerForm.confirmPassword"
                       class="primary">
-                {{ isRegistering ? 'Kayıt Oluşturuluyor...' : 'Hesap Oluştur' }}
+                {{ isRegistering ? 'Hesap Tamamlanıyor...' : 'Hesabı Tamamla' }}
               </button>
               @if (registerMessage) { <p class="ok">{{ registerMessage }}</p> }
               @if (registerError) { <p class="err">{{ registerError }}</p> }

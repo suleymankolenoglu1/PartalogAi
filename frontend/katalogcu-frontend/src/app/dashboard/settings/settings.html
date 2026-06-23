@@ -38,7 +38,7 @@
             <button (click)="setActiveTab('public')" 
                     class="tab-btn" 
                     [class.active]="activeTab === 'public'">
-                Public Link
+                Portal Davet Linki
             </button>
         </nav>
 
@@ -244,7 +244,7 @@
                 <div class="tab-content fade-in">
                     <div class="public-card" id="link-management">
                         <div class="public-header">
-                            <h3 class="section-title">Public Link Yönetimi</h3>
+                            <h3 class="section-title">Portal Davet Linki Yönetimi</h3>
                             <span class="public-badge" [class.off]="!publicTokenStatus?.enabled">
                                 @if (publicTokenStatus?.enabled) { Aktif } @else { Pasif }
                             </span>
@@ -258,7 +258,7 @@
                                 </button>
                             </div>
                         } @else {
-                            <p class="hint-text">Aktif public link yok. Aşağıdan yeni link üretebilirsin.</p>
+                            <p class="hint-text">Aktif portal davet linki yok. Aşağıdan yeni link üretebilirsin.</p>
                         }
 
                         <div class="divider"></div>

@@ -5,6 +5,8 @@ using Katalogcu.Application.Features.Customers.Commands.PublicLogin;
 using Katalogcu.Application.Features.Customers.Commands.PublicRegister;
 using Katalogcu.Application.Features.Customers.Commands.PublicRegisterAccount;
 using Katalogcu.Application.Features.Customers.Commands.RequestPasswordReset;
+using Katalogcu.Application.Features.Customers.Commands.SetPortalCustomerAccess;
+using Katalogcu.Application.Features.Customers.Commands.UpsertPortalCustomer;
 using Katalogcu.Application.Features.Customers.Queries.GetMyCustomers;
 using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerMe;
 using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerOrderDetail;
@@ -14,6 +16,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Claims;
 
 namespace Katalogcu.API.Controllers
 {
@@ -41,6 +44,12 @@ namespace Katalogcu.API.Controllers
             return null;
         }
 
+        private Guid GetCurrentUserId()
+        {
+            var idString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return Guid.TryParse(idString, out var guid) ? guid : Guid.Empty;
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetMyCustomers()
         {
@@ -53,6 +62,112 @@ namespace Katalogcu.API.Controllers
                     {
                         "unauthorized" => Unauthorized(result.ErrorMessage),
                         _ => StatusCode(500, result.ErrorMessage ?? "Müşteriler alınamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("portal-users")]
+        public async Task<IActionResult> CreatePortalUser([FromBody] UpsertPortalCustomerRequest request)
+        {
+            var ownerUserId = GetCurrentUserId();
+            if (ownerUserId == Guid.Empty) return Unauthorized();
+
+            try
+            {
+                var result = await _sender.Send(new UpsertPortalCustomerCommand(
+                    ownerUserId,
+                    CustomerId: null,
+                    request.Name,
+                    request.Phone,
+                    request.Email,
+                    request.CompanyName,
+                    request.Note,
+                    request.InitialPassword,
+                    request.IsActive));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "conflict" => Conflict(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Portal kullanıcısı oluşturulamadı.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPut("portal-users/{customerId:guid}")]
+        public async Task<IActionResult> UpdatePortalUser(Guid customerId, [FromBody] UpsertPortalCustomerRequest request)
+        {
+            var ownerUserId = GetCurrentUserId();
+            if (ownerUserId == Guid.Empty) return Unauthorized();
+
+            try
+            {
+                var result = await _sender.Send(new UpsertPortalCustomerCommand(
+                    ownerUserId,
+                    customerId,
+                    request.Name,
+                    request.Phone,
+                    request.Email,
+                    request.CompanyName,
+                    request.Note,
+                    request.InitialPassword,
+                    request.IsActive));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "conflict" => Conflict(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Portal kullanıcısı güncellenemedi.")
+                    };
+                }
+
+                return Ok(result.Value);
+            }
+            catch (ValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPatch("portal-users/{customerId:guid}/access")]
+        public async Task<IActionResult> SetPortalUserAccess(Guid customerId, [FromBody] SetPortalCustomerAccessRequest request)
+        {
+            var ownerUserId = GetCurrentUserId();
+            if (ownerUserId == Guid.Empty) return Unauthorized();
+
+            try
+            {
+                var result = await _sender.Send(new SetPortalCustomerAccessCommand(
+                    ownerUserId,
+                    customerId,
+                    request.IsActive));
+
+                if (!result.IsSuccess)
+                {
+                    return result.ErrorCode switch
+                    {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "validation" => BadRequest(result.ErrorMessage),
+                        _ => StatusCode(500, result.ErrorMessage ?? "Portal erişimi güncellenemedi.")
                     };
                 }
 
@@ -126,6 +241,8 @@ namespace Katalogcu.API.Controllers
                 {
                     return result.ErrorCode switch
                     {
+                        "not_found" => NotFound(result.ErrorMessage),
+                        "inactive" => StatusCode(403, result.ErrorMessage),
                         "conflict" => Conflict(result.ErrorMessage),
                         "validation" => BadRequest(result.ErrorMessage),
                         _ => StatusCode(500, result.ErrorMessage ?? "Hesap oluşturulamadı.")
@@ -164,6 +281,7 @@ namespace Katalogcu.API.Controllers
                     return result.ErrorCode switch
                     {
                         "not_found" => NotFound(result.ErrorMessage),
+                        "inactive" => StatusCode(403, result.ErrorMessage),
                         "locked" => StatusCode(429, result.ErrorMessage),
                         "no_password" => BadRequest(result.ErrorMessage),
                         "invalid_credentials" => Unauthorized(result.ErrorMessage),
@@ -357,6 +475,22 @@ namespace Katalogcu.API.Controllers
         public string? Email { get; set; }
         public string? CompanyName { get; set; }
         public string? Note { get; set; }
+    }
+
+    public sealed class UpsertPortalCustomerRequest
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? CompanyName { get; set; }
+        public string? Note { get; set; }
+        public string? InitialPassword { get; set; }
+        public bool IsActive { get; set; } = true;
+    }
+
+    public sealed class SetPortalCustomerAccessRequest
+    {
+        public bool IsActive { get; set; }
     }
 
     public class PublicCustomerLoginRequest

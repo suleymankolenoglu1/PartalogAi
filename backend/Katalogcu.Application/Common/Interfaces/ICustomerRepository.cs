@@ -6,6 +6,8 @@ public interface ICustomerRepository
 {
     Task<IReadOnlyList<Customer>> GetCustomersByUserAsync(Guid userId, CancellationToken cancellationToken);
 
+    Task<Customer?> GetCustomerByIdAsync(Guid userId, Guid customerId, CancellationToken cancellationToken);
+
     Task<Customer?> FindByPhoneAsync(Guid userId, string normalizedPhone, CancellationToken cancellationToken);
 
     Task<Customer?> FindByEmailAsync(Guid userId, string normalizedEmail, CancellationToken cancellationToken);

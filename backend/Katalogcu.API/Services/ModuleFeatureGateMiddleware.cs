@@ -60,7 +60,6 @@ public sealed class ModuleFeatureGateMiddleware
     {
         if (path.StartsWithSegments("/api/orders")) return true;
         if (path.StartsWithSegments("/api/products")) return true;
-        if (path.StartsWithSegments("/api/customers")) return true;
         return false;
     }
 

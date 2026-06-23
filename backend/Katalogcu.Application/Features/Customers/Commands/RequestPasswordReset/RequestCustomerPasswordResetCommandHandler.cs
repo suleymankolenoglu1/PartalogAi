@@ -26,7 +26,7 @@ public sealed class RequestCustomerPasswordResetCommandHandler : IRequestHandler
             cancellationToken);
 
         string? resetCode = null;
-        if (customer != null)
+        if (customer is { IsActive: true })
         {
             resetCode = CustomerAuthHelpers.GenerateResetCode();
             customer.LoginCode = resetCode;

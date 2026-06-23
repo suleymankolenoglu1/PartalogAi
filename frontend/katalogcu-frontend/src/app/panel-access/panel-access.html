@@ -1,26 +1,26 @@
 <div class="w-full max-w-6xl px-6 py-14 sm:py-18 md:py-24">
   <section class="text-center">
     <h1 class="text-4xl font-black tracking-tight text-text-dark dark:text-text-light sm:text-5xl">
-      Paket Seçimi
+      Panel Erişim Modu
     </h1>
     <p class="mt-3 text-base text-text-muted-light dark:text-text-muted-dark">
-      Hesabınıza uygun paketi seçin. Seçiminize göre panel özellikleri açılır.
+      Bu ekran panel hesabınızın hangi modüllere erişeceğini gösterir. Ana modül katalog ve müşteri portalıdır.
     </p>
     @if (isLoggedIn) {
       <div class="mt-4 inline-flex items-center rounded-full border border-border-light bg-surface-light px-4 py-2 text-sm font-semibold text-text-dark">
-        Mevcut plan: {{ currentPlan === 1 ? 'Katalog' : (currentPlan === 2 ? 'Catalog + AI' : 'Catalog + AI + E-Ticaret') }}
+        Mevcut plan: {{ currentPlan === 1 ? 'Katalog + Portal' : (currentPlan === 2 ? 'Catalog + AI' : 'Catalog + AI + E-Ticaret') }}
       </div>
     }
   </section>
 
   <section class="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
     <article class="rounded-2xl border border-border-light bg-surface-light p-6 shadow-sm">
-      <h2 class="text-xl font-bold text-text-dark dark:text-text-light">Katalog</h2>
-      <p class="mt-2 text-sm text-text-muted-light dark:text-text-muted-dark">Sadece katalog yönetimi.</p>
-      <div class="mt-4 text-3xl font-black text-text-dark dark:text-text-light">Temel</div>
+      <h2 class="text-xl font-bold text-text-dark dark:text-text-light">Katalog + Portal</h2>
+      <p class="mt-2 text-sm text-text-muted-light dark:text-text-muted-dark">Ana işletme paneli ve müşteri portalı.</p>
+      <div class="mt-4 text-3xl font-black text-text-dark dark:text-text-light">Ana Mod</div>
       <ul class="mt-4 space-y-2 text-sm text-text-muted-light dark:text-text-muted-dark">
         <li>5 katalog limiti</li>
-        <li>AI chatbot kapalı</li>
+        <li>Portal davet linki ve müşteri erişimleri</li>
         <li>E-ticaret kapalı</li>
       </ul>
       <button
@@ -33,8 +33,8 @@
 
     <article class="rounded-2xl border-2 border-primary bg-surface-dark dark:bg-surface-light p-6 shadow-lg">
       <h2 class="text-xl font-bold text-text-light dark:text-text-dark">Catalog + AI</h2>
-      <p class="mt-2 text-sm text-text-muted-dark dark:text-text-muted-light">Parça arama chatbotu aktif.</p>
-      <div class="mt-4 text-3xl font-black text-text-light dark:text-text-dark">Pro</div>
+      <p class="mt-2 text-sm text-text-muted-dark dark:text-text-muted-light">Parça arama chatbotu platform tarafından açılır.</p>
+      <div class="mt-4 text-3xl font-black text-text-light dark:text-text-dark">AI Mod</div>
       <ul class="mt-4 space-y-2 text-sm text-text-muted-dark dark:text-text-muted-light">
         <li>10 katalog limiti</li>
         <li>500 AI sorgu / ay</li>
@@ -50,8 +50,8 @@
 
     <article class="rounded-2xl border border-border-light bg-surface-light p-6 shadow-sm">
       <h2 class="text-xl font-bold text-text-dark dark:text-text-light">Catalog + AI + E-Ticaret</h2>
-      <p class="mt-2 text-sm text-text-muted-light dark:text-text-muted-dark">Tüm özellikler açık.</p>
-      <div class="mt-4 text-3xl font-black text-text-dark dark:text-text-light">Enterprise</div>
+      <p class="mt-2 text-sm text-text-muted-light dark:text-text-muted-dark">Sipariş ve stok modülleri platform tarafından açılır.</p>
+      <div class="mt-4 text-3xl font-black text-text-dark dark:text-text-light">Tam Mod</div>
       <ul class="mt-4 space-y-2 text-sm text-text-muted-light dark:text-text-muted-dark">
         <li>Sınırsız katalog</li>
         <li>Sınırsız AI sorgu</li>
@@ -70,13 +70,13 @@
     <section class="mt-8 rounded-xl border border-red-200 bg-red-50 p-5">
       <h3 class="text-base font-extrabold text-red-700">Plan İptali</h3>
       <p class="mt-2 text-sm text-red-700/90">
-        Ücretli planı iptal edersen hesabın Katalog paketine düşer. AI ve E-Ticaret modülleri kapanır.
+        Bu işlem hesabı Katalog + Portal moduna döndürür. AI ve E-Ticaret modülleri kapanır.
       </p>
       <button
         class="mt-4 h-10 rounded-lg border border-red-300 bg-white px-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-60"
         [disabled]="isSubmitting"
         (click)="cancelPaidPlan()">
-        Ücretli Planı İptal Et
+        Katalog + Portal Moduna Dön
       </button>
     </section>
   }
@@ -94,7 +94,7 @@
 
   @if (!planSelected && isLoggedIn) {
     <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
-      Devam etmek için önce bir paket seçmelisin.
+      Devam etmek için önce bir erişim modu seçmelisin.
     </div>
   }
 </div>

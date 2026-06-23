@@ -4,14 +4,14 @@ import { AuthService } from '../services/auth.service';
 import { environment } from '../../../environments/environment';
 
 export const planSelectionGuard: CanActivateFn = () => {
-  if (!environment.features.enableUpgradePrompts) {
-    return true;
-  }
-
   const authService = inject(AuthService);
   const router = inject(Router);
 
   if (!authService.isLoggedIn()) {
+    return router.parseUrl('/login');
+  }
+
+  if (!environment.features.enableUpgradePrompts) {
     return true;
   }
 

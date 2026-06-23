@@ -13,6 +13,9 @@ export interface Customer {
   totalSpent: number;
   lastVisitDate: string;
   lastOrderDate?: string | null;
+  lastLoginDate?: string | null;
+  lastActivityDate: string;
+  hasPassword: boolean;
   status: 'active' | 'inactive';
   note?: string | null;
   createdDate: string;
@@ -25,6 +28,16 @@ export interface PublicCustomerRegisterRequest {
   email?: string;
   companyName?: string;
   note?: string;
+}
+
+export interface UpsertPortalCustomerRequest {
+  name: string;
+  phone: string;
+  email?: string;
+  companyName?: string;
+  note?: string;
+  initialPassword?: string;
+  isActive: boolean;
 }
 
 export interface PublicCustomerRegisterResponse {
@@ -148,6 +161,18 @@ export class CustomerService {
 
   getCustomers(): Observable<Customer[]> {
     return this.http.get<Customer[]>(`${this.apiUrl}/customers`);
+  }
+
+  createPortalCustomer(payload: UpsertPortalCustomerRequest): Observable<Customer> {
+    return this.http.post<Customer>(`${this.apiUrl}/customers/portal-users`, payload);
+  }
+
+  updatePortalCustomer(id: string, payload: UpsertPortalCustomerRequest): Observable<Customer> {
+    return this.http.put<Customer>(`${this.apiUrl}/customers/portal-users/${id}`, payload);
+  }
+
+  setPortalCustomerAccess(id: string, isActive: boolean): Observable<Customer> {
+    return this.http.patch<Customer>(`${this.apiUrl}/customers/portal-users/${id}/access`, { isActive });
   }
 
   registerFromPublic(payload: PublicCustomerRegisterRequest): Observable<PublicCustomerRegisterResponse> {

@@ -35,6 +35,9 @@ public sealed class GetMyCustomersQueryHandler : IRequestHandler<GetMyCustomersQ
             TotalSpent = c.TotalSpent,
             LastVisitDate = c.LastVisitDate,
             LastOrderDate = c.LastOrderDate,
+            LastLoginDate = c.LastLoginDate,
+            LastActivityDate = c.LastLoginDate ?? c.LastOrderDate ?? c.LastVisitDate,
+            HasPassword = !string.IsNullOrWhiteSpace(c.PasswordHash) && !string.IsNullOrWhiteSpace(c.PasswordSalt),
             Status = c.IsActive ? "active" : "inactive",
             Note = c.Note,
             CreatedDate = c.CreatedDate

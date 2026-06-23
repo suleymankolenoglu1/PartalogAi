@@ -1,7 +1,7 @@
 import { Component, OnInit, inject, ElementRef, ViewChild, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CatalogService, Catalog, CatalogPage, RectSelection, Hotspot, CatalogPageItem, CatalogPageReviewStatus, HotspotLabelReadResult } from '../core/services/catalog.service';
 import { ProductService } from '../core/services/product.service';
 
@@ -69,6 +69,7 @@ interface HotspotOcrState {
 })
 export class CatalogDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private catalogService = inject(CatalogService);
   private productService = inject(ProductService); // Opsiyonel: Stok işlemleri için kalabilir
   @ViewChild('pageViewport') pageViewportRef?: ElementRef<HTMLDivElement>;
@@ -929,13 +930,19 @@ export class CatalogDetailComponent implements OnInit {
 
   publishAndOpen() {
     if (!this.catalog) return;
+
+    if (this.catalog.status === 'Published') {
+      this.router.navigate(['/dashboard/customers']);
+      return;
+    }
+
     this.isLoading = true;
     this.catalogService.publishCatalog(this.catalog.id).subscribe({
       next: () => {
         this.isLoading = false;
         this.catalog!.status = 'Published';
-        const publicUrl = `/view/${this.catalog!.id}`;
-        window.open(publicUrl, '_blank');
+        this.showToast('success', 'Katalog yayınlandı. Portal erişimleri ekranına yönlendiriliyorsunuz.');
+        this.router.navigate(['/dashboard/customers']);
       },
       error: (err) => {
         console.error(err);

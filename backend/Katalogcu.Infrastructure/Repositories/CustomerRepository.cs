@@ -23,6 +23,13 @@ public sealed class CustomerRepository : ICustomerRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<Customer?> GetCustomerByIdAsync(Guid userId, Guid customerId, CancellationToken cancellationToken)
+    {
+        return _context.Customers.FirstOrDefaultAsync(
+            c => c.UserId == userId && c.Id == customerId,
+            cancellationToken);
+    }
+
     public Task<Customer?> FindByPhoneAsync(Guid userId, string normalizedPhone, CancellationToken cancellationToken)
     {
         return _context.Customers.FirstOrDefaultAsync(

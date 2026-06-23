@@ -44,6 +44,7 @@ namespace Katalogcu.API.Controllers
     {
         private readonly ILogger<CatalogsController> _logger;
         private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly ICustomerRepository _customerRepository;
         private readonly IAiUsageQuotaService _aiUsageQuotaService;
         private readonly IProductFeaturePolicy _productFeaturePolicy;
         private readonly AppDbContext _dbContext;
@@ -52,6 +53,7 @@ namespace Katalogcu.API.Controllers
         public CatalogsController(
             ILogger<CatalogsController> logger,
             IPublicAccessTokenService publicAccessTokenService,
+            ICustomerRepository customerRepository,
             IAiUsageQuotaService aiUsageQuotaService,
             IProductFeaturePolicy productFeaturePolicy,
             AppDbContext dbContext,
@@ -59,6 +61,7 @@ namespace Katalogcu.API.Controllers
         {
             _logger = logger;
             _publicAccessTokenService = publicAccessTokenService;
+            _customerRepository = customerRepository;
             _aiUsageQuotaService = aiUsageQuotaService;
             _productFeaturePolicy = productFeaturePolicy;
             _dbContext = dbContext;
@@ -86,6 +89,30 @@ namespace Katalogcu.API.Controllers
                 if (payload != null) return (payload.UserId, true, payload);
             }
             return (Guid.Empty, true, null);
+        }
+
+        private string? ResolvePublicSessionToken()
+        {
+            var sessionTokenFromHeader = Request.Headers["X-Public-Session"].ToString();
+            return string.IsNullOrWhiteSpace(sessionTokenFromHeader)
+                ? null
+                : sessionTokenFromHeader.Trim();
+        }
+
+        private async Task<bool> HasValidPublicCustomerSessionAsync(
+            PublicAccessPayloadDto payload,
+            CancellationToken cancellationToken)
+        {
+            var sessionToken = ResolvePublicSessionToken();
+            if (string.IsNullOrWhiteSpace(sessionToken)) return false;
+
+            var customer = await _customerRepository.GetByPublicSessionAsync(
+                payload.UserId,
+                sessionToken,
+                DateTime.UtcNow,
+                cancellationToken);
+
+            return customer is { IsActive: true };
         }
 
         private static List<Guid> ParseCatalogIds(string? raw)
@@ -138,6 +165,10 @@ namespace Katalogcu.API.Controllers
         {
             var payload = _publicAccessTokenService.Validate(token);
             if (payload == null) return BadRequest("Geçersiz token.");
+            if (!await HasValidPublicCustomerSessionAsync(payload, HttpContext.RequestAborted))
+            {
+                return Unauthorized("Müşteri oturumu gerekli.");
+            }
 
             var result = await _sender.Send(new GetPublicCatalogsByUserQuery(payload.UserId, payload.CatalogIds));
             if (!result.IsSuccess)
@@ -203,6 +234,10 @@ namespace Katalogcu.API.Controllers
         {
             var payload = _publicAccessTokenService.Validate(token);
             if (payload == null) return BadRequest("Geçersiz token.");
+            if (!await HasValidPublicCustomerSessionAsync(payload, HttpContext.RequestAborted))
+            {
+                return Unauthorized("Müşteri oturumu gerekli.");
+            }
 
             var result = await _sender.Send(new GetPublicFoldersByUserQuery(payload.UserId, payload.CatalogIds));
             if (!result.IsSuccess)
@@ -364,6 +399,12 @@ namespace Katalogcu.API.Controllers
         {
             var resolved = ResolveUserId(token);
             if (resolved.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
+            if (resolved.isPublic &&
+                (resolved.publicPayload == null ||
+                 !await HasValidPublicCustomerSessionAsync(resolved.publicPayload, HttpContext.RequestAborted)))
+            {
+                return Unauthorized("Müşteri oturumu gerekli.");
+            }
 
             if (!int.TryParse(pageNumber, out int currentPage)) return BadRequest("Sayfa numarası geçersiz.");
 
@@ -470,6 +511,12 @@ namespace Katalogcu.API.Controllers
         {
             var resolved = ResolveUserId(token);
             if (resolved.userId == Guid.Empty) return BadRequest("Kullanıcı bilgisi bulunamadı.");
+            if (resolved.isPublic &&
+                (resolved.publicPayload == null ||
+                 !await HasValidPublicCustomerSessionAsync(resolved.publicPayload, HttpContext.RequestAborted)))
+            {
+                return Unauthorized("Müşteri oturumu gerekli.");
+            }
 
             var result = await _sender.Send(new GetCatalogByIdQuery(
                 id,

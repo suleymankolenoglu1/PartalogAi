@@ -5,6 +5,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { CatalogService, Catalog, CatalogPageItem, PublicFolderSummary, PublicStorefront } from '../core/services/catalog.service';
 import { CartService } from '../core/services/cart.service';
 import { AiService } from '../core/services/ai.service'; 
+import { CustomerService } from '../core/services/customer.service';
 import { environment } from '../../environments/environment';
 import { Subscription } from 'rxjs';
 import {
@@ -55,6 +56,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   private catalogService = inject(CatalogService);
   public cartService = inject(CartService); 
   private aiService = inject(AiService);
+  private customerService = inject(CustomerService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   @ViewChild('messagesContainer') private messagesContainer?: ElementRef<HTMLDivElement>;
@@ -63,6 +65,15 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   searchText: string = '';
   isLoading = true;
   isCartOpen = false;
+  isPortalUnlocked = false;
+  customerSessionToken: string | null = null;
+  loggedCustomer: any | null = null;
+  authMode: 'login' | 'register' = 'login';
+  authLoginForm = { phone: '', email: '', password: '' };
+  authRegisterForm = { name: '', phone: '', email: '', password: '', confirmPassword: '' };
+  authMessage: string | null = null;
+  authError: string | null = null;
+  isAuthenticating = false;
 
   // 🔥 AI Asistan Durumu (HTML'deki yapıyla %100 uyumlu)
   aiState = {
@@ -114,6 +125,10 @@ export class PublicViewComponent implements OnInit, OnDestroy {
     return `chat_history_partalog_${this.publicToken ?? 'anonymous'}`;
   }
 
+  private getSessionKey(): string {
+    return `public_customer_session_${this.publicToken ?? 'anonymous'}`;
+  }
+
   get storefrontInitial(): string {
     const source = this.storefront.businessName || 'K';
     return source.trim().charAt(0).toUpperCase() || 'K';
@@ -149,8 +164,39 @@ export class PublicViewComponent implements OnInit, OnDestroy {
 
     this.cartService.setScope(`public:${this.publicToken}`);
     this.cartService.setPublicToken(this.publicToken);
+    this.loadStorefront();
 
-    // Load chat history from localStorage
+    const storedSession = localStorage.getItem(this.getSessionKey());
+    if (!storedSession) {
+      this.isLoading = false;
+      return;
+    }
+
+    this.customerSessionToken = storedSession;
+    this.customerService.getPublicCustomerMe(this.publicToken, storedSession).subscribe({
+      next: (me) => {
+        this.loggedCustomer = me;
+        this.isPortalUnlocked = true;
+        this.authLoginForm.phone = me?.phone || '';
+        this.authLoginForm.email = me?.email || '';
+        this.initializePortalData();
+      },
+      error: () => {
+        this.logoutPortal();
+        this.isLoading = false;
+      }
+    });
+  }
+
+  private initializePortalData() {
+    if (!this.publicToken || !this.customerSessionToken) return;
+
+    this.loadChatHistory();
+    this.loadPublicData();
+    this.loadPublicFolders();
+  }
+
+  private loadChatHistory() {
     const saved = localStorage.getItem(this.getHistoryStorageKey());
     if (saved) {
       try { 
@@ -177,14 +223,115 @@ export class PublicViewComponent implements OnInit, OnDestroy {
         }
       } catch (e) { console.warn('chat history parse error:', e); }
     }
-
-    this.loadPublicData();
-    this.loadStorefront();
-    this.loadPublicFolders();
   }
 
   ngOnDestroy(): void {
     this.cancelActiveStream(false);
+  }
+
+  setAuthMode(mode: 'login' | 'register') {
+    this.authMode = mode;
+    this.authMessage = null;
+    this.authError = null;
+  }
+
+  loginPortal() {
+    if (!this.publicToken || this.isAuthenticating) return;
+    if (!this.authLoginForm.password || (!this.authLoginForm.phone && !this.authLoginForm.email)) {
+      this.authError = 'Telefon/e-posta ve şifre zorunlu.';
+      this.authMessage = null;
+      return;
+    }
+
+    this.isAuthenticating = true;
+    this.authError = null;
+    this.authMessage = null;
+
+    this.customerService.loginPublicCustomer({
+      publicToken: this.publicToken,
+      phone: this.authLoginForm.phone || undefined,
+      email: this.authLoginForm.email || undefined,
+      password: this.authLoginForm.password
+    }).subscribe({
+      next: (res) => {
+        this.isAuthenticating = false;
+        this.authLoginForm.password = '';
+        this.customerSessionToken = res.sessionToken;
+        localStorage.setItem(this.getSessionKey(), res.sessionToken);
+        this.loggedCustomer = res.customer;
+        this.isPortalUnlocked = true;
+        this.authMessage = 'Giriş başarılı.';
+        this.initializePortalData();
+      },
+      error: (err) => {
+        this.isAuthenticating = false;
+        this.authError = err?.error?.message || err?.error || 'Giriş yapılamadı.';
+      }
+    });
+  }
+
+  registerPortal() {
+    if (!this.publicToken || this.isAuthenticating) return;
+    if (!this.authRegisterForm.name || !this.authRegisterForm.phone || !this.authRegisterForm.password) {
+      this.authError = 'Ad soyad, telefon ve şifre zorunlu.';
+      this.authMessage = null;
+      return;
+    }
+    if (this.authRegisterForm.password.length < 8) {
+      this.authError = 'Şifre en az 8 karakter olmalı.';
+      this.authMessage = null;
+      return;
+    }
+    if (this.authRegisterForm.password !== this.authRegisterForm.confirmPassword) {
+      this.authError = 'Şifre tekrarı eşleşmiyor.';
+      this.authMessage = null;
+      return;
+    }
+
+    this.isAuthenticating = true;
+    this.authError = null;
+    this.authMessage = null;
+
+    this.customerService.registerPublicCustomer({
+      publicToken: this.publicToken,
+      name: this.authRegisterForm.name,
+      phone: this.authRegisterForm.phone,
+      email: this.authRegisterForm.email || undefined,
+      password: this.authRegisterForm.password
+    }).subscribe({
+      next: (res) => {
+        this.isAuthenticating = false;
+        this.authRegisterForm.password = '';
+        this.authRegisterForm.confirmPassword = '';
+        this.customerSessionToken = res.sessionToken;
+        localStorage.setItem(this.getSessionKey(), res.sessionToken);
+        this.loggedCustomer = res.customer;
+        this.isPortalUnlocked = true;
+        this.authMessage = 'Hesap tamamlandı.';
+        this.initializePortalData();
+      },
+      error: (err) => {
+        this.isAuthenticating = false;
+        this.authError = err?.error?.message || err?.error || 'Hesap tamamlanamadı.';
+      }
+    });
+  }
+
+  logoutPortal() {
+    this.cancelActiveStream(false);
+    if (this.publicToken) localStorage.removeItem(this.getSessionKey());
+    this.customerSessionToken = null;
+    this.loggedCustomer = null;
+    this.isPortalUnlocked = false;
+    this.allCatalogs = [];
+    this.visiblePublicFolders = [];
+    this.visibleCatalogs = [];
+    this.publicFolders = [];
+    this.publicBreadcrumbs = [{ id: null, name: 'Ana Dizin' }];
+    this.currentPublicFolderId = null;
+    this.isCartOpen = false;
+    this.isLoading = false;
+    this.clearHistory();
   }
 
   loadStorefront() {
@@ -221,6 +368,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   }
 
   loadPublicData() {
+    if (!this.customerSessionToken) return;
     this.isLoading = true;
     this.publicLoadError = null;
 
@@ -255,7 +403,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   }
 
   loadPublicFolders() {
-    if (!this.publicToken) return;
+    if (!this.publicToken || !this.customerSessionToken) return;
 
     this.catalogService.getPublicFoldersByToken(this.publicToken).subscribe({
       next: (folders) => {
@@ -379,6 +527,10 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   // 4. 🔥 AI ARAMASINI BAŞLAT
   startAiSearch() {
     if (!this.canUseAiChat) return;
+    if (!this.customerSessionToken) {
+      this.authError = 'Chat kullanmak için müşteri girişi gerekli.';
+      return;
+    }
     if (!this.searchText && !this.selectedImage) return;
 
     this.cancelActiveStream(true);
@@ -411,7 +563,8 @@ export class PublicViewComponent implements OnInit, OnDestroy {
       this.selectedImage,
       this.chatHistory,
       this.allCatalogs.map(c => c.id),
-      this.publicToken || undefined
+      this.publicToken || undefined,
+      this.customerSessionToken || undefined
     ).subscribe({
       next: (event) => {
         if (event.type === 'sources') {

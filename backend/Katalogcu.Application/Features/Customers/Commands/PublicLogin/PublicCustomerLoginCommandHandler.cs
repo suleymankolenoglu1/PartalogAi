@@ -30,6 +30,13 @@ public sealed class PublicCustomerLoginCommandHandler : IRequestHandler<PublicCu
             return OperationResult<PublicCustomerAuthResponse>.Failure("not_found", "Müşteri kaydı bulunamadı. Önce kayıt olmanız gerekiyor.");
         }
 
+        if (!customer.IsActive)
+        {
+            return OperationResult<PublicCustomerAuthResponse>.Failure(
+                "inactive",
+                "Bu portal kullanıcısının erişimi pasif durumda.");
+        }
+
         if (customer.LoginLockoutUntil != null && customer.LoginLockoutUntil > DateTime.UtcNow)
         {
             var remainingMinutes = Math.Ceiling((customer.LoginLockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
@@ -60,7 +67,6 @@ public sealed class PublicCustomerLoginCommandHandler : IRequestHandler<PublicCu
         }
 
         customer.LastVisitDate = DateTime.UtcNow;
-        customer.IsActive = true;
         customer.FailedLoginCount = 0;
         customer.LoginLockoutUntil = null;
         customer.PublicSessionToken = CustomerAuthHelpers.CreateSessionToken();

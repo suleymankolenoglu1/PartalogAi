@@ -20,6 +20,11 @@
                 <span class="label">Kataloglarım</span>
             </a>
 
+            <a routerLink="/dashboard/customers" routerLinkActive="active" class="nav-item">
+                <span class="material-symbols-outlined icon">groups</span>
+                <span class="label">Portal Erişimleri</span>
+            </a>
+
             @if (extraModules.length > 0) {
                 <div class="nav-row nav-row-bottom-menu">
                     <button type="button" class="nav-item nav-item-compact" (click)="toggleLockedMenu('more-modules', $event)">
@@ -61,7 +66,7 @@
                         @if (supportsAiFeature && currentPlan < 2) {
                             AI modülleri ve gelişmiş sohbet için Pro planına geç.
                         } @else {
-                            Sipariş, ürün ve müşteri akışı için Enterprise planına geç.
+                            Sipariş ve ürün akışı için Enterprise planına geç.
                         }
                     </div>
                     <button type="button" class="upgrade-promo-btn" (click)="goUpgrade(nextUpgradePlan, nextUpgradeFeature)">
@@ -76,7 +81,7 @@
                         <span class="material-symbols-outlined store-icon">storefront</span>
                     </div>
                     <div class="store-info">
-                        <span class="store-title">Mağaza Vitrini</span>
+                        <span class="store-title">Müşteri Portalı</span>
                         <span class="store-subtitle">
                             @if (publicTokenStatus?.enabled) {
                                 Aktif
@@ -94,7 +99,7 @@
 
                 <div class="store-actions">
                     <button type="button" class="store-action-btn" (click)="goToLinkManagement()">
-                        Link Yönetimi
+                        Davet Linki
                     </button>
                 </div>
 

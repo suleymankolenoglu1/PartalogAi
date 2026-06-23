@@ -2,12 +2,8 @@ import { Route, Routes } from '@angular/router';
 
 // Public Components
 import { HomeComponent } from './home/home.component';
-import { ExploreComponent } from './explore/explore';
-import { BlogComponent } from './blog/blog';
-import { ServislerComponent } from './servisler/servisler';
-import { PricesComponent } from './prices/prices';
+import { PanelAccessComponent } from './panel-access/panel-access';
 import { LoginComponent } from './login/login';
-import { RegisterComponent } from './register/register';
 import { PublicViewComponent } from './public-view/public-view';
 import { PublicCheckoutComponent } from './public-view/public-checkout/public-checkout';
 import { PublicCatalogShowcaseComponent } from './public-catalog-showcase/public-catalog-showcase';
@@ -40,7 +36,7 @@ const chatbotEnabled = environment.features.enableChatbot;
 const ecommerceEnabled = environment.features.enableEcommerce;
 const upgradePromptsEnabled = environment.features.enableUpgradePrompts;
 const upgradeRoute: Route = upgradePromptsEnabled
-  ? { path: 'upgrade', component: PricesComponent }
+  ? { path: 'upgrade', component: PanelAccessComponent }
   : { path: 'upgrade', redirectTo: 'dashboard', pathMatch: 'full' };
 
 export const routes: Routes = [
@@ -51,13 +47,13 @@ export const routes: Routes = [
   ...(ecommerceEnabled ? [{ path: 'p/:publicToken/checkout', component: PublicCheckoutComponent }] : []),
   { path: 'view/:id', component: PublicCatalogShowcaseComponent },
   { path: 'view/:id/viewer/:pageIndex', component: PublicCatalogViewerComponent },
-  { path: 'explore', component: ExploreComponent },
-  { path: 'blog', component: BlogComponent },
-  { path: 'services', component: ServislerComponent },
-  { path: 'prices', component: PricesComponent },
+  { path: 'explore', redirectTo: '', pathMatch: 'full' },
+  { path: 'blog', redirectTo: '', pathMatch: 'full' },
+  { path: 'services', redirectTo: '', pathMatch: 'full' },
+  { path: 'prices', redirectTo: 'login', pathMatch: 'full' },
   upgradeRoute,
   { path: 'login', component: LoginComponent },
-  { path: 'register', component: RegisterComponent },
+  { path: 'register', redirectTo: 'login', pathMatch: 'full' },
   { path: 'platform/login', component: PlatformLoginComponent },
   { path: 'platform', component: PlatformDashboardComponent, canActivate: [platformAdminGuard] },
   { path: 'platform/tenants/:ownerId', component: PlatformTenantDetailComponent, canActivate: [platformAdminGuard] },
@@ -70,6 +66,7 @@ export const routes: Routes = [
       { path: 'catalogs', component: CatalogsComponent },
       { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
+      { path: 'customers', component: CustomersComponent },
       { path: 'settings', component: SettingsComponent },
       ...(chatbotEnabled
         ? [
@@ -81,7 +78,6 @@ export const routes: Routes = [
         : []),
       ...(ecommerceEnabled
         ? [
-            { path: 'customers', component: CustomersComponent, canActivate: [planGuard], data: { minPlan: 3 } },
             { path: 'parts', component: PartsComponent, canActivate: [planGuard], data: { minPlan: 3 } },
             { path: 'ecommerce', component: PartsComponent, canActivate: [planGuard], data: { minPlan: 3 } },
             { path: 'parts/new', component: PartsAddComponent },

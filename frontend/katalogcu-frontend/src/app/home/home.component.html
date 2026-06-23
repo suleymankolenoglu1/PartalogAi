@@ -1,146 +1,47 @@
-<div class="home-shell">
-  <section class="hero container">
-    <div class="hero-copy reveal-up">
-      <p class="eyebrow">Katalog Yazilimi</p>
-      <h1>Yedek parcayi cizim ustunden 10 saniyede buldurun.</h1>
+<div class="home-shell portal-home">
+  <section class="portal-entry container">
+    <div class="portal-copy">
+      <p class="eyebrow">Müşteri Portalı</p>
+      <h1>Parça ve katalog asistanına davet linkinizle girin.</h1>
       <p class="hero-subtitle">
-        Katalogcu, teknik cizimleri dijital vitrine cevirir. Musteriniz ref no, parca adi veya hotspot
-        ile dogru parcaya hizla ulasir.
+        Bu alan ana işletmenin müşterileri için kapalı katalog ve chat portalıdır.
+        Erişim için işletmenizin size gönderdiği davet linkini kullanın.
       </p>
 
-      <div class="hero-actions">
-        <a routerLink="/register" class="btn btn-primary">Ucretsiz Basla</a>
-        <a routerLink="/prices" class="btn btn-ghost">Paketleri Incele</a>
-      </div>
+      <form class="portal-form" (ngSubmit)="openPortal()">
+        <label for="portalLink">Davet linki veya token</label>
+        <div class="portal-input-row">
+          <input
+            id="portalLink"
+            name="portalLink"
+            [(ngModel)]="portalInput"
+            type="text"
+            placeholder="Örn: https://domain.com/p/pk_..."
+            autocomplete="off"
+            (keydown.enter)="openPortal()">
+          <button class="btn btn-primary" type="submit">Portala Gir</button>
+        </div>
+        @if (portalError) {
+          <p class="portal-error">{{ portalError }}</p>
+        }
+      </form>
 
-      <div class="hero-metrics">
-        <article>
-          <strong>+47%</strong>
-          <span>Parca bulma hizi</span>
-        </article>
-        <article>
-          <strong>-32%</strong>
-          <span>Yanlis siparis riski</span>
-        </article>
-        <article>
-          <strong>24/7</strong>
-          <span>Public katalog erisimi</span>
-        </article>
-      </div>
-    </div>
-
-    <div class="hero-visual reveal-up delay-1">
-      <div class="catalog-stage">
-        <img
-          src="https://images.unsplash.com/photo-1581092335878-2d9ff86ca2bf?auto=format&fit=crop&w=1200&q=80"
-          alt="Teknik katalog gorunumu"
-        />
-
-        <button class="hotspot hs-1">A-12</button>
-        <button class="hotspot hs-2">B-07</button>
-        <button class="hotspot hs-3">C-21</button>
-
-        <aside class="catalog-sidecard">
-          <p class="side-title">Anlik Parca Eslesmesi</p>
-          <div class="side-row">
-            <span class="ref">A-12</span>
-            <span class="part">Plaka Vidasi M3-0.5</span>
-          </div>
-          <div class="side-row">
-            <span class="ref">B-07</span>
-            <span class="part">Iplik Kilavuzu</span>
-          </div>
-          <div class="side-row">
-            <span class="ref">C-21</span>
-            <span class="part">Yay Grubu</span>
-          </div>
-        </aside>
+      <div class="portal-actions">
+        <a routerLink="/login" class="btn btn-dark">Panel Girişi</a>
+        <a routerLink="/platform/login" class="btn btn-ghost">Platform Admin</a>
       </div>
     </div>
-  </section>
 
-  <section class="trust container reveal-up delay-2">
-    <div class="trust-chip">Teknik Cizimden Arama</div>
-    <div class="trust-chip">Public Link Paylasimi</div>
-    <div class="trust-chip">Parca Bazli Katalog Navigasyonu</div>
-    <div class="trust-chip">Musteri Dostu Vitrin</div>
-  </section>
-
-  <section class="features container">
-    <header class="section-head reveal-up">
-      <p class="eyebrow">Neden Katalogcu</p>
-      <h2>Katalog operasyonunu tek panelde yonetin</h2>
-    </header>
-
-    <div class="feature-grid">
-      <article class="feature-card reveal-up">
-        <span class="material-symbols-outlined">picture_as_pdf</span>
-        <h3>PDF'yi hizli yayina alma</h3>
-        <p>Teknik kataloglarinizi yukleyin, sayfalari otomatik ayrisalim ve vitrine alin.</p>
-      </article>
-      <article class="feature-card reveal-up delay-1">
-        <span class="material-symbols-outlined">target</span>
-        <h3>Hotspot + ref no eslestirme</h3>
-        <p>Parca satirina tiklayinca teknik cizimde ilgili bolge secili sekilde acilir.</p>
-      </article>
-      <article class="feature-card reveal-up delay-2">
-        <span class="material-symbols-outlined">public</span>
-        <h3>Public katalog vitrini</h3>
-        <p>Linki paylasin, musterileriniz katalogu uye olmadan da goruntuleyebilsin.</p>
-      </article>
-      <article class="feature-card reveal-up">
-        <span class="material-symbols-outlined">inventory_2</span>
-        <h3>Parca odakli listeleme</h3>
-        <p>Ref no, kod, ad ve stok sinyallerini ayni panelde toplayarak karar surecini hizlandirin.</p>
-      </article>
-      <article class="feature-card reveal-up delay-1">
-        <span class="material-symbols-outlined">verified_user</span>
-        <h3>Plan bazli erisim kontrolu</h3>
-        <p>Katalog-only modda AI ve e-ticaret modullerini sistemsel olarak kapatabilirsiniz.</p>
-      </article>
-      <article class="feature-card reveal-up delay-2">
-        <span class="material-symbols-outlined">monitoring</span>
-        <h3>Health ve release kontrolu</h3>
-        <p>Preflight + postdeploy scriptleriyle canliya cikis risklerini azaltin.</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="how container">
-    <header class="section-head reveal-up">
-      <p class="eyebrow">3 Adimda Kurulum</p>
-      <h2>Ekibinizin bir gunde adapte olacagi akis</h2>
-    </header>
-
-    <div class="how-grid">
-      <article class="how-step reveal-up">
-        <span>01</span>
-        <h3>Katalogu yukle</h3>
-        <p>PDF veya gorselleri yukleyin, sistem sayfalari isleyip kataloga cevirsin.</p>
-      </article>
-      <article class="how-step reveal-up delay-1">
-        <span>02</span>
-        <h3>Parcalari dogrula</h3>
-        <p>Ref no ve parca kartlarini kontrol edin, gerekli duzeltmeleri panelden yapin.</p>
-      </article>
-      <article class="how-step reveal-up delay-2">
-        <span>03</span>
-        <h3>Public linki paylas</h3>
-        <p>Musterinize tek bir link gonderin; katalogdan dogru parcaya dogrudan ulassin.</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="cta container reveal-up">
-    <div class="cta-card">
-      <div>
-        <p class="eyebrow">MVP'ye Hazir</p>
-        <h2>Katalog odakli pakette hizli ve temiz cikis yapin.</h2>
+    <div class="portal-card">
+      <div class="portal-card-header">
+        <span class="material-symbols-outlined">lock</span>
+        <strong>Kapalı erişim</strong>
       </div>
-      <div class="cta-actions">
-        <a routerLink="/register" class="btn btn-primary">Hemen Hesap Ac</a>
-        <a routerLink="/login" class="btn btn-dark">Panele Gir</a>
-      </div>
+      <ul>
+        <li>Yalnızca aktif portal kullanıcıları giriş yapabilir.</li>
+        <li>Chat ve kataloglar müşteri oturumuyla açılır.</li>
+        <li>Dashboard sadece ana işletme panelinde kalır.</li>
+      </ul>
     </div>
   </section>
 </div>

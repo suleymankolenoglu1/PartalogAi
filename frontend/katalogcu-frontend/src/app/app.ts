@@ -39,7 +39,7 @@ export class AppComponent {
           url.startsWith('/public-view') ||
           url.startsWith('/p') ||
           url.startsWith('/login') ||
-          url.startsWith('/register')
+          url.startsWith('/upgrade')
          ) {
         this.showHeader = false;
       } else {

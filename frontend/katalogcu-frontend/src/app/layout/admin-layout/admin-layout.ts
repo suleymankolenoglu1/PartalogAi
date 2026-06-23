@@ -68,7 +68,6 @@ export class AdminLayoutComponent implements OnDestroy {
       modules.push(
         { key: 'ecommerce', label: 'Ürünler', icon: 'inventory_2', minPlan: 3, route: '/dashboard/ecommerce', feature: 'ecommerce', badge: this.hasPlan(3) ? null : 'ENT' },
         { key: 'orders', label: 'Siparişler', icon: 'receipt_long', minPlan: 3, route: '/dashboard/orders', feature: 'orders', badge: this.hasPlan(3) ? (this.unreadOrderCount > 0 ? (this.unreadOrderCount > 99 ? '99+' : String(this.unreadOrderCount)) : null) : 'ENT' },
-        { key: 'customers', label: 'Müşteriler', icon: 'groups', minPlan: 3, route: '/dashboard/customers', feature: 'customers', badge: this.hasPlan(3) ? null : 'ENT' },
       );
     }
 
@@ -250,14 +249,14 @@ export class AdminLayoutComponent implements OnDestroy {
           next: (res) => { this.publicToken = res.token; },
           error: () => {
             this.publicToken = null;
-            this.publicActionError = 'Public link alınamadı.';
+            this.publicActionError = 'Portal davet linki alınamadı.';
           }
         });
       },
       error: () => {
         this.publicTokenStatus = null;
         this.publicToken = null;
-        this.publicActionError = 'Public link durumu okunamadı.';
+        this.publicActionError = 'Portal davet linki durumu okunamadı.';
       }
     });
   }
@@ -271,11 +270,11 @@ export class AdminLayoutComponent implements OnDestroy {
       next: (res) => {
         this.publicToken = res.token;
         this.publicTokenStatus = { enabled: res.enabled, version: res.version };
-        this.publicActionMessage = 'Public link yenilendi. Eski linkler iptal edildi.';
+        this.publicActionMessage = 'Portal davet linki yenilendi. Eski linkler iptal edildi.';
         this.publicActionLoading = false;
       },
       error: () => {
-        this.publicActionError = 'Public link yenilenemedi.';
+        this.publicActionError = 'Portal davet linki yenilenemedi.';
         this.publicActionLoading = false;
       }
     });
@@ -290,11 +289,11 @@ export class AdminLayoutComponent implements OnDestroy {
       next: (res) => {
         this.publicToken = null;
         this.publicTokenStatus = res;
-        this.publicActionMessage = 'Public link iptal edildi.';
+        this.publicActionMessage = 'Portal davet linki iptal edildi.';
         this.publicActionLoading = false;
       },
       error: () => {
-        this.publicActionError = 'Public link iptal edilemedi.';
+        this.publicActionError = 'Portal davet linki iptal edilemedi.';
         this.publicActionLoading = false;
       }
     });
@@ -305,7 +304,7 @@ export class AdminLayoutComponent implements OnDestroy {
     const url = `${window.location.origin}/p/${this.publicToken}`;
     try {
       await navigator.clipboard.writeText(url);
-      this.publicActionMessage = 'Public link panoya kopyalandı.';
+      this.publicActionMessage = 'Portal davet linki panoya kopyalandı.';
       this.publicActionError = null;
     } catch {
       this.publicActionError = 'Link kopyalanamadı.';
