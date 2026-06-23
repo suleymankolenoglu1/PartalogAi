@@ -65,6 +65,8 @@ REDIS_INSTANCE="katalogcu-redis-staging"
 NETWORK="default"
 SUBNET="default"
 ASSETS_BUCKET="$PROJECT_ID-katalogcu-staging-assets"
+STAGING_PORTAL_HOST="staging.example.com"
+STAGING_PANEL_HOST="panel.staging.example.com"
 
 API_SA="katalogcu-api-staging-run@$PROJECT_ID.iam.gserviceaccount.com"
 AI_SA="partalog-ai-chat-staging-run@$PROJECT_ID.iam.gserviceaccount.com"
@@ -295,6 +297,7 @@ instance değeri `0` kalır.
 ## 11. API Deploy
 
 İlk deploy'da `Frontend__BaseUrl` geçici Cloud Run web URL'i henüz bilinmediği için API URL'iyle başlatılabilir; web deploy sonrası güncellenir.
+Custom staging domainleri kullanılıyorsa `STAGING_PORTAL_HOST` ve `STAGING_PANEL_HOST` değerlerini gerçek hostlara çek.
 
 ```bash
 TEMP_FRONTEND_ORIGIN="https://placeholder-staging.local"
@@ -311,7 +314,7 @@ gcloud run deploy "$API_SERVICE" \
   --network="$NETWORK" \
   --subnet="$SUBNET" \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="ASPNETCORE_ENVIRONMENT=Production,ASPNETCORE_URLS=http://+:8080,Frontend__BaseUrl=$TEMP_FRONTEND_ORIGIN,Cors__AllowedOrigins__0=$TEMP_FRONTEND_ORIGIN,RequestLimits__DefaultMaxBodySizeMb=50,AiService__BaseUrl=$AI_URL,AiService__UseCloudRunIdentityToken=true,AiService__CloudRunAudience=$AI_URL,AiService__ChatTimeoutSeconds=45,AiService__StreamTimeoutSeconds=90,AiService__LongRunningTimeoutSeconds=300,AiService__EnableItemEmbeddings=true,AiService__EmbeddingTimeoutSeconds=20,ProductFeatures__EnableChatbot=true,ProductFeatures__EnableCatalogAnalysis=true,ProductFeatures__EnableEcommerce=false,ProductFeatures__EnableUpgradePrompts=false,ProductFeatures__EnablePlanManagement=false,DistributedRateLimits__RedisPublicChatEnabled=true,DistributedRateLimits__RedisConnectionString=$REDIS_CONNECTION,DistributedRateLimits__RedisKeyPrefix=partalog:staging:rate-limit,DistributedRateLimits__PublicChatPermitLimit=20,DistributedRateLimits__PublicChatWindowSeconds=60,DistributedRateLimits__FailOpen=false,AiCapacity__Provider=Redis,AiCapacity__GlobalConcurrentChats=25,AiCapacity__PerUserConcurrentChats=3,AiCapacity__AcquireTimeoutMs=500,AiCapacity__RedisConnectionString=$REDIS_CONNECTION,AiCapacity__RedisKeyPrefix=partalog:staging:ai-capacity,AiCapacity__DistributedPoolName=api-chat-staging,DataProtection__Provider=Redis,DataProtection__RedisConnectionString=$REDIS_CONNECTION,DataProtection__RedisKey=partalog:staging:data-protection:keys,FileStorage__Provider=GoogleCloudStorage,FileStorage__BucketName=$ASSETS_BUCKET,FileStorage__PublicBaseUrl=https://storage.googleapis.com/$ASSETS_BUCKET,CatalogAiProcessing__MaxAttempts=4,CatalogAiProcessing__BaseRetryDelaySeconds=15,CatalogAiProcessing__HangfireWorkerCount=1,BackgroundProcessing__EnableCatalogAiServer=true,BackgroundProcessing__EnableExternalSiteCrawlServer=false,BackgroundProcessing__EnableDefaultServer=false,BackgroundProcessing__EnableRecurringJobs=false" \
+  --set-env-vars="ASPNETCORE_ENVIRONMENT=Production,ASPNETCORE_URLS=http://+:8080,Frontend__BaseUrl=$TEMP_FRONTEND_ORIGIN,Cors__AllowedOrigins__0=$TEMP_FRONTEND_ORIGIN,Cors__AllowedOrigins__1=https://$STAGING_PANEL_HOST,RequestLimits__DefaultMaxBodySizeMb=50,AiService__BaseUrl=$AI_URL,AiService__UseCloudRunIdentityToken=true,AiService__CloudRunAudience=$AI_URL,AiService__ChatTimeoutSeconds=45,AiService__StreamTimeoutSeconds=90,AiService__LongRunningTimeoutSeconds=300,AiService__EnableItemEmbeddings=true,AiService__EmbeddingTimeoutSeconds=20,ProductFeatures__EnableChatbot=true,ProductFeatures__EnableCatalogAnalysis=true,ProductFeatures__EnableEcommerce=false,ProductFeatures__EnableUpgradePrompts=false,ProductFeatures__EnablePlanManagement=false,DistributedRateLimits__RedisPublicChatEnabled=true,DistributedRateLimits__RedisConnectionString=$REDIS_CONNECTION,DistributedRateLimits__RedisKeyPrefix=partalog:staging:rate-limit,DistributedRateLimits__PublicChatPermitLimit=20,DistributedRateLimits__PublicChatWindowSeconds=60,DistributedRateLimits__FailOpen=false,AiCapacity__Provider=Redis,AiCapacity__GlobalConcurrentChats=25,AiCapacity__PerUserConcurrentChats=3,AiCapacity__AcquireTimeoutMs=500,AiCapacity__RedisConnectionString=$REDIS_CONNECTION,AiCapacity__RedisKeyPrefix=partalog:staging:ai-capacity,AiCapacity__DistributedPoolName=api-chat-staging,DataProtection__Provider=Redis,DataProtection__RedisConnectionString=$REDIS_CONNECTION,DataProtection__RedisKey=partalog:staging:data-protection:keys,FileStorage__Provider=GoogleCloudStorage,FileStorage__BucketName=$ASSETS_BUCKET,FileStorage__PublicBaseUrl=https://storage.googleapis.com/$ASSETS_BUCKET,CatalogAiProcessing__MaxAttempts=4,CatalogAiProcessing__BaseRetryDelaySeconds=15,CatalogAiProcessing__HangfireWorkerCount=1,BackgroundProcessing__EnableCatalogAiServer=true,BackgroundProcessing__EnableExternalSiteCrawlServer=false,BackgroundProcessing__EnableDefaultServer=false,BackgroundProcessing__EnableRecurringJobs=false" \
   --set-secrets="ConnectionStrings__DefaultConnection=staging-katalogcu-api-db-connection:latest,JwtSettings__SecretKey=staging-katalogcu-jwt-secret:latest,PublicLink__SecretKey=staging-katalogcu-public-link-secret:latest,DataProtection__KeyEncryptionKey=staging-katalogcu-data-protection-key-encryption-key:latest" \
   --memory=1Gi \
   --cpu=1 \
@@ -346,7 +349,15 @@ API CORS ve frontend base URL'i staging web URL'ine çek:
 ```bash
 gcloud run services update "$API_SERVICE" \
   --region="$REGION" \
-  --update-env-vars="Frontend__BaseUrl=$WEB_URL,Cors__AllowedOrigins__0=$WEB_URL"
+  --update-env-vars="Frontend__BaseUrl=$WEB_URL,Cors__AllowedOrigins__0=$WEB_URL,Cors__AllowedOrigins__1=https://$STAGING_PANEL_HOST"
+```
+
+Custom staging domainleri map edildikten sonra web host yönlendirmelerini de güncelle:
+
+```bash
+gcloud run services update "$WEB_SERVICE" \
+  --region="$REGION" \
+  --update-env-vars="PORTAL_HOST=$STAGING_PORTAL_HOST,PANEL_HOST=$STAGING_PANEL_HOST"
 ```
 
 ## 13. Smoke

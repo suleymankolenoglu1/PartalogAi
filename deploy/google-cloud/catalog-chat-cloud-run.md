@@ -109,6 +109,9 @@ cold-path SLO açıkça kabul edildiğinde kullanılmalıdır.
 API deploy'unda AI servis URL ve identity-token ayarlarini ekle:
 
 ```text
+Frontend__BaseUrl=https://$DOMAIN
+Cors__AllowedOrigins__0=https://$DOMAIN
+Cors__AllowedOrigins__1=https://$PANEL_DOMAIN
 AiService__BaseUrl=$AI_URL
 AiService__UseCloudRunIdentityToken=true
 AiService__CloudRunAudience=$AI_URL
@@ -129,6 +132,22 @@ gcloud run services update katalogcu-api \
   --region="$REGION" \
   --service-account="katalogcu-api-run@$PROJECT_ID.iam.gserviceaccount.com"
 ```
+
+Frontend Cloud Run servisinde ayni Angular build'i iki host icin kullan:
+
+```bash
+DOMAIN="partalog.com"
+PANEL_DOMAIN="panel.$DOMAIN"
+
+gcloud run services update katalogcu-web \
+  --region="$REGION" \
+  --update-env-vars="PORTAL_HOST=$DOMAIN,PANEL_HOST=$PANEL_DOMAIN"
+```
+
+Iki custom domain'i de `katalogcu-web` servisine map et. Ana domain musteri portali
+(`/p/:token`, katalog ve chat), panel subdomain'i ise `/login`, `/dashboard` ve
+`/platform` icin kullanilir. Nginx Cloud Run template'i yanlis host/path
+kombinasyonlarini 308 redirect ile kanonik domaine tasir.
 
 ## Smoke ve Eval
 

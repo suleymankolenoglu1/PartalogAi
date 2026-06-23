@@ -12,6 +12,8 @@ WORKDIR /usr/share/nginx/html
 
 ENV PORT=8080
 ENV API_PROXY_URL=http://localhost:8081
+ENV PORTAL_HOST=katalogcu-portal.local
+ENV PANEL_HOST=panel.katalogcu-portal.local
 
 COPY nginx.cloudrun.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist/katalogcu-frontend/browser/ ./

@@ -22,6 +22,7 @@ Deploy oncesi su degerler netlesmeli:
 - `PROJECT_ID`
 - `REGION`, onerilen: `europe-west1`
 - `DOMAIN`, ornek: `partalog.com`
+- `PANEL_DOMAIN`, onerilen: `panel.$DOMAIN`
 - `API_SERVICE`, onerilen: `katalogcu-api`
 - `WEB_SERVICE`, onerilen: `katalogcu-web`
 - Cloud SQL instance adi, onerilen: `katalogcu-db`
@@ -146,7 +147,7 @@ gcloud run deploy katalogcu-api \
   --region="$REGION" \
   --allow-unauthenticated \
   --add-cloudsql-instances="$INSTANCE_CONNECTION_NAME" \
-  --set-env-vars="ASPNETCORE_ENVIRONMENT=Production,ASPNETCORE_URLS=http://+:8080,ConnectionStrings__DefaultConnection=$DB_CONNECTION,Frontend__BaseUrl=https://$DOMAIN,Cors__AllowedOrigins__0=https://$DOMAIN,FileStorage__Provider=GoogleCloudStorage,FileStorage__BucketName=$ASSETS_BUCKET,FileStorage__PublicBaseUrl=https://storage.googleapis.com/$ASSETS_BUCKET,DataProtection__Provider=Redis,DataProtection__RedisConnectionString=$REDIS_CONNECTION,DataProtection__RedisKey=partalog:data-protection:keys,ProductFeatures__EnableChatbot=false,ProductFeatures__EnableCatalogAnalysis=true,ProductFeatures__EnableEcommerce=false,ProductFeatures__EnableUpgradePrompts=false,ProductFeatures__EnablePlanManagement=false" \
+  --set-env-vars="ASPNETCORE_ENVIRONMENT=Production,ASPNETCORE_URLS=http://+:8080,ConnectionStrings__DefaultConnection=$DB_CONNECTION,Frontend__BaseUrl=https://$DOMAIN,Cors__AllowedOrigins__0=https://$DOMAIN,Cors__AllowedOrigins__1=https://$PANEL_DOMAIN,FileStorage__Provider=GoogleCloudStorage,FileStorage__BucketName=$ASSETS_BUCKET,FileStorage__PublicBaseUrl=https://storage.googleapis.com/$ASSETS_BUCKET,DataProtection__Provider=Redis,DataProtection__RedisConnectionString=$REDIS_CONNECTION,DataProtection__RedisKey=partalog:data-protection:keys,ProductFeatures__EnableChatbot=false,ProductFeatures__EnableCatalogAnalysis=true,ProductFeatures__EnableEcommerce=false,ProductFeatures__EnableUpgradePrompts=false,ProductFeatures__EnablePlanManagement=false" \
   --set-secrets="JwtSettings__SecretKey=katalogcu-jwt-secret:latest,PublicLink__SecretKey=katalogcu-public-link-secret:latest,DataProtection__KeyEncryptionKey=katalogcu-data-protection-key-encryption-key:latest" \
   --memory=1Gi \
   --cpu=1 \
@@ -167,7 +168,7 @@ gcloud run deploy katalogcu-web \
   --image="$WEB_IMAGE" \
   --region="$REGION" \
   --allow-unauthenticated \
-  --set-env-vars="API_PROXY_URL=$API_URL" \
+  --set-env-vars="API_PROXY_URL=$API_URL,PORTAL_HOST=$DOMAIN,PANEL_HOST=$PANEL_DOMAIN" \
   --memory=512Mi \
   --cpu=1 \
   --min-instances=0 \
@@ -196,7 +197,17 @@ curl -sS "$WEB_URL/api/system/features"
 
 ## Domain
 
-Ilk canli icin custom domain'i `katalogcu-web` servisine bagla. Browser tum API isteklerini frontend uzerinden `/api` olarak yapacak.
+Ilk canli icin iki custom domain'i de `katalogcu-web` servisine bagla:
+
+- `DOMAIN` (`domain.com`): musteri portali, `/p/:token`, katalog ve chat girisi.
+- `PANEL_DOMAIN` (`panel.domain.com`): panel girisi, dashboard ve platform admin.
+
+Browser tum API isteklerini frontend uzerinden `/api` olarak yapacak.
+
+Nginx template'i yanlis host/path kombinasyonlarini server tarafinda duzeltir:
+
+- `https://$DOMAIN/dashboard`, `https://$DOMAIN/login`, `https://$DOMAIN/platform` -> `https://$PANEL_DOMAIN/...`
+- `https://$PANEL_DOMAIN/p/:token`, `https://$PANEL_DOMAIN/public-view/:token`, `https://$PANEL_DOMAIN/view/:id` -> `https://$DOMAIN/...`
 
 API servisini ayri domain'e acmak zorunda degiliz; ama `postdeploy_catalog_only_check.sh` icin Cloud Run URL'i ile test edecegiz.
 
