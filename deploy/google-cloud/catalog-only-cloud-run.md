@@ -183,6 +183,20 @@ WEB_URL="$(gcloud run services describe katalogcu-web --region="$REGION" --forma
 
 ## Postdeploy Kontrol
 
+Self-service panel kaydi kapali oldugu icin ilk owner hesabi dogrudan DB bootstrap script'i ile olusturulur:
+
+```bash
+export DATABASE_URL="postgresql://katalogcu_app:CHANGE_ME@HOST:5432/KatalogcuDb"
+export BOOTSTRAP_USER_PASSWORD="CHANGE_ME_STRONG_PASSWORD"
+
+./backend/scripts/create_initial_user.py \
+  --email "owner@example.com" \
+  --name "Ana Isletme Sahibi" \
+  --company-name "Ana Isletme" \
+  --role Owner \
+  --plan ai
+```
+
 ```bash
 ./backend/scripts/postdeploy_catalog_only_check.sh \
   --api-url "$API_URL" \

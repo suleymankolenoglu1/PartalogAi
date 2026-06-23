@@ -7,6 +7,30 @@ Bu kontrol listesi tek ana isletme modeli icindir:
 
 ## Deploy Oncesi
 
+- Self-service panel kaydi kapali oldugu icin ilk kullanicilari kontrollu script ile olustur:
+
+```bash
+export DATABASE_URL="postgresql://katalogcu_app:CHANGE_ME@HOST:5432/KatalogcuDb"
+export BOOTSTRAP_USER_PASSWORD="CHANGE_ME_STRONG_PASSWORD"
+
+./backend/scripts/create_initial_user.py \
+  --email "owner@example.com" \
+  --name "Ana Isletme Sahibi" \
+  --company-name "Ana Isletme" \
+  --role Owner \
+  --plan ai
+```
+
+Platform yonetimi gerekiyorsa ayri bir `PlatformAdmin` hesabi olustur:
+
+```bash
+./backend/scripts/create_initial_user.py \
+  --email "platform-admin@example.com" \
+  --name "Platform Admin" \
+  --role PlatformAdmin \
+  --plan ai
+```
+
 - `DOMAIN` ve `PANEL_DOMAIN` ayni `katalogcu-web` Cloud Run servisine map edildi.
 - `katalogcu-web` env degerleri set edildi:
   - `PORTAL_HOST=$DOMAIN`

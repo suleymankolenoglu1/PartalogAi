@@ -6,10 +6,10 @@ Scenarios:
 1. Public catalog browse
 2. Public non-stream chat ask
 3. Public SSE chat ask-stream
-4. Public checkout/order create
+4. Public checkout/order create with a pre-created portal customer
 
-The script can bootstrap a temporary public catalog fixture when no public token
-is provided, reusing the existing smoke bootstrap helpers.
+Self-service bootstrap is intentionally disabled. Provide a public token created
+from the panel. Checkout load requires --checkout-phone and --checkout-password.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in __import__("sys").path:
     __import__("sys").path.insert(0, str(SCRIPT_DIR))
 
-from smoke_public_checkout import _bootstrap_public_fixture, _request_json  # noqa: E402
+from smoke_public_checkout import _request_json  # noqa: E402
 
 
 DEFAULT_CHAT_QUERIES = [
@@ -63,6 +63,9 @@ class Fixture:
     product_id: str
     product_code: str
     product_price: float
+    checkout_phone: str
+    checkout_email: str
+    checkout_password: str
 
 
 @dataclass
@@ -104,19 +107,10 @@ def resolve_fixture(args: argparse.Namespace) -> Fixture:
     product_id = args.product_id
 
     if not public_token:
-        bootstrap_email = args.bootstrap_admin_email or f"load.admin.{int(time.time())}@example.com"
-        bootstrap = _bootstrap_public_fixture(
-            api,
-            timeout=int(args.timeout_seconds),
-            admin_email=bootstrap_email,
-            admin_password=args.bootstrap_admin_password,
-            admin_name=args.bootstrap_admin_name,
-            company_name=args.bootstrap_company_name,
+        raise RuntimeError(
+            "public token is required. Self-service bootstrap is disabled; create an owner with "
+            "backend/scripts/create_initial_user.py and generate the portal link from the panel."
         )
-        public_token = bootstrap.public_token
-        admin_token = admin_token or bootstrap.admin_token
-        catalog_id = catalog_id or bootstrap.catalog_id
-        product_id = product_id or bootstrap.product_id
 
     catalogs_resp = _request_json(
         "GET",
@@ -166,6 +160,9 @@ def resolve_fixture(args: argparse.Namespace) -> Fixture:
         product_id=product_id,
         product_code=product_code,
         product_price=product_price,
+        checkout_phone=args.checkout_phone,
+        checkout_email=args.checkout_email,
+        checkout_password=args.checkout_password,
     )
 
 
@@ -403,10 +400,12 @@ async def run_checkout(
     try:
         if not fixture.product_id:
             raise RuntimeError("checkout scenario disabled: no public product available")
+        if not fixture.checkout_phone or not fixture.checkout_password:
+            raise RuntimeError("checkout scenario disabled: checkout credentials were not provided")
         suffix = f"{int(time.time())}{sequence:06d}"
-        phone = f"90555{suffix[-7:]}"
-        email = f"load+{suffix}@example.com"
-        password = "LoadP@ssw0rd!"
+        phone = fixture.checkout_phone
+        email = fixture.checkout_email or f"load+{suffix}@example.com"
+        password = fixture.checkout_password
 
         register_payload = {
             "publicToken": fixture.public_token,
@@ -850,6 +849,9 @@ async def main() -> int:
     parser.add_argument("--chat-weight", type=int, default=3, help="Non-stream chat scenario weight")
     parser.add_argument("--stream-weight", type=int, default=2, help="SSE chat scenario weight")
     parser.add_argument("--checkout-weight", type=int, default=1, help="Checkout scenario weight")
+    parser.add_argument("--checkout-phone", default="", help="Pre-created portal customer phone for checkout scenario")
+    parser.add_argument("--checkout-email", default="", help="Pre-created portal customer email for checkout scenario")
+    parser.add_argument("--checkout-password", default="", help="Pre-created portal customer password for checkout scenario")
     parser.add_argument("--chat-query", action="append", dest="chat_queries", default=[], help="Custom chat query")
     parser.add_argument("--output-json", default="", help="Optional JSON report output path")
     parser.add_argument(
@@ -863,10 +865,6 @@ async def main() -> int:
         default=0.20,
         help="Maximum successful RPS regression against the approved baseline",
     )
-    parser.add_argument("--bootstrap-admin-email", default="", help="Bootstrap admin email when token missing")
-    parser.add_argument("--bootstrap-admin-password", default="LoadAdm1nP@ss!", help="Bootstrap admin password")
-    parser.add_argument("--bootstrap-admin-name", default="Load Admin", help="Bootstrap admin full name")
-    parser.add_argument("--bootstrap-company-name", default="Load Company", help="Bootstrap company/storefront name")
     args = parser.parse_args()
 
     if args.concurrency <= 0:
@@ -911,6 +909,9 @@ async def main() -> int:
 
     if not fixture.product_id and args.checkout_weight > 0:
         print("Warning: no public product available for checkout scenario; checkout load will be skipped.")
+    if args.checkout_weight > 0 and (not fixture.checkout_phone or not fixture.checkout_password):
+        print("Warning: checkout credentials not provided; checkout load will be skipped.")
+        args.checkout_weight = 0
 
     print(
         f"Running e2e public load test: duration={args.duration_seconds}s concurrency={args.concurrency} "
