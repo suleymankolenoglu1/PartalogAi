@@ -154,6 +154,13 @@ kombinasyonlarini 308 redirect ile kanonik domaine tasir.
 API ve AI URL hazir olduktan sonra:
 
 ```bash
+./backend/scripts/postdeploy_portal_panel_check.sh \
+  --portal-url "https://$DOMAIN" \
+  --panel-url "https://$PANEL_DOMAIN" \
+  --public-token "$PARTALOG_PUBLIC_TOKEN"
+```
+
+```bash
 ./backend/scripts/smoke_chat_prod_readiness.sh \
   --api-base-url "$API_URL" \
   --ai-base-url "$AI_URL" \

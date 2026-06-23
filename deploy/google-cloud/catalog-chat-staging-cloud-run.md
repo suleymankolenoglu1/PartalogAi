@@ -369,6 +369,15 @@ curl -fsS "$API_URL/health/migrations"
 curl -fsS "$WEB_URL/api/system/features"
 ```
 
+Custom staging domainleri map edildiyse portal/panel ayrimini da kontrol et:
+
+```bash
+./backend/scripts/postdeploy_portal_panel_check.sh \
+  --portal-url "https://$STAGING_PORTAL_HOST" \
+  --panel-url "https://$STAGING_PANEL_HOST" \
+  --public-token "$PARTALOG_PUBLIC_TOKEN"
+```
+
 Private AI URL doğrudan anonymous çağrıda 401/403 dönmelidir:
 
 ```bash

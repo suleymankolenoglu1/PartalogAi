@@ -195,6 +195,15 @@ Frontend proxy kontrolu:
 curl -sS "$WEB_URL/api/system/features"
 ```
 
+Custom domain mapping sonrasi portal/panel ayrimini kontrol et:
+
+```bash
+./backend/scripts/postdeploy_portal_panel_check.sh \
+  --portal-url "https://$DOMAIN" \
+  --panel-url "https://$PANEL_DOMAIN" \
+  --public-token "$PARTALOG_PUBLIC_TOKEN"
+```
+
 ## Domain
 
 Ilk canli icin iki custom domain'i de `katalogcu-web` servisine bagla:
@@ -210,6 +219,8 @@ Nginx template'i yanlis host/path kombinasyonlarini server tarafinda duzeltir:
 - `https://$PANEL_DOMAIN/p/:token`, `https://$PANEL_DOMAIN/public-view/:token`, `https://$PANEL_DOMAIN/view/:id` -> `https://$DOMAIN/...`
 
 API servisini ayri domain'e acmak zorunda degiliz; ama `postdeploy_catalog_only_check.sh` icin Cloud Run URL'i ile test edecegiz.
+
+Detayli kontrol listesi: `deploy/google-cloud/portal-panel-release-checklist.md`.
 
 ## Secret ve Credential Kurali
 
