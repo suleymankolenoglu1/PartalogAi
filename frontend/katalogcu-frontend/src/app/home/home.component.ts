@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { DomainContextService } from '../core/services/domain-context.service';
 
 @Component({
   selector: 'app-home',
@@ -14,7 +15,14 @@ export class HomeComponent {
   portalInput = '';
   portalError: string | null = null;
 
-  constructor(private router: Router) {}
+  constructor(
+    private router: Router,
+    private domainContext: DomainContextService
+  ) {}
+
+  get panelLoginUrl(): string {
+    return this.domainContext.panelUrl('/login');
+  }
 
   openPortal() {
     const token = this.extractToken(this.portalInput);

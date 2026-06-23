@@ -6,5 +6,11 @@ export const environment = {
     enableCatalogAnalysis: true,
     enableEcommerce: false,
     enableUpgradePrompts: false
+  },
+  domains: {
+    panelSubdomain: 'panel',
+    panelOrigin: '',
+    portalOrigin: '',
+    enforcePanelHost: true
   }
 };

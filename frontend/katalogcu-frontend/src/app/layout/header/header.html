@@ -19,13 +19,13 @@
 
         <div class="hidden items-center gap-8 md:flex">
             <a routerLink="/" class="text-sm font-medium text-text-muted-light hover:text-text-dark dark:text-text-muted-dark dark:hover:text-text-light cursor-pointer">Müşteri Portalı</a>
-            <a routerLink="/login" class="text-sm font-medium text-text-muted-light hover:text-text-dark dark:text-text-muted-dark dark:hover:text-text-light cursor-pointer">Panel</a>
+            <a [href]="panelLoginUrl" class="text-sm font-medium text-text-muted-light hover:text-text-dark dark:text-text-muted-dark dark:hover:text-text-light cursor-pointer">Panel</a>
         </div>
 
         <div class="flex items-center gap-4">
-            <button routerLink ="/login" class="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 px-5 bg-primary text-background-dark text-sm font-bold leading-normal tracking-[0.015em] hover:opacity-90 transition-opacity">
+            <a [href]="panelLoginUrl" class="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 px-5 bg-primary text-background-dark text-sm font-bold leading-normal tracking-[0.015em] hover:opacity-90 transition-opacity">
                 <span class="truncate">Panel Girişi</span>
-            </button>
+            </a>
             <button class="md:hidden p-2 rounded-md text-text-dark dark:text-text-light">
                 <span class="material-symbols-outlined">menu</span>
             </button>

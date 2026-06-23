@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Customer, CustomerService, UpsertPortalCustomerRequest } from '../../core/services/customer.service';
 import { CatalogService, PublicTokenStatus } from '../../core/services/catalog.service';
+import { DomainContextService } from '../../core/services/domain-context.service';
 
 @Component({
   selector: 'app-customers',
@@ -14,6 +15,7 @@ import { CatalogService, PublicTokenStatus } from '../../core/services/catalog.s
 export class CustomersComponent implements OnInit {
   private customerService = inject(CustomerService);
   private catalogService = inject(CatalogService);
+  private domainContext = inject(DomainContextService);
 
   isLoading = true;
   errorMsg: string | null = null;
@@ -241,7 +243,7 @@ export class CustomersComponent implements OnInit {
 
   async copyPortalLink() {
     if (!this.publicToken) return;
-    const url = `${window.location.origin}/p/${this.publicToken}`;
+    const url = this.domainContext.portalUrl(`/p/${this.publicToken}`);
 
     try {
       await navigator.clipboard.writeText(url);
@@ -260,7 +262,7 @@ export class CustomersComponent implements OnInit {
       return;
     }
 
-    const url = `${window.location.origin}/p/${this.publicToken}`;
+    const url = this.domainContext.portalUrl(`/p/${this.publicToken}`);
     const greetingName = customer.name ? ` ${customer.name}` : '';
     const message = [
       `Merhaba${greetingName},`,

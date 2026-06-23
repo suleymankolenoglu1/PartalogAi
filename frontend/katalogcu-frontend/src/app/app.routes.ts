@@ -30,37 +30,38 @@ import { OrdersComponent } from './dashboard/orders/orders';
 import { planGuard } from './core/guards/plan.guard';
 import { planSelectionGuard } from './core/guards/plan-selection.guard';
 import { platformAdminGuard } from './core/guards/platform-admin.guard';
+import { panelHomeGuard, panelHostGuard, portalHostGuard } from './core/guards/domain-host.guard';
 import { environment } from '../environments/environment';
 
 const chatbotEnabled = environment.features.enableChatbot;
 const ecommerceEnabled = environment.features.enableEcommerce;
 const upgradePromptsEnabled = environment.features.enableUpgradePrompts;
 const upgradeRoute: Route = upgradePromptsEnabled
-  ? { path: 'upgrade', component: PanelAccessComponent }
+  ? { path: 'upgrade', component: PanelAccessComponent, canActivate: [panelHostGuard] }
   : { path: 'upgrade', redirectTo: 'dashboard', pathMatch: 'full' };
 
 export const routes: Routes = [
-  { path: '', component: HomeComponent },
-  { path: 'public-view/:publicToken', component: PublicViewComponent },
-  { path: 'p/:publicToken', component: PublicViewComponent },
-  ...(ecommerceEnabled ? [{ path: 'public-view/:publicToken/checkout', component: PublicCheckoutComponent }] : []),
-  ...(ecommerceEnabled ? [{ path: 'p/:publicToken/checkout', component: PublicCheckoutComponent }] : []),
-  { path: 'view/:id', component: PublicCatalogShowcaseComponent },
-  { path: 'view/:id/viewer/:pageIndex', component: PublicCatalogViewerComponent },
+  { path: '', component: HomeComponent, canActivate: [panelHomeGuard] },
+  { path: 'public-view/:publicToken', component: PublicViewComponent, canActivate: [portalHostGuard] },
+  { path: 'p/:publicToken', component: PublicViewComponent, canActivate: [portalHostGuard] },
+  ...(ecommerceEnabled ? [{ path: 'public-view/:publicToken/checkout', component: PublicCheckoutComponent, canActivate: [portalHostGuard] }] : []),
+  ...(ecommerceEnabled ? [{ path: 'p/:publicToken/checkout', component: PublicCheckoutComponent, canActivate: [portalHostGuard] }] : []),
+  { path: 'view/:id', component: PublicCatalogShowcaseComponent, canActivate: [portalHostGuard] },
+  { path: 'view/:id/viewer/:pageIndex', component: PublicCatalogViewerComponent, canActivate: [portalHostGuard] },
   { path: 'explore', redirectTo: '', pathMatch: 'full' },
   { path: 'blog', redirectTo: '', pathMatch: 'full' },
   { path: 'services', redirectTo: '', pathMatch: 'full' },
   { path: 'prices', redirectTo: 'login', pathMatch: 'full' },
   upgradeRoute,
-  { path: 'login', component: LoginComponent },
+  { path: 'login', component: LoginComponent, canActivate: [panelHostGuard] },
   { path: 'register', redirectTo: 'login', pathMatch: 'full' },
-  { path: 'platform/login', component: PlatformLoginComponent },
-  { path: 'platform', component: PlatformDashboardComponent, canActivate: [platformAdminGuard] },
-  { path: 'platform/tenants/:ownerId', component: PlatformTenantDetailComponent, canActivate: [platformAdminGuard] },
+  { path: 'platform/login', component: PlatformLoginComponent, canActivate: [panelHostGuard] },
+  { path: 'platform', component: PlatformDashboardComponent, canActivate: [panelHostGuard, platformAdminGuard] },
+  { path: 'platform/tenants/:ownerId', component: PlatformTenantDetailComponent, canActivate: [panelHostGuard, platformAdminGuard] },
   {
     path: 'dashboard',
     component: AdminLayoutComponent,
-    canActivate: [planSelectionGuard],
+    canActivate: [panelHostGuard, planSelectionGuard],
     children: [
       { path: '', component: DashboardComponent },
       { path: 'catalogs', component: CatalogsComponent },

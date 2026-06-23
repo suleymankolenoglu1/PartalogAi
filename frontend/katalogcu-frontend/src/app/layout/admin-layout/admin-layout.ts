@@ -7,6 +7,7 @@ import { OrderService } from '../../core/services/order.service';
 import { Subscription } from 'rxjs';
 import { filter } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
+import { DomainContextService } from '../../core/services/domain-context.service';
 
 @Component({
   selector: 'app-admin-layout',
@@ -20,6 +21,7 @@ export class AdminLayoutComponent implements OnDestroy {
   private catalogService = inject(CatalogService);
   private orderService = inject(OrderService);
   private router = inject(Router);
+  private domainContext = inject(DomainContextService);
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private routeSub?: Subscription;
@@ -301,7 +303,7 @@ export class AdminLayoutComponent implements OnDestroy {
 
   async copyPublicLink() {
     if (!this.publicToken) return;
-    const url = `${window.location.origin}/p/${this.publicToken}`;
+    const url = this.domainContext.portalUrl(`/p/${this.publicToken}`);
     try {
       await navigator.clipboard.writeText(url);
       this.publicActionMessage = 'Portal davet linki panoya kopyalandı.';

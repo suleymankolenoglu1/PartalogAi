@@ -12,6 +12,7 @@ import { ActivatedRoute } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { PlanId } from '../../core/models/plan.model';
 import { environment } from '../../../environments/environment';
+import { DomainContextService } from '../../core/services/domain-context.service';
 
 @Component({
   selector: 'app-settings',
@@ -24,6 +25,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private catalogService = inject(CatalogService);
   private authService = inject(AuthService);
   private route = inject(ActivatedRoute);
+  private domainContext = inject(DomainContextService);
   private queryParamSub?: Subscription;
 
   // Aktif sekme (Type güvenliği için string literal kullandık)
@@ -345,7 +347,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async copyPublicLink() {
     if (!this.publicToken) return;
-    const url = `${window.location.origin}/p/${this.publicToken}`;
+    const url = this.domainContext.portalUrl(`/p/${this.publicToken}`);
     try {
       await navigator.clipboard.writeText(url);
       this.publicActionMessage = 'Portal davet linki panoya kopyalandı.';
