@@ -14,11 +14,48 @@
         <div class="alert success">{{ successMsg }}</div>
     }
 
+    <section class="portal-summary-grid" aria-label="Portal erişim özeti">
+        <div class="summary-card">
+            <span class="summary-label">Aktif kullanıcı</span>
+            <strong>{{ activeCustomerCount }}</strong>
+            <small>Şifresi hazır ve giriş yapabilir.</small>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Hesap bekliyor</span>
+            <strong>{{ pendingCustomerCount }}</strong>
+            <small>Davet sonrası şifre oluşturacak.</small>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Pasif erişim</span>
+            <strong>{{ inactiveCustomerCount }}</strong>
+            <small>Portal ve açık oturum kapalı.</small>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Davet hazır</span>
+            <strong>{{ invitableCustomerCount }}</strong>
+            <small>Linki olan aktif kayıtlar.</small>
+        </div>
+    </section>
+
     <section class="portal-link-card">
         <div class="portal-link-copy">
             <div class="portal-link-kicker">Davet Linki</div>
             <h2>Müşterilerin portala giriş kapısı</h2>
             <p>Bu linki erişim verdiğiniz firma/kullanıcılara gönderin. Link tek başına katalogları açmaz; kullanıcı listede aktif olmalı ve giriş yapmalıdır.</p>
+            <ol class="portal-readiness-list">
+                <li [class.ready]="publicToken">
+                    <span class="material-symbols-outlined">{{ publicToken ? 'check_circle' : 'radio_button_unchecked' }}</span>
+                    Portal linki üret
+                </li>
+                <li [class.ready]="customers.length > 0">
+                    <span class="material-symbols-outlined">{{ customers.length > 0 ? 'check_circle' : 'radio_button_unchecked' }}</span>
+                    Portal kullanıcısı ekle
+                </li>
+                <li [class.ready]="invitableCustomerCount > 0">
+                    <span class="material-symbols-outlined">{{ invitableCustomerCount > 0 ? 'check_circle' : 'radio_button_unchecked' }}</span>
+                    Aktif kullanıcılara davet gönder
+                </li>
+            </ol>
         </div>
 
         <div class="portal-link-actions">
@@ -28,7 +65,7 @@
 
             @if (publicToken) {
                 <div class="portal-link-row">
-                    <input [value]="'/p/' + publicToken" readonly>
+                    <input [value]="portalUrl" readonly>
                     <button type="button" class="btn-secondary" (click)="copyPortalLink()" [disabled]="publicActionLoading">Kopyala</button>
                 </div>
                 <p class="portal-link-hint">Davet mesajı göndermek için kullanıcı satırındaki “Daveti Kopyala” butonunu kullanın.</p>
@@ -99,6 +136,7 @@
                 <label>
                     <span>{{ editingCustomer ? 'Yeni şifre (opsiyonel)' : 'İlk şifre (opsiyonel)' }}</span>
                     <input name="initialPassword" [(ngModel)]="form.initialPassword" type="password" autocomplete="new-password">
+                    <small class="field-help">Boş bırakırsanız müşteri davet linkindeki “Hesabı Tamamla” adımında şifresini oluşturur.</small>
                 </label>
                 <label>
                     <span>Not</span>
@@ -203,9 +241,9 @@
                                             class="access-button neutral"
                                             type="button"
                                             title="Davet mesajını kopyala"
-                                            [disabled]="!publicToken"
+                                            [disabled]="!canCopyInvite(customer)"
                                             (click)="copyInviteMessage(customer)">
-                                            Daveti Kopyala
+                                            {{ customer.status === 'active' ? 'Daveti Kopyala' : 'Erişim Pasif' }}
                                         </button>
                                         <button class="action-icon edit" type="button" title="Düzenle" (click)="openEditForm(customer)">
                                             <span class="material-symbols-outlined">edit</span>

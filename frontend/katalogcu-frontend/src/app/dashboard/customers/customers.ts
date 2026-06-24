@@ -33,6 +33,26 @@ export class CustomersComponent implements OnInit {
   publicToken: string | null = null;
   publicActionLoading = false;
 
+  get portalUrl(): string {
+    return this.publicToken ? this.domainContext.portalUrl(`/p/${this.publicToken}`) : '';
+  }
+
+  get activeCustomerCount(): number {
+    return this.customers.filter(c => this.getPortalState(c) === 'active').length;
+  }
+
+  get pendingCustomerCount(): number {
+    return this.customers.filter(c => this.getPortalState(c) === 'pending').length;
+  }
+
+  get inactiveCustomerCount(): number {
+    return this.customers.filter(c => this.getPortalState(c) === 'inactive').length;
+  }
+
+  get invitableCustomerCount(): number {
+    return this.customers.filter(c => this.canCopyInvite(c)).length;
+  }
+
   ngOnInit() {
     this.loadCustomers();
     this.loadPublicLinkState();
@@ -243,10 +263,9 @@ export class CustomersComponent implements OnInit {
 
   async copyPortalLink() {
     if (!this.publicToken) return;
-    const url = this.domainContext.portalUrl(`/p/${this.publicToken}`);
 
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(this.portalUrl);
       this.successMsg = 'Portal davet linki panoya kopyalandı.';
       this.errorMsg = null;
     } catch {
@@ -256,21 +275,32 @@ export class CustomersComponent implements OnInit {
   }
 
   async copyInviteMessage(customer: Customer) {
-    if (!this.publicToken) {
+    if (!this.publicToken || !this.portalUrl) {
       this.errorMsg = 'Önce portal davet linki üretin.';
       this.successMsg = null;
       return;
     }
+    if (!this.canCopyInvite(customer)) {
+      this.errorMsg = 'Pasif müşteriye davet gönderilemez. Önce portal erişimini aktifleştirin.';
+      this.successMsg = null;
+      return;
+    }
 
-    const url = this.domainContext.portalUrl(`/p/${this.publicToken}`);
     const greetingName = customer.name ? ` ${customer.name}` : '';
+    const credentialHint = customer.email
+      ? `Panelde kayıtlı telefon/e-posta: ${customer.phone} / ${customer.email}`
+      : `Panelde kayıtlı telefon: ${customer.phone}`;
+    const authHint = customer.hasPassword
+      ? 'Daha önce şifre oluşturduysanız "Giriş" sekmesinden devam edin.'
+      : '"Hesabı Tamamla" sekmesinden telefon bilginizle şifrenizi oluşturun.';
     const message = [
       `Merhaba${greetingName},`,
       '',
       'Müşteri portalı erişiminiz açıldı. Katalog ve parça asistanına aşağıdaki linkten ulaşabilirsiniz:',
-      url,
+      this.portalUrl,
       '',
-      'Telefon/e-posta bilgilerinizle giriş yapabilir veya "Hesabı Tamamla" adımından şifrenizi oluşturabilirsiniz.'
+      credentialHint,
+      authHint
     ].join('\n');
 
     try {
@@ -350,6 +380,10 @@ export class CustomersComponent implements OnInit {
       case 'inactive':
         return 'Portal erişimi kapalı.';
     }
+  }
+
+  canCopyInvite(customer: Customer): boolean {
+    return !!this.publicToken && customer.status === 'active';
   }
 
   formatDate(date: string | null | undefined): string {
