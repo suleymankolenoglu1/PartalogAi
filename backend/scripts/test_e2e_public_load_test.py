@@ -53,7 +53,17 @@ class FakeStreamClient:
 
 
 class PublicLoadTestHelpersTests(unittest.TestCase):
-    fixture = Fixture("public-token", "", "catalog-id", "", "", 1.0)
+    fixture = Fixture(
+        "public-token",
+        "",
+        "catalog-id",
+        "",
+        "",
+        1.0,
+        "905551112233",
+        "load@example.test",
+        "LoadP@ssw0rd!",
+    )
 
     @staticmethod
     def load_report(successful_rps: float, concurrency: int = 4) -> dict:
