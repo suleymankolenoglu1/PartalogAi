@@ -12,6 +12,7 @@ import {
   initialPublicViewStreamState,
   reducePublicViewStreamState,
 } from './public-view.stream-state';
+import { formatPublicAuthError, parsePublicAuthIdentity } from './public-auth-identity';
 
 // 🔥 Yanıt Tipi Tanımı (HTML ile uyumlu olması için)
 interface AiResponse {
@@ -69,7 +70,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
   customerSessionToken: string | null = null;
   loggedCustomer: any | null = null;
   authMode: 'login' | 'register' = 'login';
-  authLoginForm = { phone: '', email: '', password: '' };
+  authLoginForm = { identifier: '', password: '' };
   authRegisterForm = { name: '', phone: '', email: '', password: '', confirmPassword: '' };
   authMessage: string | null = null;
   authError: string | null = null;
@@ -177,8 +178,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
       next: (me) => {
         this.loggedCustomer = me;
         this.isPortalUnlocked = true;
-        this.authLoginForm.phone = me?.phone || '';
-        this.authLoginForm.email = me?.email || '';
+        this.authLoginForm.identifier = me?.email || me?.phone || '';
         this.initializePortalData();
       },
       error: () => {
@@ -237,7 +237,8 @@ export class PublicViewComponent implements OnInit, OnDestroy {
 
   loginPortal() {
     if (!this.publicToken || this.isAuthenticating) return;
-    if (!this.authLoginForm.password || (!this.authLoginForm.phone && !this.authLoginForm.email)) {
+    const identity = parsePublicAuthIdentity(this.authLoginForm.identifier);
+    if (!this.authLoginForm.password || (!identity.phone && !identity.email)) {
       this.authError = 'Telefon/e-posta ve şifre zorunlu.';
       this.authMessage = null;
       return;
@@ -249,8 +250,8 @@ export class PublicViewComponent implements OnInit, OnDestroy {
 
     this.customerService.loginPublicCustomer({
       publicToken: this.publicToken,
-      phone: this.authLoginForm.phone || undefined,
-      email: this.authLoginForm.email || undefined,
+      phone: identity.phone,
+      email: identity.email,
       password: this.authLoginForm.password
     }).subscribe({
       next: (res) => {
@@ -265,7 +266,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.isAuthenticating = false;
-        this.authError = err?.error?.message || err?.error || 'Giriş yapılamadı.';
+        this.authError = formatPublicAuthError(err, 'Giriş yapılamadı.');
       }
     });
   }
@@ -312,7 +313,7 @@ export class PublicViewComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.isAuthenticating = false;
-        this.authError = err?.error?.message || err?.error || 'Hesap tamamlanamadı.';
+        this.authError = formatPublicAuthError(err, 'Hesap tamamlanamadı.');
       }
     });
   }
