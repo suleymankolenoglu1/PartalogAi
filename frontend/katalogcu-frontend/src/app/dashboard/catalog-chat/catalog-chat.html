@@ -1,0 +1,171 @@
+<!--
+  Layout adapted from vercel/ai-chatbot:
+    components/chat/messages.tsx     -> messages list + scroll-to-bottom
+    components/chat/message.tsx      -> assistant avatar / user bubble
+    components/chat/greeting.tsx     -> empty-state heading
+    components/chat/suggested-actions.tsx -> suggestion grid
+    components/chat/multimodal-input.tsx  -> composer
+  Backend hooks (useChat, AI SDK, db) were intentionally dropped — mock data only.
+-->
+<div class="pt-chat flex h-full min-h-[600px] flex-col text-[var(--pt-text)]">
+  <!-- Messages region -->
+  <div class="relative flex-1 overflow-hidden">
+    <!-- Empty-state greeting (Greeting) -->
+    @if (messages().length === 0) {
+      <div class="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center px-4">
+        <div class="pt-fade-up font-display text-center text-2xl font-semibold tracking-tight text-[var(--pt-heading)] md:text-3xl">
+          Kataloğunda ne aramak istersin?
+        </div>
+        <div class="pt-fade-up mt-3 text-center text-sm text-[var(--pt-muted)]" style="animation-delay: 80ms">
+          Parça sor, stok kontrol et veya fiyat güncelle.
+        </div>
+
+        <!-- Suggested actions -->
+        <div class="pointer-events-auto mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-2">
+          @for (s of suggestions; track s; let i = $index) {
+            <button
+              type="button"
+              class="pt-suggestion pt-fade-up h-auto w-full rounded-xl px-4 py-3 text-left text-[13px] leading-relaxed transition-all duration-200 hover:-translate-y-0.5"
+              [style.animation-delay.ms]="60 * i"
+              (click)="useSuggestion(s)"
+            >
+              {{ s }}
+            </button>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Scrollable message list -->
+    <div #scrollContainer class="absolute inset-0 touch-pan-y overflow-y-auto">
+      <div class="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-3 py-6 md:gap-7 md:px-4">
+        @for (message of messages(); track message.id) {
+          <!-- PreviewMessage -->
+          <div class="group/message w-full" [attr.data-role]="message.role">
+            @if (message.role === 'assistant') {
+              <div class="flex items-start gap-3">
+                <!-- assistant avatar -->
+                <div class="flex shrink-0 items-center pt-1">
+                  <div class="pt-avatar flex size-7 items-center justify-center rounded-lg">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                      <path d="M12 2l1.9 4.7L18.5 8l-3.5 3 1 4.8L12 13.6 8 15.8l1-4.8L5.5 8l4.6-1.3L12 2z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="flex min-w-0 flex-1 flex-col gap-3">
+                  @for (part of message.parts; track $index) {
+                    @if (part.type === 'text') {
+                      <div class="text-[13px] leading-[1.65] text-[var(--pt-heading)]">{{ part.text }}</div>
+                    }
+                    @if (part.type === 'part-card' && part.card) {
+                      <!-- part / price card: JetBrains Mono for code & price -->
+                      <div class="pt-part-card w-[min(100%,420px)] rounded-2xl p-4">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <div class="font-mono-code text-[12px] font-medium tracking-wide text-[var(--pt-accent)]">
+                              {{ part.card.code }}
+                            </div>
+                            <div class="mt-1 truncate text-[13px] font-medium text-[var(--pt-heading)]">
+                              {{ part.card.name }}
+                            </div>
+                          </div>
+                          <div class="font-mono-code shrink-0 text-[15px] font-semibold text-[var(--pt-heading)]">
+                            {{ part.card.price }}
+                          </div>
+                        </div>
+                        <div class="mt-3 flex items-center gap-2 border-t border-[var(--pt-border)] pt-3 text-[11px] text-[var(--pt-muted)]">
+                          <span class="inline-block size-1.5 rounded-full bg-[var(--pt-accent)]"></span>
+                          Stok: <span class="font-mono-code text-[var(--pt-heading)]">{{ part.card.stock }}</span>
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
+              </div>
+            } @else {
+              <!-- user message: right-aligned bubble -->
+              <div class="flex flex-col items-end gap-2">
+                @for (part of message.parts; track $index) {
+                  <div
+                    class="pt-user-bubble pt-fade-up w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg px-3.5 py-2 text-[13px] leading-[1.65] text-white"
+                  >
+                    {{ part.text }}
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <!-- ThinkingMessage -->
+        @if (isThinking()) {
+          <div class="group/message w-full" data-role="assistant">
+            <div class="flex items-start gap-3">
+              <div class="flex shrink-0 items-center pt-1">
+                <div class="pt-avatar flex size-7 items-center justify-center rounded-lg">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                    <path d="M12 2l1.9 4.7L18.5 8l-3.5 3 1 4.8L12 13.6 8 15.8l1-4.8L5.5 8l4.6-1.3L12 2z" />
+                  </svg>
+                </div>
+              </div>
+              <div class="flex items-center text-[13px] leading-[1.65]">
+                <span class="pt-shimmer font-medium">Düşünüyorum…</span>
+              </div>
+            </div>
+          </div>
+        }
+
+        <div #scrollAnchor class="min-h-[24px] min-w-[24px] shrink-0"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Composer (multimodal-input) -->
+  <div class="px-3 pb-4 md:px-4">
+    <div class="mx-auto w-full max-w-4xl">
+      <div
+        class="pt-composer rounded-2xl transition-shadow duration-300"
+      >
+        <textarea
+          rows="1"
+          [ngModel]="inputValue()"
+          (ngModelChange)="inputValue.set($event)"
+          (keydown)="onKeydown($event)"
+          placeholder="Bir parça veya kod yaz…"
+          class="pt-composer-input block max-h-48 min-h-[60px] w-full resize-none bg-transparent px-4 pb-1.5 pt-3.5 text-[13px] leading-relaxed focus:outline-none"
+        ></textarea>
+
+        <div class="flex items-center justify-between gap-1 px-3 pb-3">
+          <!-- left tools -->
+          <div class="flex min-w-0 items-center gap-1">
+            <button
+              type="button"
+              aria-label="Dosya ekle"
+              class="pt-tool-button flex size-7 items-center justify-center rounded-lg transition-colors"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- send button -->
+          <button
+            type="button"
+            data-testid="send-button"
+            [disabled]="!inputValue().trim() || isThinking()"
+            (click)="send()"
+            aria-label="Gönder"
+            class="flex size-7 items-center justify-center rounded-xl transition-all duration-200 hover:opacity-85 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
+            [style.background]="inputValue().trim() ? 'var(--pt-accent)' : 'var(--pt-border)'"
+            [style.color]="inputValue().trim() ? 'white' : 'var(--pt-muted)'"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -25,6 +25,7 @@ import { PartsAddComponent } from './dashboard/parts/parts-add/parts-add';
 import { PartsImportComponent } from './dashboard/parts/parts-import/parts-import';
 import { VisualFeedbackComponent } from './dashboard/visual-feedback/visual-feedback';
 import { ChatQualityComponent } from './dashboard/chat-quality/chat-quality';
+import { CatalogChatComponent } from './dashboard/catalog-chat/catalog-chat';
 import { PolicyThresholdsComponent } from './dashboard/policy-thresholds/policy-thresholds';
 import { OrdersComponent } from './dashboard/orders/orders';
 import { planGuard } from './core/guards/plan.guard';
@@ -68,6 +69,7 @@ export const routes: Routes = [
       { path: 'catalog/:id', component: CatalogDetailComponent },
       { path: 'catalogs/new', component: CatalogAddComponent },
       { path: 'customers', component: CustomersComponent },
+      { path: 'catalog-chat', component: CatalogChatComponent },
       { path: 'settings', component: SettingsComponent },
       ...(chatbotEnabled
         ? [

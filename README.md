@@ -1,117 +1,173 @@
 # Katalogcu
 
-Katalog yönetim ve ürün tanıma sistemi. AI destekli katalog oluşturma ve hotspot yönetimi.
+Katalogcu, teknik katalogları dijital müşteri portalına dönüştüren; katalog yönetimi, parça arama, public paylaşım, müşteri erişimi ve AI destekli katalog/chat akışlarını tek platformda birleştiren full-stack bir uygulamadır.
 
-## 📋 Proje Hakkında
+Proje; sanayi, yedek parça ve servis ekiplerinin PDF katalogları, ürün listeleri ve müşteri taleplerini daha yönetilebilir hale getirmesi için tasarlanmıştır. Yönetim paneli işletme tarafını, public portal ise müşterinin katalog görüntüleme ve katalog üzerinden soru sorma deneyimini karşılar.
 
-Katalogcu, dijital kataloglar oluşturmak ve yönetmek için geliştirilmiş modern bir web uygulamasıdır. YOLO (You Only Look Once) AI modeli kullanarak katalog sayfalarındaki ürünleri otomatik olarak tanıyabilir ve tıklanabilir alanlar (hotspot) oluşturabilir.
+## Showcase
 
-## 🏗️ Mimari
+| Public portal | Panel girişi |
+|---|---|
+| ![Katalogcu public portal](docs/showcase/public-portal.png) | ![Katalogcu panel login](docs/showcase/login.png) |
 
-Bu proje Clean Architecture prensiplerine uygun olarak 3 ana bileşenden oluşur:
+| Müşteri portalı |
+|---|
+| ![Katalogcu müşteri portalı](docs/showcase/home.png) |
 
-- **Backend**: .NET 9 Web API
-- **Frontend**: Angular uygulaması  
-- **YOLO Service**: Python tabanlı AI servisi
+## Öne Çıkanlar
 
-## 📚 Detaylı Dokümantasyon
+- Dijital katalog yönetimi: PDF yükleme, katalog sayfaları, ürünler, hotspot alanları ve public katalog linkleri.
+- Public müşteri portalı: müşteri giriş/tamamlama akışları, token bazlı katalog erişimi ve panelden yönetilen davet modeli.
+- AI katalog/chat servisi: FastAPI tabanlı chat, OCR, embedding, vector search, exact-code eşleşmesi, görsel arama ve kalite eval dosyaları.
+- Clean Architecture backend: .NET 9 API, CQRS application katmanı, EF Core, PostgreSQL/pgvector, Hangfire ve operasyon scriptleri.
+- Angular panel ve portal: yönetim ekranları, public viewer, katalog chat, müşteri erişimi ve platform admin alanları.
+- Operasyon disiplini: smoke testler, migration gate, release checklist, staging/load baseline ve Google Cloud Run deploy runbook'ları.
+- Güvenlik ve erişim kontrolleri: JWT, public token, self-service kayıt kapatma, SSRF kontrolleri, rate limit ve production readiness guard'ları.
 
-Proje dosya yapısı ve tüm bileşenlerin detaylı açıklaması için:
-👉 **[PROJE_YAPISI.md](./PROJE_YAPISI.md)** dosyasına bakınız.
+## Mimari
 
-Backend migration süreç disiplini için:
-👉 **[backend/MIGRATION_DISCIPLINE.md](./backend/MIGRATION_DISCIPLINE.md)** dosyasına bakınız.
+```text
+Katalogcu/
+├── backend/                  # .NET 9 API, Clean Architecture, EF Core, scriptler
+├── frontend/katalogcu-frontend/
+│   └── Angular 20 panel, portal ve public katalog arayüzü
+├── partalog-ai/              # FastAPI AI servisi, chat/OCR/embedding/eval
+├── deploy/google-cloud/      # Cloud Run, staging, monitoring ve release runbook'ları
+├── plans/                    # Ürün roadmap'i
+├── docs/showcase/            # README için secretsız ekran görüntüleri
+├── PROJE_YAPISI.md           # Teknik modül haritası
+└── PROJE_SUNUM_RAPORU.md     # GitHub vitrin/ürün sunum raporu
+```
 
-Docker orkestrasyonu için:
-👉 **[backend/DOCKER_ORCHESTRATION.md](./backend/DOCKER_ORCHESTRATION.md)** dosyasına bakınız.
+Ana akış:
 
-MVP smoke testleri için:
-👉 **[backend/SMOKE_TESTS.md](./backend/SMOKE_TESTS.md)** dosyasına bakınız.
+```text
+Angular panel/portal
+        |
+        v
+.NET API -> PostgreSQL + pgvector
+        |
+        v
+FastAPI AI servisi -> OCR / embedding / vector search / Gemini provider
+```
 
-Tek paket (Catalog Only) canlıya çıkış kontrol listesi için:
-👉 **[backend/CATALOG_ONLY_PROD_CHECKLIST.md](./backend/CATALOG_ONLY_PROD_CHECKLIST.md)** dosyasına bakınız.
+## Teknoloji Seti
 
-Catalog-only Go/No-Go karar formu için:
-👉 **[backend/CATALOG_ONLY_RELEASE_GO_NO_GO.md](./backend/CATALOG_ONLY_RELEASE_GO_NO_GO.md)** dosyasına bakınız.
+| Katman | Teknolojiler |
+|---|---|
+| Backend | .NET 9, ASP.NET Core, EF Core, MediatR, FluentValidation, Hangfire |
+| Veritabanı | PostgreSQL, pgvector, Redis opsiyonları |
+| Frontend | Angular 20, TypeScript 5.9, RxJS, Tailwind/PostCSS |
+| AI Servisi | FastAPI, Python, aiohttp/httpx, PyMuPDF, OpenCV, EasyOCR, YOLO, embeddings |
+| Operasyon | Docker Compose, Google Cloud Run, GitHub Actions, smoke/load/preflight scriptleri |
 
-Catalog-only release rapor scripti:
-👉 **[backend/scripts/generate_catalog_release_report.sh](./backend/scripts/generate_catalog_release_report.sh)**
-
-## 🚀 Hızlı Başlangıç
+## Hızlı Başlangıç
 
 ### Gereksinimler
+
 - .NET 9 SDK
-- Node.js ve npm
-- Python 3.8+
+- Node.js 22 ve npm 10+
+- Python 3.10+
 - Docker ve Docker Compose
-- PostgreSQL
+- PostgreSQL/pgvector; Docker Compose ile otomatik gelir
 
-### Kurulum
+### Docker Compose ile çalıştırma
 
-1. **Tüm servisleri Docker Compose ile başlatın (önerilen):**
 ```bash
 cd backend
 docker compose up -d --build
 ```
 
-Servisler:
-- Frontend: `http://localhost:4200`
-- Backend API: `http://localhost:5159`
-- Swagger: `http://localhost:5159/swagger`
-- Partalog AI: `http://localhost:8000`
+Varsayılan lokal servisler:
 
-2. **Alternatif: Servisleri manuel çalıştırın**
+| Servis | Adres |
+|---|---|
+| Frontend | `http://localhost:4200` |
+| Backend API | `http://localhost:5159` |
+| Swagger | `http://localhost:5159/swagger` |
+| Partalog AI | `http://localhost:8000` |
+| PostgreSQL | `localhost:5432` |
 
-**Backend:**
+> Not: AI servisi lokal geliştirmede `partalog-ai/.env` dosyasını kullanır. Secret içeren `.env` dosyaları repoya commit edilmemelidir.
+
+### Manuel geliştirme
+
+Backend:
+
 ```bash
 cd backend/Katalogcu.API
 dotnet restore
 dotnet run
 ```
 
-**Frontend:**
+Frontend:
+
 ```bash
 cd frontend/katalogcu-frontend
 npm install
 npm start
 ```
 
-**Partalog AI servisi:**
+AI servisi:
+
 ```bash
 cd partalog-ai
 pip install -r requirements.txt
 python main.py
 ```
 
-## 🔑 Özellikler
+## Doğrulama ve Testler
 
-- ✅ Katalog yönetimi (Oluştur, Güncelle, Sil)
-- ✅ Ürün yönetimi
-- ✅ Kullanıcı kimlik doğrulama (JWT)
-- ✅ PDF yükleme ve işleme
-- ✅ Excel export
-- ✅ **YOLO AI entegrasyonu** - Backend ile tam entegre
-- ✅ **Otomatik hotspot tespiti** - YOLO servisi üzerinden
-- ✅ OCR desteği
+Backend testleri:
 
-## 🛠️ Teknolojiler
-
-- **Backend**: .NET 9, Entity Framework Core, PostgreSQL, HttpClient
-- **Frontend**: Angular, TypeScript
-- **AI**: Python, YOLO, FastAPI, OpenCV
-- **DevOps**: Docker, Docker Compose
-
-## 📖 API Dokümantasyonu
-
-Backend çalıştığında Swagger UI'a erişebilirsiniz:
-```
-http://localhost:5000/swagger
+```bash
+dotnet test backend/Katalogcu.sln
 ```
 
-## 🤝 Katkıda Bulunma
+Frontend derleme/test:
 
-Pull request'ler memnuniyetle karşılanır. Büyük değişiklikler için lütfen önce bir issue açarak neyi değiştirmek istediğinizi tartışın.
+```bash
+cd frontend/katalogcu-frontend
+npm run test:compile
+npm run test:ci
+```
 
-## 📄 Lisans
+Full-stack smoke:
 
-[MIT](https://choosealicense.com/licenses/mit/)
+```bash
+export PARTALOG_PUBLIC_TOKEN="..."
+./backend/scripts/smoke_all.sh
+```
+
+Release öncesi katalog-only preflight:
+
+```bash
+./backend/scripts/preflight_catalog_only.sh --api-url http://localhost:5159
+```
+
+## Dokümantasyon Haritası
+
+| Doküman | Amaç |
+|---|---|
+| [`PROJE_SUNUM_RAPORU.md`](./PROJE_SUNUM_RAPORU.md) | GitHub vitrini için ürün, mimari, kalite ve operasyon özeti |
+| [`PROJE_YAPISI.md`](./PROJE_YAPISI.md) | Klasörler, katmanlar ve ana teknik akışlar |
+| [`PROJECT_FILE_REPORT.md`](./PROJECT_FILE_REPORT.md) | Dosya envanteri, temizlik durumu ve kalan inceleme adayları |
+| [`backend/DOCKER_ORCHESTRATION.md`](./backend/DOCKER_ORCHESTRATION.md) | Docker Compose servisleri ve lokal orkestrasyon |
+| [`backend/SMOKE_TESTS.md`](./backend/SMOKE_TESTS.md) | Public checkout ve full-stack smoke test akışları |
+| [`backend/MIGRATION_DISCIPLINE.md`](./backend/MIGRATION_DISCIPLINE.md) | EF migration disiplini ve CI kapıları |
+| [`backend/CATALOG_ONLY_PROD_CHECKLIST.md`](./backend/CATALOG_ONLY_PROD_CHECKLIST.md) | Catalog-only canlıya çıkış kontrol listesi |
+| [`backend/CATALOG_ONLY_RELEASE_GO_NO_GO.md`](./backend/CATALOG_ONLY_RELEASE_GO_NO_GO.md) | Release karar formu |
+| [`deploy/google-cloud/portal-panel-release-checklist.md`](./deploy/google-cloud/portal-panel-release-checklist.md) | Portal/panel domain ayrımı ve postdeploy kontrolleri |
+| [`partalog-ai/eval/README.md`](./partalog-ai/eval/README.md) | Chat kalite eval dosyaları ve eşik mantığı |
+
+## Güvenlik ve Operasyon Notları
+
+- Self-service panel kaydı kontrollü şekilde kapatılmıştır; ilk kullanıcılar bootstrap scripti ile oluşturulur.
+- Public katalog/chat erişimi token, müşteri oturumu ve katalog yetkisi üzerinden sınırlandırılır.
+- AI akışlarında kapasite, retry, cache, fallback reason ve stream contract kontrolleri vardır.
+- Production deploy için catalog-only, catalog-chat ve portal/panel runbook'ları ayrı tutulur.
+- Staging/load baseline süreci, rastgele load sonucunu değil review edilmiş baseline'ı promote etmeyi hedefler.
+
+## Lisans
+
+Bu proje MIT lisansı ile yayınlanır. Detaylar için [`LICENSE`](./LICENSE) dosyasına bakın.

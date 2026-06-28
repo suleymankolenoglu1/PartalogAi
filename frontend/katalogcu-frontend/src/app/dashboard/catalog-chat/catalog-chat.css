@@ -1,0 +1,162 @@
+/* Fonts: Space Grotesk (headings), Inter (body, already loaded globally), JetBrains Mono (codes/prices) */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:host {
+  display: block;
+  height: 100%;
+
+  /* Light navy palette inspired by vercel/ai-chatbot, without the near-black base. */
+  --pt-bg: #f5f9fd;
+  --pt-bg-glow: #dcecff;
+  --pt-card: #ffffff;
+  --pt-panel: #eaf2fa;
+  --pt-panel-strong: #dce9f7;
+  --pt-border: #cbdced;
+  --pt-accent: #2f5f9f;
+  --pt-accent-strong: #244f87;
+  --pt-heading: #203f63;
+  --pt-text: #2e4f73;
+  --pt-muted: #6f849b;
+  --pt-user-border: rgba(47, 95, 159, 0.22);
+  --pt-shadow-soft: 0 8px 24px -14px rgba(45, 75, 110, 0.2);
+  --pt-shadow-composer: 0 2px 8px -4px rgba(45, 75, 110, 0.12);
+  --pt-shadow-composer-focus: 0 10px 30px -12px rgba(47, 95, 159, 0.26);
+
+  /* Body type defaults to Inter */
+  font-family: 'Inter', sans-serif;
+  color: var(--pt-text);
+}
+
+.pt-chat {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(220, 236, 255, 0.72), transparent 34rem),
+    linear-gradient(180deg, var(--pt-bg) 0%, #f9fbfe 100%);
+}
+
+.pt-suggestion,
+.pt-part-card,
+.pt-composer {
+  border: 1px solid var(--pt-border);
+  background: rgba(234, 242, 250, 0.86);
+  box-shadow: var(--pt-shadow-soft);
+}
+
+.pt-suggestion {
+  color: var(--pt-muted);
+  backdrop-filter: blur(10px);
+}
+
+.pt-suggestion:hover {
+  background: var(--pt-card);
+  color: var(--pt-heading);
+  box-shadow: 0 12px 28px -18px rgba(47, 95, 159, 0.3);
+}
+
+.pt-avatar {
+  background: linear-gradient(180deg, var(--pt-card), var(--pt-panel));
+  color: var(--pt-accent);
+  box-shadow: inset 0 0 0 1px var(--pt-border);
+}
+
+.pt-part-card {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.pt-user-bubble {
+  border: 1px solid var(--pt-user-border);
+  background: linear-gradient(135deg, var(--pt-accent), var(--pt-accent-strong));
+  box-shadow: 0 10px 28px -16px rgba(47, 95, 159, 0.45);
+}
+
+.pt-composer {
+  background: rgba(234, 242, 250, 0.9);
+  box-shadow: var(--pt-shadow-composer);
+  backdrop-filter: blur(12px);
+}
+
+.pt-composer:focus-within {
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--pt-shadow-composer-focus);
+}
+
+.pt-composer-input {
+  color: var(--pt-heading);
+}
+
+.pt-composer-input::placeholder {
+  color: rgba(111, 132, 155, 0.62);
+}
+
+.pt-tool-button {
+  color: var(--pt-muted);
+}
+
+.pt-tool-button:hover {
+  background: var(--pt-card);
+  color: var(--pt-heading);
+}
+
+.font-display {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Entrance animation (ported from message/suggested-actions framer-motion fade-up) */
+@keyframes pt-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pt-fade-up {
+  animation: pt-fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Shimmer "Thinking…" text (ported from ai-elements/shimmer) */
+@keyframes pt-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.pt-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--pt-muted) 0%,
+    var(--pt-muted) 35%,
+    var(--pt-accent) 50%,
+    var(--pt-muted) 65%,
+    var(--pt-muted) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: pt-shimmer 1.6s linear infinite;
+}
+
+/* Thin scrollbar for the message list */
+.pt-chat *::-webkit-scrollbar {
+  width: 8px;
+}
+
+.pt-chat *::-webkit-scrollbar-thumb {
+  background: var(--pt-border);
+  border-radius: 9999px;
+}
+
+.pt-chat *::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -1,310 +1,138 @@
-# Katalogcu - Proje Dosya Yapısı ve İçeriği
+# Katalogcu - Proje Yapısı
 
-## Genel Bakış
-Bu belge, Katalogcu projesindeki tüm dosyaların ve dizinlerin detaylı bir haritasını içerir.
+Bu doküman repodaki ana modüllerin güncel rolünü açıklar. Amaç, projeyi ilk kez inceleyen bir geliştiricinin hangi klasörde ne olduğunu hızlıca anlamasıdır.
 
-## 📁 Ana Dizin Yapısı
+## Üst Seviye Harita
 
-```
+```text
 Katalogcu/
-├── backend/          # .NET 9 Web API (Clean Architecture)
-├── frontend/         # Angular Frontend Uygulaması
-├── yolo-service/     # Python AI Servisi (YOLO Object Detection)
-└── README.md         # Proje Ana Dokümantasyonu
+├── backend/                         # .NET 9 API, domain/application/infrastructure, testler, scriptler
+├── frontend/katalogcu-frontend/     # Angular 20 panel, portal ve public katalog arayüzü
+├── partalog-ai/                     # FastAPI AI servisi, chat/OCR/embedding/vector/eval
+├── deploy/google-cloud/             # Cloud Run, staging, monitoring ve release runbook'ları
+├── plans/                           # Ürün roadmap'i
+├── README.md                        # GitHub ana vitrin dokümanı
+├── PROJE_SUNUM_RAPORU.md            # Ürün ve teknik sunum özeti
+└── PROJECT_FILE_REPORT.md           # Envanter ve temizlik raporu
 ```
 
----
+## Backend
 
-## 🔧 Backend (.NET 9 - Clean Architecture)
+`backend/` .NET 9 tabanlı ana API ve iş mantığı katmanlarını içerir.
 
-### Katmanlar
-
-#### 1. **Katalogcu.API** (Sunum Katmanı)
-```
-backend/Katalogcu.API/
-├── Controllers/
-│   ├── AuthController.cs         # Kimlik doğrulama (Login/Register)
-│   ├── CatalogsController.cs     # Katalog yönetimi
-│   ├── ProductsController.cs     # Ürün yönetimi
-│   ├── HotspotsController.cs     # Hotspot (tıklanabilir alan) yönetimi
-│   ├── UsersController.cs        # Kullanıcı yönetimi
-│   └── FilesController.cs        # Dosya yükleme/indirme
-├── Services/
-│   ├── PdfService.cs             # PDF işlemleri
-│   ├── ExcelService.cs           # Excel export işlemleri
-│   ├── CloudOcrService.cs        # OCR (Optik Karakter Tanıma) servisi
-│   └── YoloService.cs            # YOLO AI servisi entegrasyonu (Hotspot tespiti)
-├── Program.cs                    # Uygulama giriş noktası
-├── Katalogcu.API.csproj         # Proje yapılandırma dosyası
-├── appsettings.json             # Uygulama yapılandırması
-├── appsettings.Development.json # Geliştirme ortamı yapılandırması
-└── Properties/
-    └── launchSettings.json       # Debug ayarları
+```text
+backend/
+├── Katalogcu.API/             # HTTP API, middleware, servis kayıtları, proxy/ops servisleri
+├── Katalogcu.Application/     # CQRS command/query handler'ları, DTO'lar, validator'lar
+├── Katalogcu.Domain/          # Entity, enum ve domain modelleri
+├── Katalogcu.Infrastructure/  # EF Core DbContext, repository'ler, migration'lar
+├── Katalogcu.API.Tests/       # xUnit backend regresyon testleri
+├── scripts/                   # smoke, preflight, postdeploy, load ve release araçları
+└── load-baselines/            # Public load baseline promotion ve review dokümanları
 ```
 
-**Özellikler:**
-- JWT Bearer Authentication
-- Swagger/OpenAPI dokümantasyonu
-- CORS desteği (Angular için)
-- PostgreSQL veritabanı entegrasyonu
-- **YOLO AI servisi entegrasyonu** (Otomatik hotspot tespiti)
+Başlıca backend sorumlulukları:
 
-#### 2. **Katalogcu.Domain** (Domain Katmanı)
-```
-backend/Katalogcu.Domain/
-├── Entities/
-│   ├── AppUser.cs                # Kullanıcı modeli
-│   ├── Catalog.cs                # Katalog modeli
-│   ├── CatalogPage.cs            # Katalog sayfa modeli
-│   ├── Product.cs                # Ürün modeli
-│   └── Hotspot.cs                # Hotspot modeli
-└── Common/
-    └── BaseEntity.cs             # Temel entity sınıfı
-```
+- Kullanıcı, müşteri, katalog, ürün, sipariş ve platform yönetimi.
+- PDF yükleme, sayfa görseli üretme, dosya saklama ve katalog sayfası işleme.
+- Public katalog linkleri, public müşteri oturumu ve portal erişim kontrolleri.
+- Chat proxy, SSE stream contract, AI kapasite/rate limit guard'ları.
+- External site crawling, external product matching ve review akışları.
+- Policy threshold, feedback regression ve audit altyapısı.
+- Production readiness, data protection, signing secret ve güvenlik kontrolleri.
 
-**Domain Modelleri:**
-- **AppUser**: Kullanıcı bilgileri ve kimlik doğrulama
-- **Catalog**: Katalog ana bilgileri
-- **CatalogPage**: Katalog sayfaları (PDF sayfaları)
-- **Product**: Ürün detayları
-- **Hotspot**: Ürünlere bağlı tıklanabilir alanlar (koordinatlar)
+## Frontend
 
-#### 3. **Katalogcu.Infrastructure** (Altyapı Katmanı)
-```
-backend/Katalogcu.Infrastructure/
-├── Persistence/
-│   └── AppDbContext.cs           # Entity Framework DbContext
-└── Migrations/                   # Veritabanı migration dosyaları
-    ├── 20251123122058_InitialCreate.cs
-    ├── 20251123124011_AddCatalogDomain.cs
-    ├── 20251210144736_AddPageNumberToProduct.cs
-    └── 20251218181058_UpdateHotspotForYolo.cs
-```
+`frontend/katalogcu-frontend/` Angular 20 uygulamasıdır. Aynı build hem panel hem public portal deneyimini taşır; domain/route guard'ları ile panel ve portal alanları ayrıştırılır.
 
-**Veritabanı:**
-- PostgreSQL
-- Entity Framework Core migrations
-- Clean Architecture pattern
+Başlıca alanlar:
 
-#### 4. **Katalogcu.Application** (Uygulama Katmanı)
-```
-backend/Katalogcu.Application/
-└── Katalogcu.Application.csproj
-```
+- Dashboard: katalog, ürün, müşteri, sipariş, ayar ve platform yönetim ekranları.
+- Public portal: public katalog görüntüleme, token/giriş akışları, katalog chat ve checkout yüzeyleri.
+- Catalog chat: stream contract parser, kullanıcı mesaj akışı ve hata/fallback durumları.
+- Domain context: portal host ve panel host ayrımı.
+- Feature flags: katalog-only, catalog-chat ve ileri paket davranışları.
 
-**Not:** Bu katman business logic için ayrılmıştır.
+Önemli frontend komutları:
 
-### Docker Yapılandırması
-```
-backend/docker-compose.yml        # PostgreSQL container yapılandırması
-```
-
-**Servisler:**
-- PostgreSQL 
-- Port: 5432
-- Database: KatalogcuDb
-- User: postgres
-- Persistent volume: pgdata_new
-
----
-
-## 🎨 Frontend (Angular)
-
-```
-frontend/katalogcu-frontend/      # Angular uygulaması (Henüz geliştirilme aşamasında)
-```
-
-**Teknolojiler:**
-- Angular Framework (Planlanmış)
-- TypeScript
-- Port: 4200 (development)
-
-**Not:** Frontend dizini mevcut ancak Angular projesinin kurulumu henüz tamamlanmamış.
-
----
-
-## 🤖 YOLO Service (Python AI)
-
-```
-yolo-service/
-├── api.py                        # FastAPI API endpoint
-├── app/
-│   └── main.py                   # Ana uygulama logic
-├── best.pt                       # Eğitilmiş YOLO model dosyası
-├── requirements.txt              # Python bağımlılıkları
-├── .env                          # Ortam değişkenleri
-└── .gitignore                    # Git ignore kuralları
-```
-
-**Özellikler:**
-- YOLO (You Only Look Once) object detection
-- FastAPI REST API
-- Ürün tanıma ve koordinat belirleme
-- Katalog sayfalarında otomatik hotspot oluşturma
-- **Backend entegrasyonu** (.NET API ile tam entegre)
-
-**API Endpoints:**
-- `GET /` - Servis bilgisi
-- `GET /health` - Sağlık kontrolü
-- `POST /detect` - Hotspot tespiti (görüntü dosyası alır)
-
-**Backend Entegrasyonu:**
-YOLO servisi artık Katalogcu backend'i ile tamamen entegre edilmiştir:
-- `YoloService` sınıfı üzerinden HTTP istekleri
-- Otomatik hotspot tespiti: `POST /api/hotspots/detect/{pageId}`
-- Tespit edilen hotspot'lar otomatik olarak veritabanına kaydedilir
-
----
-
-## 📝 Solution Yapısı
-
-```
-backend/Katalogcu.sln             # .NET Solution dosyası
-```
-
-**Projeler:**
-1. Katalogcu.API
-2. Katalogcu.Application
-3. Katalogcu.Domain
-4. Katalogcu.Infrastructure
-
----
-
-## 🔑 Önemli Özellikler
-
-### Backend API Endpoints
-
-#### Authentication
-- `POST /api/auth/login` - Kullanıcı girişi
-- `POST /api/auth/register` - Yeni kullanıcı kaydı
-
-#### Catalogs
-- `GET /api/catalogs` - Tüm katalogları listele
-- `POST /api/catalogs` - Yeni katalog oluştur
-- `GET /api/catalogs/{id}` - Katalog detayı
-- `PUT /api/catalogs/{id}` - Katalog güncelle
-- `DELETE /api/catalogs/{id}` - Katalog sil
-
-#### Products
-- `GET /api/products` - Ürünleri listele
-- `POST /api/products` - Yeni ürün ekle
-- `GET /api/products/{id}` - Ürün detayı
-- `PUT /api/products/{id}` - Ürün güncelle
-- `DELETE /api/products/{id}` - Ürün sil
-
-#### Hotspots
-- `POST /api/hotspots/detect/{pageId}` - **YOLO ile otomatik hotspot tespiti** 🆕
-- `POST /api/hotspots` - Manuel hotspot ekle
-- `DELETE /api/hotspots/{id}` - Hotspot sil
-
-#### Files
-- `POST /api/files/upload` - Dosya yükleme
-- `GET /api/files/{id}` - Dosya indirme
-
-#### Users
-- `GET /api/users` - Kullanıcıları listele
-- `GET /api/users/{id}` - Kullanıcı detayı
-
----
-
-## 🛠️ Teknoloji Stack
-
-### Backend
-- **Framework**: .NET 9.0
-- **ORM**: Entity Framework Core
-- **Veritabanı**: PostgreSQL
-- **Authentication**: JWT Bearer
-- **API Dokümantasyonu**: Swagger/OpenAPI
-- **Mimari**: Clean Architecture
-
-### Frontend
-- **Framework**: Angular
-- **Dil**: TypeScript
-
-### AI Service
-- **Dil**: Python
-- **Framework**: Flask/FastAPI
-- **AI Model**: YOLO (You Only Look Once)
-- **Use Case**: Object Detection & Hotspot Generation
-
-### DevOps
-- **Containerization**: Docker
-- **Database**: PostgreSQL (Docker)
-
----
-
-## 📊 Veritabanı Migrations
-
-1. **InitialCreate** (23 Kasım 2025)
-   - İlk veritabanı yapısı
-
-2. **AddCatalogDomain** (23 Kasım 2025)
-   - Katalog domain modelleri eklendi
-
-3. **AddPageNumberToProduct** (10 Aralık 2025)
-   - Ürünlere sayfa numarası özelliği eklendi
-
-4. **AddRefNoToProduct** (10 Aralık 2025)
-   - Ürünlere referans numarası özelliği eklendi
-
-5. **UpdateHotspotForYolo** (18 Aralık 2025)
-   - YOLO entegrasyonu için Hotspot güncellemeleri
-
----
-
-## 🚀 Çalıştırma
-
-### Backend
-```bash
-cd backend/Katalogcu.API
-dotnet restore
-dotnet run
-```
-
-### Database
-```bash
-cd backend
-docker-compose up -d
-```
-
-### Frontend
 ```bash
 cd frontend/katalogcu-frontend
-npm install
-npm start
+npm run test:compile
+npm run test:ci
+npm run build
 ```
 
-### YOLO Service
-```bash
-cd yolo-service
-pip install -r requirements.txt
-python api.py
+## Partalog AI Servisi
+
+`partalog-ai/` FastAPI tabanlı AI servisidir. Backend bu servise katalog analizi, chat, embedding ve görsel/semantik arama işleri için bağlanır.
+
+```text
+partalog-ai/
+├── api/          # HTTP endpoint modülleri
+├── core/         # OCR, detector, rate limiter gibi düşük seviye bileşenler
+├── services/     # chat, embedding, vector search, prompt/policy, visual search
+├── eval/         # kalite eval case'leri ve ölçüm dokümantasyonu
+└── tests/        # Python servis testleri
 ```
 
----
+Başlıca AI yetenekleri:
 
-## 📦 Dosya Sayıları
+- Katalog parçaları için exact-code, metin ve embedding tabanlı arama.
+- Public katalog chat akışı ve streaming cevaplar.
+- OCR ve hotspot/visual search destekleri.
+- Embedding cache, retry, in-flight request coalescing ve quota guard davranışları.
+- Eval dosyaları ile semantic, behavior, context ve feedback regression ölçümü.
 
-- **C# Dosyaları**: Controllers (6), Services (4), Entities (5), Migrations (11)
-- **Python Dosyaları**: 2 (YOLO API ve ML logic)
-- **Angular Projesi**: Henüz geliştirilme aşamasında
-- **Config Dosyaları**: Docker, .NET project files (4), appsettings.json, Python requirements
+## Deploy ve Operasyon
 
----
+`deploy/google-cloud/` canlıya alma ve staging akışlarını belgeleyen runbook'ları içerir:
 
-## ✅ Sonuç
+- `catalog-only-cloud-run.md`: catalog-only Cloud Run deploy.
+- `catalog-chat-cloud-run.md`: catalog + chat production deploy.
+- `catalog-chat-staging-cloud-run.md`: staging kurulumu.
+- `portal-panel-release-checklist.md`: portal/panel domain ayrımı ve postdeploy smoke.
+- `monitoring/notification-channel-runbook.md`: monitoring notification channel kurulumu.
+- `staging-observability.md`: staging gözlemlenebilirlik kontrolleri.
 
-**Evet, repodaki tüm dosyalar görülebiliyor ve erişilebilir durumda!**
+Backend altında ayrıca şu operasyon dokümanları bulunur:
 
-**YOLO servisi artık projeye tamamen entegre edilmiştir! 🎉**
+- `DOCKER_ORCHESTRATION.md`: lokal Docker Compose servisleri.
+- `SMOKE_TESTS.md`: public checkout ve full-stack smoke testleri.
+- `MIGRATION_DISCIPLINE.md`: EF migration güvenlik disiplini.
+- `CATALOG_ONLY_PROD_CHECKLIST.md`: catalog-only release kontrol listesi.
+- `CATALOG_ONLY_RELEASE_GO_NO_GO.md`: release karar formu.
 
-Bu proje, modern web uygulama geliştirme standartlarına uygun olarak:
-- Clean Architecture prensiplerine göre yapılandırılmış
-- **YOLO AI servisi backend ile tam entegre** (YoloService sınıfı ile)
-- **Otomatik hotspot tespiti** endpoint'i eklenmiş
-- Mikroservis mimarisine uygun (Backend, Frontend, AI Service ayrımı)
-- Docker ile containerize edilmiş
-- AI/ML entegrasyonuna sahip (YOLO)
-- REST API standardında endpoint'lere sahip
+## CI ve Kalite Kapıları
 
-Tüm dosyalar `/home/runner/work/Katalogcu/Katalogcu` dizininde mevcuttur.
+`.github/workflows/` altında proje kalitesini koruyan workflow'lar yer alır:
+
+- `backend-migration-discipline.yml`
+- `catalog-only-preflight.yml`
+- `chat-eval-gate.yml`
+- `chat-eval-nightly.yml`
+- `cqrs-handler-gate.yml`
+- `public-checkout-smoke.yml`
+- `public-load-baseline-gate.yml`
+- `regression-smoke-gate.yml`
+
+Bu kapılar migration drift, catalog-only readiness, chat eval, public smoke ve load baseline doğrulamalarını ayrı ayrı denetlemek için tasarlanmıştır.
+
+## Envanter ve Temizlik Durumu
+
+Detaylı dosya envanteri için `PROJECT_FILE_REPORT.md` kullanılır. Güncel temizlik hedefi:
+
+- Kaynak kodu, operasyon scriptleri ve gerekli test asset'leri repoda kalır.
+- Runtime çıktıları, lokal secret/env dosyaları, geçici PDF/görsel çıktıları ve eski debug dosyaları repodan uzak tutulur.
+- Eski WooCommerce entegrasyonu ve güncel olmayan raporlar temizlenmiştir.
+
+## İlk Bakılacak Dosyalar
+
+| İhtiyaç | Dosya |
+|---|---|
+| Projeyi anlamak | `README.md` |
+| Teknik modülleri gezmek | `PROJE_YAPISI.md` |
+| GitHub vitrin özeti | `PROJE_SUNUM_RAPORU.md` |
+| Dosya envanteri | `PROJECT_FILE_REPORT.md` |
+| Lokal servisleri başlatmak | `backend/DOCKER_ORCHESTRATION.md` |
+| Release güvenliği | `backend/CATALOG_ONLY_PROD_CHECKLIST.md` |
+| Portal/panel deploy | `deploy/google-cloud/portal-panel-release-checklist.md` |

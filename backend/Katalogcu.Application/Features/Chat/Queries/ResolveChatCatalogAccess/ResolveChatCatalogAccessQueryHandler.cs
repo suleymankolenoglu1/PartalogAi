@@ -49,11 +49,6 @@ public sealed class ResolveChatCatalogAccessQueryHandler : IRequestHandler<Resol
             request.RequestedCatalogIds,
             cancellationToken);
 
-        if (catalogIds.Count == 0)
-        {
-            return OperationResult<ResolveChatCatalogAccessResponse>.Failure("validation", "Katalog bilgisi bulunamadı.");
-        }
-
         return OperationResult<ResolveChatCatalogAccessResponse>.Success(new ResolveChatCatalogAccessResponse
         {
             CatalogIds = catalogIds

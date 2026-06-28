@@ -2,34 +2,37 @@
   <section class="portal-entry container">
     <div class="portal-copy">
       <p class="eyebrow">Müşteri Portalı</p>
-      <h1>Parça ve katalog asistanına davet linkinizle girin.</h1>
+      <h1>Müşteri portalına hesabınızla girin.</h1>
       <p class="hero-subtitle">
         Bu alan ana işletmenin müşterileri için kapalı katalog ve chat portalıdır.
-        Erişim için işletmenizin size gönderdiği davet linkini kullanın.
+        Telefon/e-posta ve şifrenizle katalog ve parça asistanına erişin.
       </p>
 
-      <form class="portal-form" (ngSubmit)="openPortal()">
-        <label for="portalLink">Davet linki veya token</label>
+      <form class="portal-form" (ngSubmit)="loginPortal()">
+        <label for="portalIdentifier">Telefon veya e-posta</label>
         <div class="portal-input-row">
           <input
-            id="portalLink"
-            name="portalLink"
-            [(ngModel)]="portalInput"
+            id="portalIdentifier"
+            name="portalIdentifier"
+            [(ngModel)]="loginForm.identifier"
             type="text"
-            placeholder="Örn: https://domain.com/p/pk_..."
-            autocomplete="off"
-            (keydown.enter)="openPortal()">
-          <button class="btn btn-primary" type="submit">Portala Gir</button>
+            placeholder="05xx xxx xx xx veya email@firma.com"
+            autocomplete="username">
+          <input
+            id="portalPassword"
+            name="portalPassword"
+            [(ngModel)]="loginForm.password"
+            type="password"
+            placeholder="Şifre"
+            autocomplete="current-password">
+          <button class="btn btn-primary" type="submit" [disabled]="isLoggingIn">
+            {{ isLoggingIn ? 'Giriş Yapılıyor' : 'Portala Gir' }}
+          </button>
         </div>
         @if (portalError) {
           <p class="portal-error">{{ portalError }}</p>
         }
       </form>
-
-      <div class="portal-actions">
-        <a [href]="panelLoginUrl" class="btn btn-dark">Panel Girişi</a>
-        <a routerLink="/platform/login" class="btn btn-ghost">Platform Admin</a>
-      </div>
     </div>
 
     <div class="portal-card">
@@ -38,9 +41,9 @@
         <strong>Kapalı erişim</strong>
       </div>
       <ul>
-        <li>Yalnızca aktif portal kullanıcıları giriş yapabilir.</li>
+        <li>Yalnızca panelde tanımlı aktif portal kullanıcıları giriş yapabilir.</li>
         <li>Chat ve kataloglar müşteri oturumuyla açılır.</li>
-        <li>Dashboard sadece ana işletme panelinde kalır.</li>
+        <li>Panel ve platform yönetimi ana sayfadan ayrıdır.</li>
       </ul>
     </div>
   </section>

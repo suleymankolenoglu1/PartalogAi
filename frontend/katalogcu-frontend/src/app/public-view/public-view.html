@@ -143,11 +143,11 @@
              [class.chat-main-active]="canUseAiChat && aiState.isActive">
             
             @if(canUseAiChat && !aiState.isActive) {
-                <div class="text-center mb-8 fade-in">
-                    <h1 class="text-4xl md:text-5xl font-bold mb-3 tracking-tight">
+                <div class="pt-chat-greeting text-center mb-8 fade-in">
+                    <h1 class="pv-chat-title text-4xl md:text-5xl font-bold mb-3 tracking-tight">
                         Parça uzmanına sorun.
                     </h1>
-                    <p class="text-lg pv-hero-subtitle">
+                    <p class="pv-chat-subtitle text-lg pv-hero-subtitle">
                         Görsel yükleyin, arıza tarif edin veya parça kodu girin.
                     </p>
                 </div>
@@ -315,17 +315,17 @@
                     </div>
                 }
 
-                <div class="mt-3 flex justify-end">
-                    <button (click)="clearHistory()" class="text-xs text-[#86868B] hover:text-[#FF3B30] transition-colors flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50">
+                <div class="pt-chat-toolbar">
+                    <button (click)="clearHistory()" class="pt-clear-chat-btn">
                         <span class="material-symbols-outlined text-[14px]">delete_sweep</span>
                         Sohbeti Temizle
                     </button>
                 </div>
             } @else if(canUseAiChat && aiState.response && messages.length === 0) {
-                <div class="mt-6 bg-white rounded-2xl border border-[#E5E5EA] shadow-lg p-6 animate-slide-up relative">
+                <div class="pt-response-card mt-6 rounded-2xl p-6 animate-slide-up relative">
                     
-                    <div class="absolute -top-3 left-6 bg-white p-1 rounded-full border border-[#E5E5EA]">
-                        <div class="size-6 bg-gradient-to-br from-[#0066CC] to-[#00C7BE] rounded-full flex items-center justify-center">
+                    <div class="pt-response-avatar absolute -top-3 left-6 p-1 rounded-full">
+                        <div class="size-6 rounded-full flex items-center justify-center">
                             @if(!aiState.response.products || aiState.response.products.length === 0) {
                                 <span class="material-symbols-outlined text-white text-[14px]">forum</span>
                             } @else {
@@ -334,7 +334,7 @@
                         </div>
                     </div>
 
-                    <div class="prose prose-sm max-w-none text-[#1D1D1F] whitespace-pre-line leading-relaxed"
+                    <div class="prose prose-sm max-w-none whitespace-pre-line leading-relaxed"
                          [class.mb-6]="aiState.response.products && aiState.response.products.length > 0">
                         {{ aiState.response.replySuggestion }}
                     </div>
@@ -342,32 +342,31 @@
             }
 
             @if(canUseAiChat) {
-            <div class="chat-composer-shell relative group bg-white shadow-xl shadow-black/5 border border-[#d2d2d7] transition-all duration-300 overflow-hidden"
+            <div class="pt-portal-composer chat-composer-shell relative group transition-all duration-300 overflow-hidden"
                  [class.chat-composer-sticky]="aiState.isActive"
-                 [class.ring-4]="aiState.isActive"
-                 [class.ring-[#0066CC]/10]="aiState.isActive">
+                 [class.pt-portal-composer-active]="aiState.isActive">
 
                 @if(selectedImage) {
-                    <div class="p-4 border-b border-gray-100 flex items-center gap-4 bg-[#F5F5F7]">
-                        <div class="relative size-16 rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                    <div class="pt-portal-image-preview p-4 flex items-center gap-4">
+                        <div class="relative size-16 rounded-lg overflow-hidden shadow-sm">
                             <img [src]="selectedImagePreview" class="w-full h-full object-cover">
                         </div>
                         <div class="flex-1">
-                            <p class="text-xs font-bold text-[#0066CC]">Görsel Analizi</p>
-                            <p class="text-sm text-gray-600">Parça taranıyor...</p>
+                            <p class="text-xs font-bold">Görsel Analizi</p>
+                            <p class="text-sm">Parça taranıyor...</p>
                         </div>
-                        <button (click)="clearImage()" class="p-2 hover:bg-white rounded-full transition-colors text-gray-500">
+                        <button (click)="clearImage()" class="pt-portal-icon-btn p-2 rounded-full transition-colors">
                             <span class="material-symbols-outlined">close</span>
                         </button>
                     </div>
                 }
 
                 <div class="chat-composer-row">
-                    <div class="pl-4 pr-3 text-[#86868B]">
+                    <div class="pt-composer-spark pl-4 pr-3">
                         @if(aiState.isLoading) {
-                            <span class="material-symbols-outlined animate-spin text-[#0066CC]">sparkles</span>
+                            <span class="material-symbols-outlined animate-spin">sparkles</span>
                         } @else {
-                            <span class="material-symbols-outlined text-[#0066CC]">auto_awesome</span>
+                            <span class="material-symbols-outlined">auto_awesome</span>
                         }
                     </div>
 
@@ -377,36 +376,36 @@
                         (keyup.enter)="startAiSearch()"
                         type="text" 
                         placeholder="Örn: 'Juki çağanoz', '3101801' veya fotoğraf yükle..." 
-                        class="flex-1 h-14 bg-transparent border-none text-lg text-[#1D1D1F] placeholder-[#86868B] outline-none"
+                        class="pt-portal-input flex-1 h-14 bg-transparent border-none text-lg outline-none"
                     >
 
                     <div class="flex items-center gap-2 pr-2">
-                        <label class="cursor-pointer p-2 rounded-full hover:bg-[#F5F5F7] text-[#86868B] hover:text-[#0066CC] transition-colors" title="Fotoğraf Yükle">
+                        <label class="pt-portal-icon-btn cursor-pointer p-2 rounded-full transition-colors" title="Fotoğraf Yükle">
                             <input type="file" class="hidden" (change)="onFileSelected($event)" accept="image/*" capture="environment">
                             <span class="material-symbols-outlined">add_photo_alternate</span>
                         </label>
 
                         <button (click)="startAiSearch()" 
                                 [disabled]="!searchText && !selectedImage"
-                                class="p-2.5 rounded-xl bg-[#0066CC] text-white disabled:bg-[#E5E5EA] disabled:text-[#86868B] transition-all hover:scale-105 active:scale-95 shadow-md disabled:shadow-none">
+                                class="pt-portal-send p-2.5 rounded-xl transition-all hover:scale-105 active:scale-95 disabled:shadow-none">
                             <span class="material-symbols-outlined">arrow_upward</span>
                         </button>
                     </div>
                 </div>
                 
                 @if(aiState.isLoading && messages.length === 0) {
-                    <div class="h-1 w-full bg-[#E5E5EA] overflow-hidden">
-                        <div class="h-full bg-gradient-to-r from-[#0066CC] via-[#34C759] to-[#0066CC] animate-shimmer w-[200%]"></div>
+                    <div class="pt-portal-loading h-1 w-full overflow-hidden">
+                        <div class="h-full animate-shimmer w-[200%]"></div>
                     </div>
                 }
             </div>
             }
 
             @if(canUseAiChat && !aiState.isActive) {
-                <div class="mt-6 flex flex-wrap justify-center gap-2 text-xs font-medium text-[#86868B]">
+                <div class="pt-example-row mt-6 flex flex-wrap justify-center gap-2 text-xs font-medium">
                     <span>Örnekler:</span>
-                    <span class="cursor-pointer hover:text-[#0066CC] hover:bg-[#E5E5EA] px-2 py-1 rounded transition-colors" (click)="searchText='Juki 1595 yağ pompası'; startAiSearch()">Juki 1595</span>
-                    <span class="cursor-pointer hover:text-[#0066CC] hover:bg-[#E5E5EA] px-2 py-1 rounded transition-colors" (click)="searchText='3101801'; startAiSearch()">3101801</span>
+                    <span class="pt-example-chip cursor-pointer px-2 py-1 rounded transition-colors" (click)="searchText='Juki 1595 yağ pompası'; startAiSearch()">Juki 1595</span>
+                    <span class="pt-example-chip cursor-pointer px-2 py-1 rounded transition-colors" (click)="searchText='3101801'; startAiSearch()">3101801</span>
                 </div>
             }
         </div>
@@ -424,15 +423,15 @@
                     <p class="text-sm mt-1 pv-hero-subtitle">Klasörlerden ilerleyin, katalogları açın ve teknik çizimleri doğrudan inceleyin.</p>
                 }
                 @else {
-                    <div class="pv-section-kicker">AI Sohbet Açık</div>
+                    <div class="pv-section-kicker">Alt İçerik</div>
                     <h2 class="text-2xl font-bold flex items-center gap-2">
                         @if(aiState.response && (!aiState.response.products || aiState.response.products.length === 0)) {
-                            <span>Sohbet Asistanı</span>
+                            <span>Katalog arşivi</span>
                         } @else {
-                            <span>Yapay Zeka Sonuçları</span>
+                            <span>İlgili kataloglar</span>
                         }
                     </h2>
-                    <p class="text-sm mt-1 pv-hero-subtitle">Sohbet akışı üstte kalır. Klasör ve katalog bölümü altta görünür şekilde devam eder.</p>
+                    <p class="text-sm mt-1 pv-hero-subtitle">Sohbet üstte sabit kalır; katalogları aşağıdan incelemeye devam edebilirsin.</p>
                 }
             </div>
             <div class="pv-section-badges">

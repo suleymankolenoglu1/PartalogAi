@@ -1,47 +1,60 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
-import { DomainContextService } from '../core/services/domain-context.service';
+import { Router } from '@angular/router';
+import { CustomerService } from '../core/services/customer.service';
+import { formatPublicAuthError } from '../public-view/public-auth-identity';
 
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule],
   templateUrl: './home.component.html',
   styleUrl: './home.component.css'
 })
 export class HomeComponent {
-  portalInput = '';
+  loginForm = {
+    identifier: '',
+    password: ''
+  };
   portalError: string | null = null;
+  isLoggingIn = false;
 
   constructor(
     private router: Router,
-    private domainContext: DomainContextService
+    private customerService: CustomerService
   ) {}
 
-  get panelLoginUrl(): string {
-    return this.domainContext.panelUrl('/login');
-  }
-
-  openPortal() {
-    const token = this.extractToken(this.portalInput);
-    if (!token) {
-      this.portalError = 'Lütfen geçerli davet linkini veya token bilgisini girin.';
+  loginPortal() {
+    const identifier = this.loginForm.identifier.trim();
+    if (!identifier || !this.loginForm.password) {
+      this.portalError = 'Telefon/e-posta ve şifre zorunlu.';
       return;
     }
 
     this.portalError = null;
-    this.router.navigate(['/p', token]);
-  }
+    this.isLoggingIn = true;
 
-  private extractToken(raw: string): string | null {
-    const value = raw.trim();
-    if (!value) return null;
+    this.customerService.loginPortalHome({
+      identifier,
+      password: this.loginForm.password
+    }).subscribe({
+      next: response => {
+        this.isLoggingIn = false;
+        this.loginForm.password = '';
 
-    const pathMatch = value.match(/\/p\/([^/?#]+)/i);
-    if (pathMatch?.[1]) return decodeURIComponent(pathMatch[1]);
+        if (!response.publicToken || !response.sessionToken) {
+          this.portalError = 'Portal oturumu oluşturulamadı. Lütfen tekrar deneyin.';
+          return;
+        }
 
-    return /^[A-Za-z0-9._-]{12,}$/.test(value) ? value : null;
+        localStorage.setItem(`public_customer_session_${response.publicToken}`, response.sessionToken);
+        this.router.navigate(['/p', response.publicToken]);
+      },
+      error: error => {
+        this.isLoggingIn = false;
+        this.portalError = formatPublicAuthError(error, 'Giriş yapılamadı.');
+      }
+    });
   }
 }

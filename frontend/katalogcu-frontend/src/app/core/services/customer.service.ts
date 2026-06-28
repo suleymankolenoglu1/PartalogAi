@@ -38,6 +38,11 @@ export interface PublicCustomerLoginRequest {
   password: string;
 }
 
+export interface PortalHomeLoginRequest {
+  identifier: string;
+  password: string;
+}
+
 export interface PublicCustomerAccountRegisterRequest {
   publicToken: string;
   name: string;
@@ -56,6 +61,10 @@ export interface PublicCustomerSessionResponse {
     email?: string;
     company?: string;
   };
+}
+
+export interface PortalHomeLoginResponse extends PublicCustomerSessionResponse {
+  publicToken: string;
 }
 
 export interface PublicCustomerPasswordResetRequest {
@@ -161,6 +170,10 @@ export class CustomerService {
 
   loginPublicCustomer(payload: PublicCustomerLoginRequest): Observable<PublicCustomerSessionResponse> {
     return this.http.post<PublicCustomerSessionResponse>(`${this.apiUrl}/customers/public-auth/login`, payload);
+  }
+
+  loginPortalHome(payload: PortalHomeLoginRequest): Observable<PortalHomeLoginResponse> {
+    return this.http.post<PortalHomeLoginResponse>(`${this.apiUrl}/customers/public-auth/portal-login`, payload);
   }
 
   registerPublicCustomer(payload: PublicCustomerAccountRegisterRequest): Observable<PublicCustomerSessionResponse> {

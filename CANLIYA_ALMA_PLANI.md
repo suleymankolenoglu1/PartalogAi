@@ -22,7 +22,6 @@ V1'de kapali kalacaklar:
 - E-ticaret, musteri checkout ve siparis akislari
 - Plan/abonelik yonetimi
 - Upgrade promptlari
-- WooCommerce sepet/stok/fiyat modu
 - External site crawling ve otomatik urun eslestirme vaadi
 
 ## 2) Zorunlu Feature Flag Seti

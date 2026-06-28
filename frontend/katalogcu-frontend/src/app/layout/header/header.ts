@@ -1,7 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { DomainContextService } from '../../core/services/domain-context.service';
 
 @Component({
   selector: 'app-header',
@@ -12,10 +11,4 @@ import { DomainContextService } from '../../core/services/domain-context.service
   // Eğer CSS dosyanın adı da kısaysa (header.scss) burayı da düzelt:
   styleUrl: './header.css' 
 })
-export class HeaderComponent {
-  constructor(private domainContext: DomainContextService) {}
-
-  get panelLoginUrl(): string {
-    return this.domainContext.panelUrl('/login');
-  }
-}
+export class HeaderComponent {}

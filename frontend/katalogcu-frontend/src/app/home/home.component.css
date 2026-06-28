@@ -57,7 +57,7 @@
   max-width: 760px;
   font-size: clamp(32px, 5vw, 56px);
   line-height: 1.04;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .portal-form {
@@ -76,7 +76,7 @@
 
 .portal-input-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 10px;
 }
 
@@ -185,6 +185,12 @@
 
 .btn:hover {
   transform: translateY(-1px);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+  transform: none;
 }
 
 .btn-primary {

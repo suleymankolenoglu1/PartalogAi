@@ -1,5 +1,6 @@
 using Katalogcu.API.Services;
 using Katalogcu.Application.Common.Interfaces;
+using Katalogcu.Application.Features.Customers.Common;
 using Katalogcu.Application.Features.Customers.Commands.ConfirmPasswordReset;
 using Katalogcu.Application.Features.Customers.Commands.PublicLogin;
 using Katalogcu.Application.Features.Customers.Commands.PublicRegisterAccount;
@@ -10,12 +11,15 @@ using Katalogcu.Application.Features.Customers.Queries.GetMyCustomers;
 using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerMe;
 using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerOrderDetail;
 using Katalogcu.Application.Features.Customers.Queries.GetPublicCustomerOrders;
+using Katalogcu.Infrastructure.Persistence;
 using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace Katalogcu.API.Controllers
 {
@@ -25,11 +29,19 @@ namespace Katalogcu.API.Controllers
     public class CustomersController : ControllerBase
     {
         private readonly IPublicAccessTokenService _publicAccessTokenService;
+        private readonly IPublicCatalogLinkService _publicCatalogLinkService;
+        private readonly AppDbContext _dbContext;
         private readonly ISender _sender;
 
-        public CustomersController(IPublicAccessTokenService publicAccessTokenService, ISender sender)
+        public CustomersController(
+            IPublicAccessTokenService publicAccessTokenService,
+            IPublicCatalogLinkService publicCatalogLinkService,
+            AppDbContext dbContext,
+            ISender sender)
         {
             _publicAccessTokenService = publicAccessTokenService;
+            _publicCatalogLinkService = publicCatalogLinkService;
+            _dbContext = dbContext;
             _sender = sender;
         }
 
@@ -176,6 +188,100 @@ namespace Katalogcu.API.Controllers
             {
                 return BadRequest(ex.Message);
             }
+        }
+
+        [AllowAnonymous]
+        [EnableRateLimiting("public-feedback")]
+        [HttpPost("public-auth/portal-login")]
+        public async Task<IActionResult> PublicPortalLogin([FromBody] PublicPortalLoginRequest request, CancellationToken cancellationToken)
+        {
+            var identifier = request.Identifier?.Trim() ?? string.Empty;
+            var isEmailLogin = identifier.Contains('@');
+            var normalizedPhone = isEmailLogin ? string.Empty : NormalizePhone(identifier);
+            var normalizedEmail = isEmailLogin ? NormalizeEmail(identifier) : null;
+
+            if (string.IsNullOrWhiteSpace(request.Password) ||
+                (string.IsNullOrWhiteSpace(normalizedPhone) && string.IsNullOrWhiteSpace(normalizedEmail)))
+            {
+                return BadRequest("Telefon/e-posta ve şifre zorunlu.");
+            }
+
+            var candidates = await (
+                from portalCustomer in _dbContext.Customers
+                join portalOwner in _dbContext.Users on portalCustomer.UserId equals portalOwner.Id
+                where portalCustomer.IsActive
+                      && portalOwner.PublicLinkEnabled
+                      && (
+                          (!string.IsNullOrWhiteSpace(normalizedPhone) && portalCustomer.NormalizedPhone == normalizedPhone)
+                          || (!string.IsNullOrWhiteSpace(normalizedEmail) && portalCustomer.Email != null && portalCustomer.Email.ToLower() == normalizedEmail)
+                      )
+                select new { Customer = portalCustomer, Owner = portalOwner })
+                .Take(2)
+                .ToListAsync(cancellationToken);
+
+            if (candidates.Count == 0)
+            {
+                return NotFound("Müşteri kaydı bulunamadı.");
+            }
+
+            if (candidates.Count > 1)
+            {
+                return Conflict("Bu telefon/e-posta birden fazla portalda kayıtlı. İşletmenizin gönderdiği portal bağlantısıyla giriş yapın.");
+            }
+
+            var match = candidates[0];
+            var customer = match.Customer;
+            var owner = match.Owner;
+
+            if (customer.LoginLockoutUntil != null && customer.LoginLockoutUntil > DateTime.UtcNow)
+            {
+                var remainingMinutes = Math.Ceiling((customer.LoginLockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
+                return StatusCode(429, $"Çok fazla hatalı giriş denemesi. Lütfen {remainingMinutes:0} dakika sonra tekrar deneyin.");
+            }
+
+            if (string.IsNullOrWhiteSpace(customer.PasswordHash) || string.IsNullOrWhiteSpace(customer.PasswordSalt))
+            {
+                return BadRequest("Bu müşteri için hesap şifresi tanımlı değil.");
+            }
+
+            if (!VerifyPassword(request.Password, customer.PasswordHash, customer.PasswordSalt))
+            {
+                customer.FailedLoginCount += 1;
+                customer.UpdatedDate = DateTime.UtcNow;
+                if (customer.FailedLoginCount >= 5)
+                {
+                    customer.LoginLockoutUntil = DateTime.UtcNow.AddMinutes(15);
+                    customer.FailedLoginCount = 0;
+                }
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                return Unauthorized("Telefon/e-posta veya şifre hatalı.");
+            }
+
+            customer.LastVisitDate = DateTime.UtcNow;
+            customer.FailedLoginCount = 0;
+            customer.LoginLockoutUntil = null;
+            customer.PublicSessionToken = CreateSessionToken();
+            customer.PublicSessionExpiresAt = DateTime.UtcNow.AddDays(30);
+            customer.LastLoginDate = DateTime.UtcNow;
+            customer.UpdatedDate = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var publicToken = _publicCatalogLinkService.CreateToken(owner.Id, owner.PublicLinkVersion);
+            return Ok(new PortalHomeLoginResponse
+            {
+                Success = true,
+                PublicToken = publicToken,
+                SessionToken = customer.PublicSessionToken ?? string.Empty,
+                Customer = new PublicCustomerDto
+                {
+                    Id = customer.Id,
+                    Name = customer.FullName,
+                    Phone = customer.Phone,
+                    Email = customer.Email,
+                    Company = customer.CompanyName
+                }
+            });
         }
 
         [AllowAnonymous]
@@ -437,6 +543,45 @@ namespace Katalogcu.API.Controllers
                 return BadRequest(ex.Message);
             }
         }
+
+        private static string NormalizePhone(string? phone)
+        {
+            if (string.IsNullOrWhiteSpace(phone)) return string.Empty;
+            return new string(phone.Where(char.IsDigit).ToArray());
+        }
+
+        private static string? NormalizeEmail(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return null;
+            return email.Trim().ToLowerInvariant();
+        }
+
+        private static bool VerifyPassword(string password, string storedHash, string storedSalt)
+        {
+            if (string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(storedHash) || string.IsNullOrWhiteSpace(storedSalt))
+                return false;
+
+            byte[] saltBytes;
+            byte[] expectedHashBytes;
+            try
+            {
+                saltBytes = Convert.FromBase64String(storedSalt);
+                expectedHashBytes = Convert.FromBase64String(storedHash);
+            }
+            catch
+            {
+                return false;
+            }
+
+            using var pbkdf2 = new Rfc2898DeriveBytes(password, saltBytes, 120_000, HashAlgorithmName.SHA256);
+            var actualHashBytes = pbkdf2.GetBytes(32);
+            return CryptographicOperations.FixedTimeEquals(actualHashBytes, expectedHashBytes);
+        }
+
+        private static string CreateSessionToken()
+        {
+            return Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        }
     }
 
     public sealed class UpsertPortalCustomerRequest
@@ -461,6 +606,20 @@ namespace Katalogcu.API.Controllers
         public string Phone { get; set; } = string.Empty;
         public string? Email { get; set; }
         public string Password { get; set; } = string.Empty;
+    }
+
+    public class PublicPortalLoginRequest
+    {
+        public string Identifier { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+
+    public sealed class PortalHomeLoginResponse
+    {
+        public bool Success { get; init; }
+        public string PublicToken { get; init; } = string.Empty;
+        public string SessionToken { get; init; } = string.Empty;
+        public PublicCustomerDto Customer { get; init; } = new();
     }
 
     public class PublicCustomerRegisterAccountRequest
