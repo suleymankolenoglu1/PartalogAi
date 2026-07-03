@@ -1,6 +1,6 @@
-# Katalogcu
+# PartalogAi
 
-Katalogcu, teknik katalogları dijital müşteri portalına dönüştüren; katalog yönetimi, parça arama, public paylaşım, müşteri erişimi ve AI destekli katalog/chat akışlarını tek platformda birleştiren full-stack bir uygulamadır.
+PartalogAi, teknik katalogları dijital müşteri portalına dönüştüren; katalog yönetimi, parça arama, public paylaşım, müşteri erişimi ve AI destekli katalog/chat akışlarını tek platformda birleştiren full-stack bir uygulamadır.
 
 Proje; sanayi, yedek parça ve servis ekiplerinin PDF katalogları, ürün listeleri ve müşteri taleplerini daha yönetilebilir hale getirmesi için tasarlanmıştır. Yönetim paneli işletme tarafını, public portal ise müşterinin katalog görüntüleme ve katalog üzerinden soru sorma deneyimini karşılar.
 
