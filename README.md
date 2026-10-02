@@ -8,3 +8,5 @@
 > Development was discontinued after technical experiments showed limitations in visual-only retrieval and the product concept raised copyright/licensing concerns around third-party technical catalogs.
 >
 > The repository is preserved as an engineering case study and development history.
+# PartalogAi
+Experimental Industrial Spare-Parts Catalog Platform
